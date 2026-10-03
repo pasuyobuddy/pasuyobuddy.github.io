@@ -1,0 +1,37 @@
+{
+ "id": "/rider.html",
+ "name": "PasuyoBuddy Rider",
+ "short_name": "PB Rider",
+ "description": "Accept and deliver PasuyoBuddy jobs.",
+ "start_url": "/rider.html",
+ "scope": "/",
+ "display": "standalone",
+ "orientation": "portrait",
+ "background_color": "#F6F5F1",
+ "theme_color": "#D7141A",
+ "lang": "en-PH",
+ "categories": [
+  "business",
+  "navigation"
+ ],
+ "icons": [
+  {
+   "src": "rider-icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "rider-icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "rider-icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}
