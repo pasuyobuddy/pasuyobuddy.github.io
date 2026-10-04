@@ -765,7 +765,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.11" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.13" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -950,6 +950,7 @@ async function cashOut() {
   if (!(amt > 0)) { toast("Enter the amount to cash out", true); return; }
   await run(async function () { await rpc("rider_set_prefs", { p_radius_m: null, p_gcash: phoneDigits(g) }); await rpc("request_payout", { p_amount: Math.round(amt * 100) }); S.wallet = await rpc("rider_wallet"); await reloadMe(); render(); toast("Cash-out requested"); });
 }
+async function setRegion(id) { await run(async function () { await rpc("rider_set_region", { p_region: id }); await reloadMe(); S.jobs = null; render(); toast(id ? "Showing all jobs in your region" : "Showing nearby jobs only"); }); }
 async function setRadius(m) { await run(async function () { await rpc("rider_set_prefs", { p_radius_m: m, p_gcash: null }); await reloadMe(); render(); toast("Pickup distance saved"); }); }
 
 var mapObj = null;
@@ -1018,7 +1019,7 @@ function vHome() {
   var list = !on ? '<div class="card muted">You are offline. Go online to see jobs near you.</div>'
     : S.jobsErr ? '<div class="note n-warn">' + h(S.jobsErr) + "</div>"
     : !S.jobs ? '<div class="spin">Looking for jobs…</div>'
-    : !S.jobs.length ? '<div class="card muted">No jobs within ' + (r.radius_m / 1000) + " km right now. This list refreshes by itself.</div>" : S.jobs.map(jobCard).join("");
+    : !S.jobs.length ? '<div class="card muted">No jobs ' + (r.region_id ? "in " + h(r.region_name) : "within " + (r.radius_m / 1000) + " km") + " right now. This list refreshes by itself.</div>" : S.jobs.map(jobCard).join("");
   return topBar(on ? "Online" : "Offline", '<button class="btn sm ' + (on ? "" : "pri") + '" data-act="online" data-v="' + (on ? "0" : "1") + '">' + (on ? "Go offline" : "Go online") + "</button>") + '<div class="body">'
     + '<div class="card"><div class="row"><div class="sp"><div class="small muted">Wallet</div><div class="b" style="font-size:20px">' + peso(r.wallet) + '</div></div><div class="right"><div class="small muted">' + h(r.vehicle) + " · ★ " + h(r.rating) + '</div><div class="small muted">' + h(r.completed_jobs) + " jobs done</div></div></div>"
     + (low ? '<div class="note n-warn" style="margin-top:10px">Wallet is below ' + peso(S.me.settings.rider_min_load * 100) + ". Cash jobs need enough wallet to cover the commission, so some jobs may be hidden. Top up to see them all.</div>" : "") + "</div>"
@@ -1068,10 +1069,10 @@ function vWallet() {
   var w = S.wallet; if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
   var tx = w.tx.length ? w.tx.map(function (t) { return '<div class="line"><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--accent-d)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + "</span></div>"; }).join("") : '<div class="muted">No wallet activity yet.</div>';
   var po = w.payouts.length ? '<div class="card"><h2>Cash-outs</h2>' + w.payouts.map(function (p) { return '<div class="line"><span class="sp">' + peso(p.amount) + ' <span class="small muted">to ' + h(p.destination) + " · " + h(when(p.requested_at)) + "</span></span>" + pill(p.status, p.status === "sent" ? "good" : p.status === "failed" ? "bad" : "warn") + "</div>"; }).join("") + "</div>" : "";
-  return topBar("Wallet") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">Balance</div><div style="font-size:30px;font-weight:800">' + peso(w.balance) + "</div></div>"
-    + '<div class="note n-info">To top up (minimum ' + peso(w.min_load) + "), pay PasuyoBuddy and the office will add it to your wallet. Online top-up by GCash is coming soon.</div>"
+  return topBar("Wallet") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">Balance</div><div style="font-size:30px;font-weight:800">' + peso(w.balance) + '</div><div class="row" style="margin-top:10px;justify-content:space-around"><div><div class="small muted">Load (non-refundable)</div><div class="b">' + peso(w.load) + '</div></div><div><div class="small muted">You can cash out</div><div class="b" style="color:var(--good)">' + peso(w.withdrawable) + "</div></div></div></div>"
+    + '<div class="note n-info">To top up (minimum ' + peso(w.min_load) + "), pay PasuyoBuddy and the office will add it to your wallet. Top-up load is used to pay commissions and is not refundable. Online top-up by GCash is coming soon.</div>"
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Cash out</h2><div class="field"><label for="w_gcash">GCash number</label><input class="in" id="w_gcash" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(w.payout_gcash)) + '"></div>'
-    + '<div class="field"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div><div class="small muted">A ' + peso(w.payout_fee) + " fee applies to each cash-out. Cash-outs are sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>"
+    + '<div class="field"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div><div class="small muted">Only your earnings can be cashed out, not top-up load. A ' + peso(w.payout_fee) + " fee applies to each cash-out. Cash-outs are sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>"
     + po + '<div class="card"><h2>Activity</h2>' + tx + "</div></div>" + nav("wallet");
 }
 function vHistory() {
@@ -1082,7 +1083,10 @@ function vHistory() {
 function vAccount() {
   var r = rider();
   return topBar("Account") + '<div class="body"><div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>' + h(phoneFmt(S.me.phone)) + '</span></div><div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
-    + '<div class="card"><h2>How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div></div>"
+    + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
+    + (S.me.regions || []).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
+    + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
+    + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
     + '<button class="btn bad" data-act="signout">Sign out</button><div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {
@@ -1116,6 +1120,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "finish") finishJob();
   else if (a === "cashout") cashOut();
   else if (a === "radius") setRadius(+d.v);
+  else if (a === "region") setRegion(d.v ? +d.v : null);
 });
 document.addEventListener("change", function (ev) {
   var t = ev.target; if (t.type !== "file" || !t.files || !t.files[0]) return;
