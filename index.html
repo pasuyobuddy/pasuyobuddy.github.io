@@ -721,10 +721,11 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .nav button{flex:1;min-height:58px;border:none;background:none;font-weight:700;color:var(--muted);cursor:pointer}
 .nav button.on{color:var(--accent)}
 .foot{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom));z-index:600}
-.flg{font-size:30px;line-height:34px;position:relative;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
+.mapbtns{position:absolute;top:10px;right:10px;z-index:500;display:flex;flex-direction:column;gap:6px}
+.mapbtns button{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-weight:700;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer}
+.flg{font-size:30px;line-height:34px;position:relative;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .flg b{position:absolute;right:-6px;top:-4px;font:700 11px/1 sans-serif;background:#D7141A;color:#fff;border-radius:9px;padding:2px 5px;border:1.5px solid #fff}
 .flg.dim{opacity:.4}
-.rdrwrap{transition:transform 4s linear}
 .rdr{width:40px;height:40px;border-radius:50%;background:#fff;border:3px solid #1D3F8F;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:24px;position:relative}
 .rdr:after{content:"";position:absolute;inset:-9px;border-radius:50%;border:3px solid rgba(29,63,143,.5);animation:rpulse 1.6s ease-out infinite}
 @keyframes rpulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.3);opacity:0}}
@@ -771,7 +772,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.16" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.17" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1015,14 +1016,23 @@ function riderInfoText(o) {
   var secs = (Date.now() - new Date(o.rider.located_at).getTime()) / 1000;
   return secs > 120 ? "&#128308; Rider location last seen " + agoText(o.rider.located_at) + ". The rider may have the app closed." : "&#128994; Live rider location · updated " + agoText(o.rider.located_at);
 }
+function glide(mk, to) { var from = mk.getLatLng(), t0 = Date.now(), ms = 3500; if (mk._glide) cancelAnimationFrame(mk._glide);
+  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (k < 1) mk._glide = requestAnimationFrame(step); })(); }
 function updateRider() {
   var o = S.order, el = $("rdrinfo"); if (el) el.innerHTML = riderInfoText(o);
   if (!mapObj || !o.rider || o.rider.lat == null || ENDED.indexOf(o.status) >= 0) return;
   var ll = [o.rider.lat, o.rider.lng];
-  if (riderMk) riderMk.setLatLng(ll);
-  else { riderMk = L.marker(ll, { icon: vehMarker(o.vehicle) }).addTo(mapObj); var mk = riderMk; setTimeout(function () { try { mk._icon.classList.add("rdrwrap"); } catch (e) {} }, 100); }
+  if (riderMk) glide(riderMk, ll);
+  else { riderMk = L.marker(ll, { icon: vehMarker(o.vehicle), zIndexOffset: 1000 }).addTo(mapObj); }
 }
 setInterval(function () { var el = $("rdrinfo"); if (el && S.view === "track" && S.order) el.innerHTML = riderInfoText(S.order); }, 1000);
+async function shareTrack() {
+  var o = S.order; if (!o || !o.track_token) return;
+  var url = location.origin + location.pathname.replace(/[^\/]*$/, "") + "track.html?t=" + o.track_token;
+  var text = "Track my PasuyoBuddy delivery live: " + url;
+  try { if (navigator.share) { await navigator.share({ title: "PasuyoBuddy live tracking", text: "Track my delivery live", url: url }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); toast("Link copied. Paste it in Messenger, Viber or SMS."); } catch (e) { window.prompt("Copy this link and send it:", url); }
+}
 async function cancelOrder() {
   if (!S.cancelAsk) { S.cancelAsk = true; render(); return; }
   await run(async function () { await rpc("cancel_order", { p_order: S.order.id, p_reason: "Cancelled in the app" }); S.cancelAsk = false; S.busy = false; await openOrder(S.order.id); toast("Booking cancelled"); });
@@ -1167,7 +1177,7 @@ function vTrack() {
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg
-    + '<div class="map" style="height:260px"><div id="tmap" style="height:100%"></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + rider + tip
+    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Share tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They can watch the delivery live, no login needed.</div>' : "") + rider + tip
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · Cash</h2>' + quoteLines(o) + '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>" + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
@@ -1196,6 +1206,9 @@ document.addEventListener("click", function (ev) {
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "saveprofile") saveProfile();
   else if (a === "signout") signOut();
+  else if (a === "maprider") { var o = S.order; if (mapObj && o && o.rider && o.rider.lat != null) mapObj.setView([o.rider.lat, o.rider.lng], 16); else toast("Rider location is not available yet", true); }
+  else if (a === "mapall") { if (mapObj && S.order) { var q = S.order.stops.map(function (s) { return [s.lat, s.lng]; }); if (S.order.rider && S.order.rider.lat != null) q.push([S.order.rider.lat, S.order.rider.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
+  else if (a === "sharetrack") shareTrack();
   else if (a === "confirmedgo") { if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
   else if (a === "submitid") submitId();
   else if (a === "home") { S.cancelAsk = false; go("home"); }
