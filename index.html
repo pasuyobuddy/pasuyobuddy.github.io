@@ -721,6 +721,13 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .nav button{flex:1;min-height:58px;border:none;background:none;font-weight:700;color:var(--muted);cursor:pointer}
 .nav button.on{color:var(--accent)}
 .foot{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom));z-index:600}
+.flg{font-size:30px;line-height:34px;position:relative;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
+.flg b{position:absolute;right:-6px;top:-4px;font:700 11px/1 sans-serif;background:#D7141A;color:#fff;border-radius:9px;padding:2px 5px;border:1.5px solid #fff}
+.flg.dim{opacity:.4}
+.rdrwrap{transition:transform 4s linear}
+.rdr{width:40px;height:40px;border-radius:50%;background:#fff;border:3px solid #1D3F8F;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:24px;position:relative}
+.rdr:after{content:"";position:absolute;inset:-9px;border-radius:50%;border:3px solid rgba(29,63,143,.5);animation:rpulse 1.6s ease-out infinite}
+@keyframes rpulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.3);opacity:0}}
 .map{height:260px;border-radius:12px;overflow:hidden;position:relative;background:var(--soft);z-index:1}
 .pin{position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-30px 0 0 -15px;z-index:450;pointer-events:none;font-size:30px;line-height:30px;text-align:center}
 .sug{border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden}
@@ -764,7 +771,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.14" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.16" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -986,12 +993,36 @@ var pollT = null;
 function stopPoll() { if (pollT) { clearInterval(pollT); pollT = null; } }
 async function openOrder(id) {
   stopPoll(); S.order = await rpc("customer_order", { p_order: id }); S.rateStars = S.order.my_rating || 0; S.view = "track"; render(); window.scrollTo(0, 0);
-  if (ENDED.indexOf(S.order.status) < 0) pollT = setInterval(pollOrder, 5000);
+  if (ENDED.indexOf(S.order.status) < 0) pollT = setInterval(pollOrder, 4000);
 }
 async function pollOrder() {
   if (S.view !== "track" || !S.order) { stopPoll(); return; }
-  try { var o = await rpc("customer_order", { p_order: S.order.id }); if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); } if (ENDED.indexOf(o.status) >= 0) stopPoll(); } catch (e) {}
+  try { var o = await rpc("customer_order", { p_order: S.order.id });
+    if (sameButRider(o, S.order)) { S.order = o; updateRider(); }
+    else if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); }
+    if (ENDED.indexOf(o.status) >= 0) stopPoll(); } catch (e) {}
 }
+function stripRiderPos(o) { var c = JSON.parse(JSON.stringify(o)); if (c.rider) { delete c.rider.lat; delete c.rider.lng; delete c.rider.located_at; } return JSON.stringify(c); }
+function sameButRider(a, b) { return a && b && stripRiderPos(a) === stripRiderPos(b) && !(a.rider && a.rider.lat != null && !(b.rider && b.rider.lat != null)); }
+var riderMk = null;
+function vehIcon(name) { var n = String(name || "").toLowerCase(); return /motor/.test(n) ? "&#127949;&#65039;" : /sedan/.test(n) ? "&#128663;" : /suv/.test(n) ? "&#128665;" : /mpv/.test(n) ? "&#128656;" : /pickup/.test(n) ? "&#128763;" : /van|truck|cargo/.test(n) ? "&#128666;" : "&#128663;"; }
+function flagIcon(kind, n, multi, dim) { return L.divIcon({ className: "flgwrap", html: '<div class="flg' + (dim ? " dim" : "") + '">' + (kind === "pickup" ? "&#128681;" : "&#127937;") + (multi && kind !== "pickup" ? "<b>" + n + "</b>" : "") + "</div>", iconSize: [34, 34], iconAnchor: [8, 32] }); }
+function vehMarker(name) { return L.divIcon({ className: "", html: '<div class="rdr">' + vehIcon(name) + "</div>", iconSize: [38, 38], iconAnchor: [19, 19] }); }
+function agoText(t) { var s = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 1000)); return s < 60 ? s + " seconds ago" : Math.round(s / 60) + " min ago"; }
+function riderInfoText(o) {
+  if (!o.rider || ENDED.indexOf(o.status) >= 0) return "";
+  if (o.rider.lat == null || !o.rider.located_at) return "Waiting for the rider's location…";
+  var secs = (Date.now() - new Date(o.rider.located_at).getTime()) / 1000;
+  return secs > 120 ? "&#128308; Rider location last seen " + agoText(o.rider.located_at) + ". The rider may have the app closed." : "&#128994; Live rider location · updated " + agoText(o.rider.located_at);
+}
+function updateRider() {
+  var o = S.order, el = $("rdrinfo"); if (el) el.innerHTML = riderInfoText(o);
+  if (!mapObj || !o.rider || o.rider.lat == null || ENDED.indexOf(o.status) >= 0) return;
+  var ll = [o.rider.lat, o.rider.lng];
+  if (riderMk) riderMk.setLatLng(ll);
+  else { riderMk = L.marker(ll, { icon: vehMarker(o.vehicle) }).addTo(mapObj); var mk = riderMk; setTimeout(function () { try { mk._icon.classList.add("rdrwrap"); } catch (e) {} }, 100); }
+}
+setInterval(function () { var el = $("rdrinfo"); if (el && S.view === "track" && S.order) el.innerHTML = riderInfoText(S.order); }, 1000);
 async function cancelOrder() {
   if (!S.cancelAsk) { S.cancelAsk = true; render(); return; }
   await run(async function () { await rpc("cancel_order", { p_order: S.order.id, p_reason: "Cancelled in the app" }); S.cancelAsk = false; S.busy = false; await openOrder(S.order.id); toast("Booking cancelled"); });
@@ -1003,11 +1034,12 @@ async function showOrders() { go("orders"); try { S.orders = await rpc("customer
 function drawTrackMap() {
   var el = $("tmap"); if (!el || typeof L === "undefined" || !S.order) return; killMap(); var o = S.order, pts = [];
   mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); tiles(mapObj);
+  var multi = o.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   o.stops.forEach(function (s) { pts.push([s.lat, s.lng]);
-    L.circleMarker([s.lat, s.lng], { radius: 9, color: "#fff", weight: 2, fillColor: s.kind === "pickup" ? "#15171C" : "#D7141A", fillOpacity: 1 }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
+    L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
   L.polyline(pts, { color: "#D7141A", weight: 3, dashArray: "6 6" }).addTo(mapObj);
-  if (o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0) { pts.push([o.rider.lat, o.rider.lng]);
-    L.circleMarker([o.rider.lat, o.rider.lng], { radius: 10, color: "#fff", weight: 3, fillColor: "#1D3F8F", fillOpacity: 1 }).bindTooltip("Rider").addTo(mapObj); }
+  riderMk = null;
+  if (o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0) { pts.push([o.rider.lat, o.rider.lng]); updateRider(); }
   mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 });
 }
 
@@ -1135,7 +1167,7 @@ function vTrack() {
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg
-    + '<div class="map" style="height:220px"><div id="tmap" style="height:100%"></div></div>' + rider + tip
+    + '<div class="map" style="height:260px"><div id="tmap" style="height:100%"></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + rider + tip
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · Cash</h2>' + quoteLines(o) + '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>" + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
