@@ -776,7 +776,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.17" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.20" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -929,8 +929,10 @@ async function openJob(id) {
   stopTimers(); S.order = await rpc("rider_order", { p_order: id }); S.view = "job"; S.ask = ""; S.stopForm = null; render(); window.scrollTo(0, 0);
   jobT = setInterval(pollJob, 8000);
 }
+function refreshGps() { if (window.__TEST_POS__ || !navigator.geolocation) return; try { navigator.geolocation.getCurrentPosition(function (p) { S.posErr = ""; lastSent = 0; sendPos(p.coords.latitude, p.coords.longitude); if (S.view === "job") render(); }, function (e) { if (e.code === 1) S.posErr = "Location permission is off."; }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }); } catch (e) {} }
 async function pollJob() {
   if (S.view !== "job" || !S.order) return;
+  refreshGps();
   await keepAlive();
   if (S.stopForm) return;
   try { var o = await rpc("rider_order", { p_order: S.order.id }); if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); } }
@@ -955,7 +957,7 @@ async function finishStop(failed) {
 }
 async function finishJob() {
   await run(async function () { var o = S.order; await rpc("complete_order", { p_order: o.id }); stopTimers(); await reloadMe();
-    S.done = { order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
+    S.done = { order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
 }
 async function showWallet() { stopTimers(); S.view = "wallet"; render(); try { S.wallet = await rpc("rider_wallet"); if (S.view === "wallet") render(); } catch (e) { toast(e.message, true); } }
 async function showHistory() { stopTimers(); S.view = "history"; render(); try { S.history = await rpc("rider_history", { p_limit: 30 }); if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
@@ -1045,9 +1047,18 @@ function vHome() {
     + (on ? '<div class="note n-info">Keep this page open with the screen on. Your location is only sent while the app is open.</div>' : "")
     + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
+function cashPlan(o) {
+  var rows = "", total = 0, cash = o.payment_method === "cash";
+  if (cash && o.sender_pays > 0) { rows += '<div class="line"><span><span class="b">At pickup</span><br><span class="small muted">collect from the customer (sender)</span></span><span class="b">' + peso(o.sender_pays) + "</span></div>"; total += o.sender_pays; }
+  o.stops.forEach(function (x) { if (x.kind !== "dropoff") return;
+    if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (COD " + peso(x.cod_amount) + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
+    else rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect nothing here' + (cash && x.fare_payer === "sender" ? " (fare share " + peso(x.fare_share) + " is already paid by the sender)" : "") + '</span></span><span class="muted">' + peso(0) + "</span></div>"; });
+  if (!rows) return "";
+  return '<div class="card" style="border-color:var(--accent)"><h2 style="margin:0 0 4px">Cash you collect</h2>' + rows + '<div class="line"><span class="b">Total cash to collect</span><span class="b" style="font-size:18px">' + peso(total) + "</span></div></div>";
+}
 function stopBlock(s, active) {
   return '<div class="card"' + (active ? ' style="border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)"' : "") + '><div class="row" style="align-items:flex-start"><span class="dot ' + (s.kind === "pickup" ? "pk" : "dr") + '">' + (s.kind === "pickup" ? "P" : s.seq) + '</span><div class="sp"><div class="b">' + (s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq) + " " + (s.status === "done" ? pill("Done", "good") : s.status === "failed" ? pill("Not delivered", "bad") : "") + '</div><div class="small">' + h(s.address) + '</div><div class="small muted">' + h(s.contact_name || "") + (s.contact_phone ? " · " + h(s.contact_phone) : "") + "</div>"
-    + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (COD " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : "Nothing to collect here") + "</div>" : "") + "</div></div>"
+    + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (COD " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : (s.fare_payer === "sender" && s.fare_share > 0 ? "Collect nothing here. Fare share " + peso(s.fare_share) + " was paid by the sender at pickup." : "Nothing to collect here")) + "</div>" : "") + "</div></div>"
     + (active && s.status === "pending" ? '<div class="row" style="margin-top:10px">' + (s.contact_phone ? '<a class="btn sm" style="flex:1" href="tel:' + h(phoneDigits(s.contact_phone)) + '">Call</a>' : "") + '<a class="btn sm" style="flex:1" target="_blank" rel="noopener" href="' + navLink(s) + '">Navigate</a></div>' : "") + "</div>";
 }
 function vJob() {
@@ -1071,8 +1082,10 @@ function vJob() {
   var canCancel = st === "accepted" || st === "at_pickup";
   var stops = o.stops.map(function (s) { var active = (s.kind === "pickup" && (st === "accepted" || st === "at_pickup")) || (next && s.id === next.id && st === "in_transit"); return stopBlock(s, active); }).join("");
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
-    + (S.posAt && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer. Keep this page open with the screen on.</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>')
-    + '<div class="card"><div class="row"><div class="sp"><div class="small muted">You earn</div><div class="b" style="font-size:20px;color:var(--good)">' + peso(o.rider_earns) + '</div></div><div class="right small muted">Fare ' + peso(o.fare_total) + "<br>Commission −" + peso(o.commission) + (o.tip ? "<br>Tip +" + peso(o.tip) : "") + (o.abono_fee ? "<br>Abono +" + peso(o.abono_fee) : "") + "</div></div>"
+    + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer. Keep this page open with the screen on.</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>')
+    + cashPlan(o)
+    + '<div class="note n-info">Always collect the full amount above from the customer. Your commission and earnings are shown after you finish the job.</div>'
+    + '<div class="card">'
     + (o.note ? '<div class="note n-info" style="margin-top:10px">Note: ' + h(o.note) + "</div>" : "") + '<div class="small muted" style="margin-top:8px">Customer: ' + h(o.customer.name || "") + " · " + h(o.item_type) + " " + (o.customer.verified ? pill("Verified customer", "good") : pill("ID not verified", "soft")) + "</div></div>"
     + extra + '<div class="map" style="height:260px"><div id="jmap" style="height:100%"></div><div class="mapbtns"><button data-act="mapme">&#128205; Me</button><button data-act="mapall">&#127937; Route</button></div></div><div class="note n-warn">Tip: tracking pauses while another app (like Google Maps) is on the full screen. After navigating, come back to this page so the customer sees you again.</div>' + stops
     + (canCancel ? (S.ask === "cancel" ? '<div class="card"><div class="b" style="margin-bottom:10px">Give up this job? It goes back to other riders and counts against your record.</div><div class="row"><button class="btn" data-act="asknone">Keep the job</button><button class="btn bad" data-act="canceljob">Yes, give up</button></div></div>' : '<button class="btn bad" data-act="canceljob">I cannot do this job</button>') : "")
@@ -1080,8 +1093,14 @@ function vJob() {
 }
 function vDone() {
   var d = S.done;
-  return topBar("Job finished") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">' + h(d.order_no) + '</div><div style="font-size:30px;font-weight:800;color:var(--good);margin:6px 0">' + peso(d.earns) + '</div><div class="muted">earned on this job</div></div>'
-    + '<div class="card"><div class="line"><span class="muted">Commission taken from wallet</span><span>−' + peso(d.commission) + '</span></div><div class="line tot"><span>Wallet now</span><span>' + peso(d.wallet) + '</span></div><div class="small muted">The cash you collected is yours to keep. Only the commission comes off your wallet.</div></div>'
+  var gross = d.fare + d.tip + d.abono;
+  return topBar("Job finished") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">' + h(d.order_no) + '</div><div class="muted" style="margin-top:6px">You keep</div><div style="font-size:30px;font-weight:800;color:var(--good);margin:2px 0">' + peso(d.earns) + '</div><div class="muted">on this job</div></div>'
+    + '<div class="card"><h2 style="margin:0 0 4px">How it adds up</h2><div class="line"><span class="muted">Delivery fare</span><span>' + peso(d.fare) + "</span></div>" + (d.tip ? '<div class="line"><span class="muted">Tip</span><span>+' + peso(d.tip) + "</span></div>" : "") + (d.abono ? '<div class="line"><span class="muted">Abono</span><span>+' + peso(d.abono) + "</span></div>" : "")
+    + '<div class="line"><span class="b">Customer paid in total</span><span class="b">' + peso(gross) + "</span></div>"
+    + '<div class="line"><span class="muted">Platform commission</span><span style="color:var(--bad)">&minus;' + peso(d.commission) + "</span></div>"
+    + '<div class="line tot"><span>Your earnings</span><span style="color:var(--good)">' + peso(d.earns) + "</span></div>"
+    + '<div class="small muted" style="margin-top:8px">You keep the cash you collected. Only the commission comes off your wallet.</div></div>'
+    + '<div class="card"><div class="line"><span class="muted">Wallet now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
     + '<button class="btn pri" data-act="home">Find the next job</button></div>';
 }
 var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
