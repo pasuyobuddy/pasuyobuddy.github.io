@@ -776,7 +776,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.20" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.21" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -1032,7 +1032,10 @@ function jobCard(j) {
   if (j.receivers_pay) tags.push(pill("Receiver pays", "soft")); if (j.advance > 0) tags.push(pill("COD: advance " + peso(j.advance), "bad"));
   if (j.service_level === "priority") tags.push(pill("Priority", "blue")); if (j.service_level === "pooling") tags.push(pill("Saver", "soft"));
   return '<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><div class="b">' + h(j.pickup_area || "Pickup") + ' <span class="muted" style="font-weight:400">→</span> ' + h((j.drop_areas || []).join(" → ")) + '</div><div class="small muted">' + km(j.pickup_distance_m) + " to pickup · " + j.total_km + " km trip · " + j.drops + (j.drops > 1 ? " drop-offs" : " drop-off") + "</div></div>"
-    + '<div class="right"><div class="b" style="font-size:18px;color:var(--good)">' + peso(j.rider_earns) + '</div><div class="small muted">you earn' + (j.tip ? " · tip " + peso(j.tip) : "") + "</div></div></div>"
+    + (j.customer_pays != null
+        ? '<div class="right"><div class="b" style="font-size:20px">' + peso(j.customer_pays) + '</div><div class="small muted" style="white-space:nowrap">customer pays</div>' + (j.tip ? '<div class="small muted" style="white-space:nowrap">incl. tip ' + peso(j.tip) + "</div>" : "") + "</div></div>"
+          + '<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--good-bg)"><div class="row"><span class="sp small">Commission</span><span class="small">&minus;' + peso(j.commission) + '</span></div><div class="row"><span class="sp b" style="color:var(--good)">You keep</span><span class="b" style="font-size:18px;color:var(--good)">' + peso(j.rider_earns) + "</span></div></div>"
+        : '<div class="right"><div class="b" style="font-size:18px;color:var(--good)">' + peso(j.rider_earns) + '</div><div class="small muted">you earn' + (j.tip ? " · tip " + peso(j.tip) : "") + "</div></div></div>")
     + '<div class="chips" style="margin:10px 0">' + tags.join("") + '</div><button class="btn pri" data-act="accept" data-id="' + j.order_id + '">Accept</button></div>';
 }
 function vHome() {
