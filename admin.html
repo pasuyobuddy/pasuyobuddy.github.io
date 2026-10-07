@@ -26,6 +26,9 @@ h2{font-size:15px;margin:0 0 10px;font-weight:800}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
 .grid{display:grid;gap:12px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+button.kpi{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
+button.kpi:hover{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
+button.kpi .go{float:right;font-size:11px;font-weight:700;color:var(--accent)}
 .kpi .l{font-size:12px;color:var(--muted);font-weight:700}
 .kpi .v{font-size:22px;font-weight:800;margin-top:4px}
 .kpi .s{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
@@ -868,9 +871,12 @@ function layout(inner) {
 
 function viewOverview() {
   var o = S.overview; if (!o) return '<div class="empty">Loading…</div>';
-  var k = [["Bookings today", o.bookings, o.in_progress + " in progress"], ["Completed today", o.completed, o.cancelled + " cancelled"], ["Waiting for rider", o.searching, "right now"],
-    ["Riders online", o.riders_online, o.riders_on_job + " on a job"], ["Fares today", peso0(o.fares), "Commission " + peso0(o.commission)], ["Net today", peso0(o.commission - o.gateway_fees), "Gateway fees " + peso0(o.gateway_fees)]];
-  var kp = k.map(function (x) { return '<div class="kpi"><div class="l">' + x[0] + '</div><div class="v">' + h(x[1]) + '</div><div class="s">' + h(x[2]) + "</div></div>"; }).join("");
+  // each tile: [label, value, small text, tab to open, order filter, today only (1/0), rider filter]
+  var k = [["Bookings today", o.bookings, o.in_progress + " in progress", "orders", "all", 1], ["Completed today", o.completed, o.cancelled + " cancelled", "orders", "completed", 1], ["Waiting for rider", o.searching, "right now", "orders", "searching", 0],
+    ["Riders online", o.riders_online, o.riders_on_job + " on a job", "riders", "", 0, "online"], ["Fares today", peso0(o.fares), "Commission " + peso0(o.commission), "money"], ["Net today", peso0(o.commission - o.gateway_fees), "Gateway fees " + peso0(o.gateway_fees), "money"]];
+  function tile(x) { var can = x[3] && S.me.areas.indexOf(x[3]) >= 0, inner = '<div class="l">' + x[0] + (can ? '<span class="go">View &rsaquo;</span>' : "") + '</div><div class="v">' + h(x[1]) + '</div><div class="s">' + h(x[2]) + "</div>";
+    return can ? '<button class="kpi" data-act="kpi" data-tab="' + x[3] + '" data-f="' + (x[4] || "") + '" data-today="' + (x[5] ? 1 : 0) + '" data-rf="' + (x[6] || "") + '">' + inner + "</button>" : '<div class="kpi">' + inner + "</div>"; }
+  var kp = k.map(tile).join("");
   // simple Metro Manila box: lat 14.35–14.80, lng 120.90–121.15
   function pos(p) { var x = (p.lng - 120.90) / 0.25 * 100, y = (14.80 - p.lat) / 0.45 * 100; return "left:" + Math.max(1, Math.min(99, x)).toFixed(1) + "%;top:" + Math.max(2, Math.min(98, y)).toFixed(1) + "%"; }
   var dots = (o.map_riders || []).map(function (p) { return '<div class="dot" style="' + pos(p) + '"></div>'; }).join("") + (o.map_waiting || []).map(function (p) { return '<div class="dot o" style="' + pos(p) + '"></div>'; }).join("");
@@ -878,18 +884,19 @@ function viewOverview() {
   (o.waiting || []).forEach(function (w) { if (w.minutes >= 3) alerts.push('<button class="note bad" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="open-order" data-id="' + h(w.id) + '">' + h(w.order_no) + " · no rider for " + w.minutes + " min<br><span class='small'>" + h(cap(w.service_type)) + " · " + h(w.pickup_area || "") + "</span></button>"); });
   (o.failed_stops || []).forEach(function (f) { alerts.push('<button class="note warn" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="open-order" data-id="' + h(f.id) + '">' + h(f.order_no) + " · drop-off " + f.seq + " failed<br><span class='small'>" + h(f.area || "") + " · share " + peso0(f.fare_share) + " moved to the booker</span></button>"); });
   if (S.people && S.people.customers.ids_waiting) alerts.push('<button class="note soft" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="go" data-tab="customers">' + S.people.customers.ids_waiting + " customer ID(s) waiting for review</button>");
-  if (o.pending_apps) alerts.push('<div class="note soft">' + o.pending_apps + " rider application(s) waiting</div>");
-  if (o.low_wallet) alerts.push('<div class="note soft">' + o.low_wallet + " rider(s) below the minimum wallet load</div>");
-  if (o.payout_requests) alerts.push('<div class="note soft">' + o.payout_requests + " payout request(s) to send</div>");
+  if (o.pending_apps) alerts.push('<button class="note soft" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="kpi" data-tab="riders" data-f="" data-today="0" data-rf="">' + o.pending_apps + " rider application(s) waiting</button>");
+  if (o.low_wallet) alerts.push('<button class="note soft" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="kpi" data-tab="riders" data-f="" data-today="0" data-rf="low">' + o.low_wallet + " rider(s) below the minimum wallet load</button>");
+  if (o.payout_requests) alerts.push('<button class="note soft" style="border:none;text-align:left;cursor:pointer;width:100%" data-act="kpi" data-tab="money" data-f="" data-today="0" data-rf="">' + o.payout_requests + " payout request(s) to send</button>");
   if (!alerts.length) alerts.push('<div class="note good">Nothing needs attention right now.</div>');
   var by = {}; (o.by_hour || []).forEach(function (x) { by[x.hour] = x.n; });
   var mx = Math.max.apply(null, [1].concat((o.by_hour || []).map(function (x) { return x.n; })));
   var bars = ""; for (var hr = 6; hr <= 23; hr++) { var n = by[hr] || 0; bars += '<div title="' + n + ' bookings"><i style="height:' + Math.round(n / mx * 96) + 'px;' + (n ? "" : "background:#EFEDE8") + '"></i><span>' + (hr % 12 || 12) + (hr < 12 ? "a" : "p") + "</span></div>"; }
   var pp = S.people, reg = "";
   if (pp) { var rk = [["Registered customers", pp.customers.total, "+" + pp.customers.new_7d + " in the last 7 days · " + (pp.customers.verified || 0) + " ID-verified · " + pp.customers.cash_blocked + " cash-blocked"],
-      ["Registered riders", pp.riders.total, pp.riders.approved + " approved · " + pp.riders.pending + " waiting · " + pp.riders.suspended + " suspended"],
-      ["Riders approved", pp.riders.approved, pp.riders.online + " online now"], ["Staff", pp.staff, "with dashboard access"]];
-    reg = '<div><h2>Registered accounts</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + rk.map(function (x) { return '<div class="kpi"><div class="l">' + x[0] + '</div><div class="v">' + h(x[1]) + '</div><div class="s">' + h(x[2]) + "</div></div>"; }).join("") + "</div></div>"; }
+      ["Registered riders", pp.riders.total, pp.riders.approved + " approved · " + pp.riders.pending + " waiting · " + pp.riders.suspended + " suspended", "riders"],
+      ["Riders approved", pp.riders.approved, pp.riders.online + " online now", "riders", "", 0, "approved"], ["Staff", pp.staff, "with dashboard access", "staff"]];
+    rk[0][3] = "customers";
+    reg = '<div><h2>Registered accounts</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + rk.map(tile).join("") + "</div></div>"; }
   return '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + kp + "</div>" + reg +
     '<div class="grid" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px"><div class="card"><div class="row" style="justify-content:space-between"><h2>Live map</h2><div class="small muted" style="font-weight:700"><span style="color:#0E6B58">●</span> riders online &nbsp; <span style="color:#B4400A">●</span> waiting for rider</div></div><div id="lmap" class="map" role="img" aria-label="Map of Metro Manila with riders online and bookings waiting"></div><div class="small muted" style="margin-top:6px">' + (o.map_riders || []).length + " rider(s) online · " + (o.map_waiting || []).length + ' booking(s) waiting</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:18px"><div class="card" style="display:flex;flex-direction:column;gap:8px"><h2>Needs attention</h2>' + alerts.join("") + '</div><div class="card"><h2>Bookings by hour (today)</h2><div class="bars">' + bars + "</div></div></div></div>";
@@ -898,11 +905,14 @@ function viewOverview() {
 function viewOrders() {
   var chips = [["all", "All"], ["searching", "Waiting for rider"], ["active", "In progress"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["problem", "Problems"]].map(function (f) {
     return '<button class="chip' + (S.orderFilter === f[0] ? " on" : "") + '" data-act="order-filter" data-f="' + f[0] + '">' + f[1] + "</button>"; }).join("");
-  var rows = (S.orders || []).map(function (o) {
+  function manilaDay(t) { return new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); }
+  var todayKey = manilaDay(Date.now()), list = (S.orders || []).filter(function (o) { return !S.orderToday || manilaDay(o.created_at) === todayKey; });
+  chips += '<button class="chip' + (S.orderToday ? " on" : "") + '" data-act="order-today">Today only</button>';
+  var rows = list.map(function (o) {
     var svc = (o.service_type === "pabili" ? "Pabili" : "Padala") + (o.service_level !== "regular" ? " · " + (o.service_level === "priority" ? "Priority" : "Saver") : "") + (o.drops > 1 ? " · " + o.drops + " drops" : "") + (o.cod_amount > 0 ? " · COD" : "");
     return '<tr style="' + (S.order && S.order.order.id === o.id ? "background:var(--accent-s)" : (o.problem ? "background:#FFFAF3" : "")) + '"><td><button class="link" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.order_no) + '</button><div class="small muted">' + when(o.created_at) + "</div></td><td>" + h(svc) + "</td><td>" + h(o.pickup_area || "—") + " → " + h(o.drop_areas || "—") + "</td><td>" + h(o.customer || "—") + "</td><td>" + h(o.rider || "—") +
       '</td><td style="font-weight:800">' + peso0(o.fare_total) + "</td><td>" + h(o.payment_method) + (o.fare_payer === "receiver" ? " · receiver" : "") + "</td><td>" + statusPill(o.status) + "</td></tr>"; }).join("");
-  var table = S.orders == null ? '<div class="empty">Loading…</div>' : (S.orders.length ? '<div class="tablewrap"><table><thead><tr><th>Order</th><th>Service</th><th>Route</th><th>Customer</th><th>Rider</th><th>Fare</th><th>Payment</th><th>Status</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="card empty">No orders here yet. They will appear as soon as customers start booking.</div>');
+  var table = S.orders == null ? '<div class="empty">Loading…</div>' : (list.length ? '<div class="tablewrap"><table><thead><tr><th>Order</th><th>Service</th><th>Route</th><th>Customer</th><th>Rider</th><th>Fare</th><th>Payment</th><th>Status</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="card empty">No orders here yet. They will appear as soon as customers start booking.</div>');
   return '<div class="split"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px"><div class="row">' + chips + '<form data-form="order-search" class="row" style="margin-left:auto"><input type="search" name="q" placeholder="Order no. or name" value="' + h(S.orderSearch) + '" aria-label="Search orders"><button class="btn sm">Search</button></form></div>' + table + "</div>" + (S.order ? viewOrderDetail() : "") + "</div>";
 }
 function viewOrderDetail() {
@@ -939,15 +949,26 @@ function viewRiders() {
         '<span class="row" style="gap:6px"><button class="link" data-act="view-doc" data-path="' + h(d.file_path) + '">View</button>' + (d.review_status !== "approved" ? '<button class="btn sm" data-act="doc" data-id="' + h(d.id) + '" data-s="approved">OK</button>' : "") + (d.review_status !== "rejected" ? '<button class="btn sm" data-act="doc" data-id="' + h(d.id) + '" data-s="rejected">Reject</button>' : "") + "</span></div>"; }).join("");
     return '<div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="row" style="justify-content:space-between"><b style="font-size:15px">' + h(a.full_name || a.phone || a.email || "New rider") + "</b>" + pill(a.status, a.status === "rejected" ? "soft" : "blue") + '</div><div class="small muted">' + h(a.vehicle) + " · " + h(a.plate_number || "no plate") + " · applied " + when(a.created_at) + (a.phone ? " · " + h(a.phone) : "") + "</div>" + docs +
       '<div class="row"><button class="btn sm" data-act="rider-status" data-id="' + h(a.id) + '" data-s="rejected">Reject</button><button class="btn primary sm" data-act="rider-status" data-id="' + h(a.id) + '" data-s="approved">Approve rider</button>' + (isOwner() ? acctBtns(a).replace(/<button class="btn sm" data-act="acct-(ask|on)"[^>]*data-kind="off">Deactivate<\/button>/, "") : "") + "</div>" + confirmRow(a, 0) + "</div>"; }).join("");
-  var rows = (r.riders || []).map(function (x) {
+  var RF = { online: "online now", approved: "approved", low: "below the minimum wallet load" }, rf = S.riderFilter || "";
+  var shown = (r.riders || []).filter(function (x) { return rf === "online" ? (x.status === "approved" && x.is_online) : rf === "approved" ? x.status === "approved" : rf === "low" ? x.wallet_balance < r.min_load : true; });
+  var rows = shown.map(function (x) {
     var acc = x.responded ? Math.round(x.accepted / x.responded * 100) + "%" : "—", canc = x.accepted ? (x.cancelled / x.accepted * 100).toFixed(1) + "%" : "—", low = x.wallet_balance < r.min_load;
     return "<tr><td><b>" + h(x.full_name || x.phone || "—") + "</b>" + (x.is_active === false ? " " + pill("Deactivated", "bad") : "") + '<div class="small muted">' + h(x.plate_number || "") + " · last active " + h(lastSeen(x)) + "</div></td><td>" + h(x.vehicle) + "</td><td>" + pill(x.status === "approved" ? (x.is_online ? "Online" : "Offline") : "Suspended", x.status === "approved" ? (x.is_online ? "good" : "soft") : "bad") + "</td><td>★ " + h(x.rating_avg) + " (" + x.rating_count + ")</td><td>" + x.completed_jobs + "</td><td>" + acc + "</td><td>" + canc +
       '</td><td style="font-weight:700;' + (low ? "color:var(--bad)" : "") + '">' + peso(x.wallet_balance) + '</td><td><button class="btn sm" data-act="rider-status" data-id="' + h(x.id) + '" data-s="' + (x.status === "approved" ? "suspended" : "approved") + '">' + (x.status === "approved" ? "Suspend" : "Reactivate") + "</button>" + (isOwner() ? " " + acctBtns(x).replace(/<button class="btn sm" data-act="acct-(ask|on)"[^>]*>(Deactivate|Reactivate)<\/button>/, "") : "") +
-      (S.me.areas.indexOf("money") >= 0 ? ' <button class="btn sm" data-act="load-open" data-id="' + h(x.id) + '">Add load</button>' : "") + "</td></tr>" +
+      (S.me.areas.indexOf("money") >= 0 ? ' <button class="btn sm" data-act="load-open" data-id="' + h(x.id) + '">Add load</button>' : "") +
+      (x.docs ? ' <button class="btn sm" data-act="docs-open" data-id="' + h(x.id) + '">' + (S.docsFor === x.id ? "Hide details" : "Details &amp; documents") + "</button>" : "") + "</td></tr>" +
+      (S.docsFor === x.id && x.docs ? '<tr><td colspan="9" style="background:var(--soft)"><div style="display:flex;flex-wrap:wrap;gap:18px"><div style="min-width:240px"><b>Rider details</b>' +
+        '<div class="kv"><span>Name</span><span>' + h(x.full_name || "—") + '</span></div><div class="kv"><span>Mobile</span><span>' + h(x.phone || "—") + '</span></div><div class="kv"><span>Email</span><span>' + h(x.email || "—") + '</span></div>' +
+        '<div class="kv"><span>Vehicle · plate</span><span>' + h(x.vehicle) + " · " + h(x.plate_number || "—") + '</span></div><div class="kv"><span>Applied</span><span>' + (x.created_at ? when(x.created_at) : "—") + "</span></div></div>" +
+        '<div style="min-width:320px;flex:1"><b>Uploaded documents</b>' + NEED.map(function (t) { var d = (x.docs || []).filter(function (q) { return q.doc_type === t; })[0];
+          if (!d) return '<div class="row small" style="justify-content:space-between;margin-top:6px">' + pill("✗ " + DN[t] + " — not uploaded", "bad") + "</div>";
+          return '<div class="row small" style="justify-content:space-between;margin-top:6px">' + pill((d.review_status === "approved" ? "✓ " : d.review_status === "rejected" ? "✗ " : "• ") + DN[t] + " — " + d.review_status, d.review_status === "approved" ? "good" : d.review_status === "rejected" ? "bad" : "warn") +
+            '<span class="row" style="gap:8px">' + (d.reviewed_at ? '<span class="muted">reviewed ' + when(d.reviewed_at) + "</span>" : "") + '<button class="link" data-act="view-doc" data-path="' + h(d.file_path) + '">View</button></span></div>'; }).join("") +
+        '<div class="small muted" style="margin-top:8px">Each document opens in a new tab. The link works for 5 minutes.</div></div></div></td></tr>' : "") +
       (S.loadFor === x.id ? '<tr><td colspan="9"><form data-form="load-add" class="row"><b>Add wallet load for ' + h(x.full_name || "rider") + '</b><input type="number" name="amt" min="1" max="20000" step="1" placeholder="Amount in pesos" required aria-label="Amount in pesos" style="width:170px"><input type="text" name="note" placeholder="Note, e.g. GCash ref or cash" aria-label="Note" style="width:240px"><button class="btn primary sm">Add to wallet</button><button type="button" class="btn sm" data-act="load-close">Cancel</button></form><div class="small muted" style="margin-top:6px">Only record this after you have received the money. Minimum load is ' + peso0(r.min_load) + ".</div></td></tr>" : "") + confirmRow(x, 9); }).join("");
   var pp = S.people, sum = pp ? '<div class="card small"><b>' + pp.riders.total + " registered riders</b> · " + pp.riders.approved + " approved (" + pp.riders.online + " online now) · " + pp.riders.pending + " waiting for approval · " + pp.riders.suspended + " suspended · " + pp.riders.rejected + " rejected</div>" : "";
   return sum + '<div><h2>Applications · ' + (r.applications || []).length + "</h2>" + (apps ? '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">' + apps + "</div>" : '<div class="card empty">No applications waiting.</div>') + "</div>" +
-    "<div><h2>Riders · " + (r.riders || []).length + "</h2>" + (rows ? '<div class="tablewrap"><table><thead><tr><th>Rider</th><th>Vehicle</th><th>Status</th><th>Rating</th><th>Jobs</th><th>Accept rate</th><th>Cancel rate</th><th>Wallet</th><th>Action</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="card empty">No approved riders yet.</div>') + "</div>";
+    "<div><h2>Riders · " + shown.length + (rf ? ' <span class="small muted" style="font-weight:600">showing only riders ' + RF[rf] + ' · <button class="link" data-act="rider-filter" data-rf="">Show all ' + (r.riders || []).length + "</button></span>" : "") + "</h2>" + (rows ? '<div class="tablewrap"><table><thead><tr><th>Rider</th><th>Vehicle</th><th>Status</th><th>Rating</th><th>Jobs</th><th>Accept rate</th><th>Cancel rate</th><th>Wallet</th><th>Action</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="card empty">No approved riders yet.</div>') + "</div>";
 }
 
 function isOwner() { return S.me.areas.indexOf("staff") >= 0; }
@@ -1069,6 +1090,9 @@ document.addEventListener("click", function (e) {
   var b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
   var a = b.dataset.act, d = b.dataset;
   if (a === "go") return void go(d.tab);
+  if (a === "kpi") { if (S.me.areas.indexOf(d.tab) < 0) return; if (d.tab === "orders") { S.orderFilter = d.f || "all"; S.orderToday = d.today === "1"; S.orderSearch = ""; } if (d.tab === "riders") S.riderFilter = d.rf || ""; return void go(d.tab); }
+  if (a === "order-today") { S.orderToday = !S.orderToday; return render(); }
+  if (a === "rider-filter") { S.riderFilter = d.rf || ""; return render(); }
   if (a === "refresh") return void refresh("Updated");
   if (a === "signout") return void run(async function () { await sb.auth.signOut(); S.session = null; S.me = null; render(); });
   if (a === "order-filter") { S.orderFilter = d.f; S.order = null; return void refresh(); }
@@ -1085,6 +1109,7 @@ document.addEventListener("click", function (e) {
   if (a === "acct-ask") { S.confirm = { id: d.id, kind: d.kind }; return render(); }
   if (a === "acct-cancel") { S.confirm = null; return render(); }
   if (a === "acct-on") return void run(async function () { await rpc("admin_set_active", { p_profile: d.id, p_active: true, p_reason: null }); await loadTab(); render(); }, "Account reactivated");
+  if (a === "docs-open") { S.docsFor = S.docsFor === d.id ? null : d.id; return render(); }
   if (a === "load-open") { S.loadFor = d.id; return render(); }
   if (a === "load-close") { S.loadFor = null; return render(); }
   if (a === "rider-status") return void run(async function () { await rpc("admin_set_rider_status", { p_rider: d.id, p_status: d.s }); await loadTab(); render(); }, "Rider " + d.s);
