@@ -742,7 +742,7 @@ function drawMap() {
   if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]);
   mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); updateRider();
 }
-function glide(mk, to) { var from = mk.getLatLng(), t0 = Date.now(), ms = 3500; if (mk._glide) cancelAnimationFrame(mk._glide);
+function glide(mk, to) { var from = mk.getLatLng(), t0 = Date.now(), ms = 2500; if (mk._glide) cancelAnimationFrame(mk._glide);
   (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (k < 1) mk._glide = requestAnimationFrame(step); })(); }
 function updateRider() {
   var el = document.getElementById("info"); if (el) el.innerHTML = infoText();
@@ -754,5 +754,5 @@ document.addEventListener("click", function (ev) { var b = ev.target.closest("[d
   if (b.dataset.a === "rider" && O.rider && O.rider.lat != null) mapObj.setView([O.rider.lat, O.rider.lng], 16);
   else if (b.dataset.a === "all") { var pts = O.stops.map(function (s) { return [s.lat, s.lng]; }); if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]); mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); } });
 setInterval(function () { var el = document.getElementById("info"); if (el && O) el.innerHTML = infoText(); }, 1000);
-load(); setInterval(load, 4000);
+load(); setInterval(load, 3000);
 </script></body></html>
