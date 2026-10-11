@@ -779,7 +779,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.22" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.24" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1127,22 +1127,44 @@ function drawChat() {
 async function loadChat() {
   if (S.view !== "chat") { stopChat(); return; }
   if (typeof keepAlive === "function") { try { await keepAlive(); } catch (e) {} }
-  try { var d = await rpc("chat_list", { p_order: CHAT.id }); if (JSON.stringify(d) !== JSON.stringify(CHAT.data)) { CHAT.data = d; drawChat(); } }
+  try { var d = await rpc("chat_list", { p_order: CHAT.id, p_as: CHAT_AS }); if (JSON.stringify(d) !== JSON.stringify(CHAT.data)) { CHAT.data = d; drawChat(); } }
   catch (e) { toast(e.message, true); }
 }
 async function openChat(id) { chatLeave(); stopChat(); CHAT.id = id; CHAT.data = null; CHAT.first = true; S.view = "chat"; render(); window.scrollTo(0, 0); await loadChat(); CHAT.timer = setInterval(loadChat, 3000); }
 async function sendChat(text) {
   text = String(text || "").trim(); if (!text) { toast("Type a message first", true); return; }
-  var inp = $("chat_in"); try { await rpc("chat_send", { p_order: CHAT.id, p_body: text }); if (inp && inp.value.trim() === text) inp.value = ""; CHAT.first = true; await loadChat(); } catch (e) { toast(e.message, true); }
+  var inp = $("chat_in"); try { await rpc("chat_send", { p_order: CHAT.id, p_body: text, p_as: CHAT_AS }); if (inp && inp.value.trim() === text) inp.value = ""; CHAT.first = true; await loadChat(); } catch (e) { toast(e.message, true); }
 }
 function vChat() { return chatTop("Chat") + '<div id="chatlist" class="chatbox">' + chatMsgs() + '</div><div id="chatbarwrap">' + chatBar() + "</div>"; }
 function chatBtn(label, n) { return '<button class="btn" id="chatbtn" data-act="chatopen">' + chatBtnText(label, n) + "</button>"; }
 function chatBtnText(label, n) { return "&#128172; " + h(label) + (n ? ' <span class="badge">' + n + " new</span>" : ""); }
-async function refreshUnread(label) { if (!S.order || !S.order.id) return; try { var n = await rpc("chat_unread", { p_order: S.order.id }); S.unread = n; var b = $("chatbtn"); if (b) b.innerHTML = chatBtnText(label, n); } catch (e) {} }
+async function refreshUnread(label) { if (!S.order || !S.order.id) return; try { var n = await rpc("chat_unread", { p_order: S.order.id, p_as: CHAT_AS }); S.unread = n; var b = $("chatbtn"); if (b) b.innerHTML = chatBtnText(label, n); } catch (e) {} }
+var CHAT_AS = "customer";
 var CHAT_QUICK = ["I'm coming down", "Please call me when you arrive", "I'm at the gate", "Thank you!"];
 function chatTop(t) { return '<div class="top"><button class="back" data-act="chatback" aria-label="Back">←</button><h1 id="chattitle">' + h(t) + "</h1></div>"; }
 function chatLeave() { stopPoll(); }
 function custChatLabel() { return S.order && ENDED.indexOf(S.order.status) >= 0 ? "View chat with rider" : "Chat with rider"; }
+
+// ---------------- Report a problem on a booking ----------------
+var REP = { order: null, reason: "", mine: null };
+async function openReport(orderId) { repLeave(); REP = { order: orderId, reason: "", mine: null }; S.view = "report"; render(); window.scrollTo(0, 0); try { REP.mine = await rpc("my_reports", { p_order: orderId }); if (S.view === "report") render(); } catch (e) {} }
+function vReport() {
+  var chips = REP_REASONS.map(function (r, i) { return '<button class="chip' + (REP.reason === r ? " on" : "") + '" data-act="repreason" data-i="' + i + '">' + h(r) + "</button>"; }).join("");
+  var mine = REP.mine && REP.mine.length ? '<div class="card"><h2>Your reports on this booking</h2>' + REP.mine.map(function (m) { return '<div class="line" style="align-items:flex-start"><span class="sp"><span class="b">' + h(m.reason) + "</span>" + (m.note ? '<br><span class="small muted">' + h(m.note) + "</span>" : "") + (m.resolution ? '<br><span class="small"><b>Reply:</b> ' + h(m.resolution) + "</span>" : "") + "</span>" + '<span class="pill p-' + (m.status === "open" ? "warn" : "good") + '">' + (m.status === "open" ? "Under review" : "Resolved") + "</span>" + "</div>"; }).join("") + "</div>" : "";
+  return repTop("Report a problem") + '<div class="body">'
+    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>What went wrong?</h2><div class="chips">' + chips + "</div>"
+    + '<div class="field"><label for="rep_note">Tell us more' + (REP.reason === "Something else" ? "" : " (optional)") + '</label><textarea class="in" id="rep_note" maxlength="1000" placeholder="What happened? Include times or details that help us check."></textarea></div>'
+    + '<button class="btn pri" data-act="repsend"' + (REP.reason ? "" : " disabled") + ">Send report</button>"
+    + '<div class="small muted">Our team reads every report and may contact you. For emergencies, call the police or 911 first.</div></div>' + mine + "</div>";
+}
+async function sendReport() {
+  if (!REP.reason) { toast("Choose what went wrong first", true); return; }
+  var note = val("rep_note");
+  await run(async function () { await rpc("report_create", { p_order: REP.order, p_reason: REP.reason, p_note: note || null }); REP.reason = ""; REP.mine = await rpc("my_reports", { p_order: REP.order }); render(); window.scrollTo(0, 0); toast("Report sent. Our team will review it."); });
+}
+var REP_REASONS = ["Marked delivered but nothing arrived", "Rider did not show up", "Rider asked for more money", "Parcel damaged or incomplete", "Rider was rude or unsafe", "Something else"];
+function repTop(t) { return '<div class="top"><button class="back" data-act="repback" aria-label="Back">←</button><h1>' + h(t) + "</h1></div>"; }
+function repLeave() { stopPoll(); stopChat(); }
 
 // ---------------- Screens ----------------
 function topBar(title, back) { return '<div class="top">' + (back ? '<button class="back" data-act="' + back + '" aria-label="Back">←</button>' : '<img class="mark" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt="">') + "<h1>" + h(title) + "</h1></div>"; }
@@ -1268,7 +1290,7 @@ function vTrack() {
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg
-    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Share tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They can watch the delivery live, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip
+    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Share tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They can watch the delivery live, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "")
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · Cash</h2>' + quoteLines(o) + '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>" + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
@@ -1283,7 +1305,7 @@ function vOrders() {
 
 function render() {
   killMap();
-  var v = S.view, html = v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
+  var v = S.view, html = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
   $("app").innerHTML = html;
   if (v === "place") drawPlaceMap();
   if (v === "track") drawTrackMap();
@@ -1298,6 +1320,10 @@ document.addEventListener("click", function (ev) {
   else if (a === "saveprofile") saveProfile();
   else if (a === "signout") signOut();
   else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
+  else if (a === "repopen") { if (S.order) openReport(S.order.id); }
+  else if (a === "repback") openOrder(REP.order);
+  else if (a === "repreason") { var nv = $("rep_note") ? $("rep_note").value : ""; REP.reason = REP_REASONS[+d.i]; render(); if ($("rep_note")) $("rep_note").value = nv; }
+  else if (a === "repsend") sendReport();
   else if (a === "chatback") { stopChat(); openOrder(CHAT.id); }
   else if (a === "chatsend") sendChat(val("chat_in"));
   else if (a === "chatquick") sendChat(CHAT_QUICK[+d.i]);

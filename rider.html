@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.26" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.28" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -983,7 +983,7 @@ async function finishStop(failed) {
 }
 async function finishJob() {
   await run(async function () { var o = S.order; await rpc("complete_order", { p_order: o.id }); stopTimers(); await reloadMe();
-    S.done = { order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
+    S.done = { id: o.id, order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
 }
 async function showWallet() { stopTimers(); S.view = "wallet"; render(); try { S.wallet = await rpc("rider_wallet"); if (S.view === "wallet") render(); } catch (e) { toast(e.message, true); } }
 async function showHistory() { stopTimers(); S.view = "history"; render(); try { S.history = await rpc("rider_history", { p_limit: 30 }); if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
@@ -1037,21 +1037,44 @@ function drawChat() {
 async function loadChat() {
   if (S.view !== "chat") { stopChat(); return; }
   if (typeof keepAlive === "function") { try { await keepAlive(); } catch (e) {} }
-  try { var d = await rpc("chat_list", { p_order: CHAT.id }); if (JSON.stringify(d) !== JSON.stringify(CHAT.data)) { CHAT.data = d; drawChat(); } }
+  try { var d = await rpc("chat_list", { p_order: CHAT.id, p_as: CHAT_AS }); if (JSON.stringify(d) !== JSON.stringify(CHAT.data)) { CHAT.data = d; drawChat(); } }
   catch (e) { toast(e.message, true); }
 }
 async function openChat(id) { chatLeave(); stopChat(); CHAT.id = id; CHAT.data = null; CHAT.first = true; S.view = "chat"; render(); window.scrollTo(0, 0); await loadChat(); CHAT.timer = setInterval(loadChat, 3000); }
 async function sendChat(text) {
   text = String(text || "").trim(); if (!text) { toast("Type a message first", true); return; }
-  var inp = $("chat_in"); try { await rpc("chat_send", { p_order: CHAT.id, p_body: text }); if (inp && inp.value.trim() === text) inp.value = ""; CHAT.first = true; await loadChat(); } catch (e) { toast(e.message, true); }
+  var inp = $("chat_in"); try { await rpc("chat_send", { p_order: CHAT.id, p_body: text, p_as: CHAT_AS }); if (inp && inp.value.trim() === text) inp.value = ""; CHAT.first = true; await loadChat(); } catch (e) { toast(e.message, true); }
 }
 function vChat() { return chatTop("Chat") + '<div id="chatlist" class="chatbox">' + chatMsgs() + '</div><div id="chatbarwrap">' + chatBar() + "</div>"; }
 function chatBtn(label, n) { return '<button class="btn" id="chatbtn" data-act="chatopen">' + chatBtnText(label, n) + "</button>"; }
 function chatBtnText(label, n) { return "&#128172; " + h(label) + (n ? ' <span class="badge">' + n + " new</span>" : ""); }
-async function refreshUnread(label) { if (!S.order || !S.order.id) return; try { var n = await rpc("chat_unread", { p_order: S.order.id }); S.unread = n; var b = $("chatbtn"); if (b) b.innerHTML = chatBtnText(label, n); } catch (e) {} }
+async function refreshUnread(label) { if (!S.order || !S.order.id) return; try { var n = await rpc("chat_unread", { p_order: S.order.id, p_as: CHAT_AS }); S.unread = n; var b = $("chatbtn"); if (b) b.innerHTML = chatBtnText(label, n); } catch (e) {} }
+var CHAT_AS = "rider";
 var CHAT_QUICK = ["I'm on my way", "I'm at the pickup", "I'm outside", "Running a little late", "Delivered, thank you!"];
 function chatTop(t) { return '<div class="top dark"><button class="btn sm" style="width:auto" data-act="chatback">← Job</button><h1 id="chattitle" style="margin-left:6px">' + h(t) + "</h1></div>"; }
 function chatLeave() { stopTimers(); }
+
+// ---------------- Report a problem on a booking ----------------
+var REP = { order: null, reason: "", mine: null };
+async function openReport(orderId) { repLeave(); REP = { order: orderId, reason: "", mine: null }; S.view = "report"; render(); window.scrollTo(0, 0); try { REP.mine = await rpc("my_reports", { p_order: orderId }); if (S.view === "report") render(); } catch (e) {} }
+function vReport() {
+  var chips = REP_REASONS.map(function (r, i) { return '<button class="chip' + (REP.reason === r ? " on" : "") + '" data-act="repreason" data-i="' + i + '">' + h(r) + "</button>"; }).join("");
+  var mine = REP.mine && REP.mine.length ? '<div class="card"><h2>Your reports on this booking</h2>' + REP.mine.map(function (m) { return '<div class="line" style="align-items:flex-start"><span class="sp"><span class="b">' + h(m.reason) + "</span>" + (m.note ? '<br><span class="small muted">' + h(m.note) + "</span>" : "") + (m.resolution ? '<br><span class="small"><b>Reply:</b> ' + h(m.resolution) + "</span>" : "") + "</span>" + '<span class="pill p-' + (m.status === "open" ? "warn" : "good") + '">' + (m.status === "open" ? "Under review" : "Resolved") + "</span>" + "</div>"; }).join("") + "</div>" : "";
+  return repTop("Report a problem") + '<div class="body">'
+    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>What went wrong?</h2><div class="chips">' + chips + "</div>"
+    + '<div class="field"><label for="rep_note">Tell us more' + (REP.reason === "Something else" ? "" : " (optional)") + '</label><textarea class="in" id="rep_note" maxlength="1000" placeholder="What happened? Include times or details that help us check."></textarea></div>'
+    + '<button class="btn pri" data-act="repsend"' + (REP.reason ? "" : " disabled") + ">Send report</button>"
+    + '<div class="small muted">Our team reads every report and may contact you. For emergencies, call the police or 911 first.</div></div>' + mine + "</div>";
+}
+async function sendReport() {
+  if (!REP.reason) { toast("Choose what went wrong first", true); return; }
+  var note = val("rep_note");
+  await run(async function () { await rpc("report_create", { p_order: REP.order, p_reason: REP.reason, p_note: note || null }); REP.reason = ""; REP.mine = await rpc("my_reports", { p_order: REP.order }); render(); window.scrollTo(0, 0); toast("Report sent. Our team will review it."); });
+}
+var REP_REASONS = ["Customer not at the pickup", "Wrong address or pin", "Customer refused to pay", "Item not as described", "Customer was rude or unsafe", "Something else"];
+var REP_FROM = "job";
+function repTop(t) { return '<div class="top dark"><button class="btn sm" style="width:auto" data-act="repback">← Back</button><h1 style="margin-left:6px">' + h(t) + "</h1></div>"; }
+function repLeave() { stopTimers(); stopChat(); }
 
 // ---------------- Screens ----------------
 function topBar(title, right) { return '<div class="top dark"><img class="mark" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt=""><h1>' + h(title) + "</h1>" + (right || "") + "</div>"; }
@@ -1160,6 +1183,7 @@ function vJob() {
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
     + locNote()
     + chatBtn("Chat with customer", S.unread)
+    + '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="job">&#9888;&#65039; Report a problem</button>'
     + cashPlan(o)
     + '<div class="note n-info">Always collect the full amount above from the customer. Your commission and earnings are shown after you finish the job.</div>'
     + '<div class="card">'
@@ -1178,7 +1202,7 @@ function vDone() {
     + '<div class="line tot"><span>Your earnings</span><span style="color:var(--good)">' + peso(d.earns) + "</span></div>"
     + '<div class="small muted" style="margin-top:8px">You keep the cash you collected. Only the commission comes off your wallet.</div></div>'
     + '<div class="card"><div class="line"><span class="muted">Wallet now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
-    + '<button class="btn pri" data-act="home">Find the next job</button></div>';
+    + '<button class="btn pri" data-act="home">Find the next job</button><button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="done" data-id="' + h(d.id) + '">&#9888;&#65039; Report a problem with this job</button></div>';
 }
 var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
 function vWallet() {
@@ -1207,7 +1231,7 @@ function vAccount() {
 }
 function render() {
   killMap(); var v = S.view;
-  $("app").innerHTML = v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : vHome();
+  $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : vHome();
   if (v === "job") drawJobMap();
 }
 
@@ -1218,6 +1242,10 @@ document.addEventListener("click", function (ev) {
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "signout") signOut();
   else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
+  else if (a === "repopen") { REP_FROM = d.from || "job"; var oid = d.id || (S.order && S.order.id); if (oid) openReport(oid); }
+  else if (a === "repback") { if (REP_FROM === "job") openJob(REP.order); else goHome(); }
+  else if (a === "repreason") { var nv = $("rep_note") ? $("rep_note").value : ""; REP.reason = REP_REASONS[+d.i]; render(); if ($("rep_note")) $("rep_note").value = nv; }
+  else if (a === "repsend") sendReport();
   else if (a === "chatback") { stopChat(); openJob(CHAT.id); }
   else if (a === "chatsend") sendChat(val("chat_in"));
   else if (a === "chatquick") sendChat(CHAT_QUICK[+d.i]);
