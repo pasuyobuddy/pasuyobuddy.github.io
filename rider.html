@@ -746,6 +746,13 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .stars{display:flex;gap:6px} .stars button{border:none;background:none;font-size:34px;line-height:1;cursor:pointer;color:#C9C6BC;padding:0}
 .stars button.on{color:#E0A100}
 .logo{width:64px;height:64px;border-radius:18px;background:var(--yellow);color:var(--accent);border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;margin:24px auto 8px}
+.chatbox{display:flex;flex-direction:column;gap:8px;padding:14px 16px 170px}
+.msg{max-width:80%;padding:9px 12px;border-radius:16px;font-size:15px;line-height:1.35;overflow-wrap:anywhere;white-space:pre-wrap}
+.msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.msg.them{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg .t{display:block;font-size:11px;opacity:.75;margin-top:3px}
+.chatbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;z-index:600}
+.badge{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:4px}
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 16px;border-radius:12px;max-width:90%;z-index:2000;font-weight:600;text-align:center}
 .toast.err{background:var(--bad)}
 .spin{padding:40px 0;text-align:center;color:var(--muted)}
@@ -776,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.25" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.26" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -811,11 +818,11 @@ var meMk = null; setInterval(function () { updateMe(); }, 10000);
 function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (mapObj && meMk && S.pos) meMk.setLatLng([S.pos.lat, S.pos.lng]); }
 async function sendPos(lat, lng) {
   S.pos = { lat: lat, lng: lng }; S.posAt = Date.now(); S.posErr = ""; updateMe();
-  if (Date.now() - lastSent < (S.view === "job" ? 4000 : 15000)) return; lastSent = Date.now();
+  if (Date.now() - lastSent < (S.view === "job" || S.view === "chat" ? 4000 : 15000)) return; lastSent = Date.now();
   try { await rpc("update_my_location", { p_lat: lat, p_lng: lng }); } catch (e) {}
 }
 // A phone that is not moving sends no new GPS fixes, so re-send the last known spot to stay "fresh" for job matching.
-async function keepAlive() { if (S.pos && Date.now() - lastSent > (S.view === "job" ? 8000 : 30000)) { lastSent = Date.now(); try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); } catch (e) {} } }
+async function keepAlive() { if (S.pos && Date.now() - lastSent > (S.view === "job" || S.view === "chat" ? 8000 : 30000)) { lastSent = Date.now(); try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); } catch (e) {} } }
 function startGps() {
   keepAwake();
   if (window.__TEST_POS__) { sendPos(window.__TEST_POS__.lat, window.__TEST_POS__.lng); return; }
@@ -944,6 +951,7 @@ async function accept(id) {
 }
 async function openJob(id) {
   stopTimers(); S.order = await rpc("rider_order", { p_order: id }); S.view = "job"; S.ask = ""; S.stopForm = null; render(); window.scrollTo(0, 0);
+  S.unread = 0; refreshUnread("Chat with customer");
   jobT = setInterval(pollJob, 8000);
 }
 function refreshGps() { if (window.__TEST_POS__ || !navigator.geolocation) return; try { navigator.geolocation.getCurrentPosition(function (p) { S.posErr = ""; lastSent = 0; sendPos(p.coords.latitude, p.coords.longitude); updateMe(); }, function (e) { if (e.code === 1) { S.posErr = "Location permission is off."; updateMe(); } }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }); } catch (e) {} }
@@ -952,6 +960,7 @@ async function pollJob() {
   refreshGps();
   await keepAlive();
   if (S.stopForm) return;
+  refreshUnread("Chat with customer");
   try { var o = await rpc("rider_order", { p_order: S.order.id }); if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); } }
   catch (e) { if (/not assigned/i.test(e.message)) { toast("This job is no longer yours", true); await reloadMe(); await goHome(); } }
 }
@@ -1002,6 +1011,47 @@ function drawJobMap() {
   meMk = null; if (S.pos) { pts.push([S.pos.lat, S.pos.lng]); meMk = L.marker([S.pos.lat, S.pos.lng], { icon: vehMarker(rider() && rider().vehicle), zIndexOffset: 1000 }).bindTooltip("You").addTo(mapObj); }
   mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 });
 }
+
+// ---------------- Chat with the other person on this booking ----------------
+var CHAT = { id: null, data: null, timer: null, first: false };
+function stopChat() { if (CHAT.timer) { clearInterval(CHAT.timer); CHAT.timer = null; } }
+function chatTime(t) { return new Date(t).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }); }
+function chatMsgs() {
+  var d = CHAT.data; if (!d) return '<div class="spin">Loading…</div>';
+  if (!d.messages.length) return '<div class="muted small" style="text-align:center;margin-top:24px">No messages yet. Say hi!</div>';
+  return d.messages.map(function (m) { return '<div class="msg ' + (m.mine ? "me" : "them") + '">' + h(m.body) + '<span class="t">' + chatTime(m.at) + (m.mine ? (m.read ? " · Seen" : " · Sent") : "") + "</span></div>"; }).join("");
+}
+function chatBar() {
+  var d = CHAT.data; if (d && !d.open) return '<div class="chatbar"><div class="note n-info" style="flex:1">This booking has ended, so the chat is closed.</div></div>';
+  return '<div class="chatbar"><div class="chips" style="flex-basis:100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px">' + CHAT_QUICK.map(function (q, i) { return '<button class="chip" style="white-space:nowrap" data-act="chatquick" data-i="' + i + '">' + h(q) + "</button>"; }).join("")
+    + '</div><textarea class="in" id="chat_in" rows="1" maxlength="500" placeholder="Type a message" style="flex:1;min-height:46px;padding:11px 12px;resize:none"></textarea><button class="btn pri" style="width:auto;min-width:76px" data-act="chatsend">Send</button></div>';
+}
+function nearBottom() { return window.innerHeight + window.scrollY >= document.body.scrollHeight - 140; }
+function drawChat() {
+  var el = $("chatlist"); if (!el) return; var stick = CHAT.first || nearBottom();
+  el.innerHTML = chatMsgs();
+  var b = $("chatbarwrap"); if (b && CHAT.data && !CHAT.data.open && !b.getAttribute("data-closed")) { b.innerHTML = chatBar(); b.setAttribute("data-closed", "1"); }
+  var t = $("chattitle"); if (t && CHAT.data && CHAT.data.other_name) t.textContent = "Chat with " + CHAT.data.other_name;
+  if (stick) { window.scrollTo(0, document.body.scrollHeight); CHAT.first = false; }
+}
+async function loadChat() {
+  if (S.view !== "chat") { stopChat(); return; }
+  if (typeof keepAlive === "function") { try { await keepAlive(); } catch (e) {} }
+  try { var d = await rpc("chat_list", { p_order: CHAT.id }); if (JSON.stringify(d) !== JSON.stringify(CHAT.data)) { CHAT.data = d; drawChat(); } }
+  catch (e) { toast(e.message, true); }
+}
+async function openChat(id) { chatLeave(); stopChat(); CHAT.id = id; CHAT.data = null; CHAT.first = true; S.view = "chat"; render(); window.scrollTo(0, 0); await loadChat(); CHAT.timer = setInterval(loadChat, 3000); }
+async function sendChat(text) {
+  text = String(text || "").trim(); if (!text) { toast("Type a message first", true); return; }
+  var inp = $("chat_in"); try { await rpc("chat_send", { p_order: CHAT.id, p_body: text }); if (inp && inp.value.trim() === text) inp.value = ""; CHAT.first = true; await loadChat(); } catch (e) { toast(e.message, true); }
+}
+function vChat() { return chatTop("Chat") + '<div id="chatlist" class="chatbox">' + chatMsgs() + '</div><div id="chatbarwrap">' + chatBar() + "</div>"; }
+function chatBtn(label, n) { return '<button class="btn" id="chatbtn" data-act="chatopen">' + chatBtnText(label, n) + "</button>"; }
+function chatBtnText(label, n) { return "&#128172; " + h(label) + (n ? ' <span class="badge">' + n + " new</span>" : ""); }
+async function refreshUnread(label) { if (!S.order || !S.order.id) return; try { var n = await rpc("chat_unread", { p_order: S.order.id }); S.unread = n; var b = $("chatbtn"); if (b) b.innerHTML = chatBtnText(label, n); } catch (e) {} }
+var CHAT_QUICK = ["I'm on my way", "I'm at the pickup", "I'm outside", "Running a little late", "Delivered, thank you!"];
+function chatTop(t) { return '<div class="top dark"><button class="btn sm" style="width:auto" data-act="chatback">← Job</button><h1 id="chattitle" style="margin-left:6px">' + h(t) + "</h1></div>"; }
+function chatLeave() { stopTimers(); }
 
 // ---------------- Screens ----------------
 function topBar(title, right) { return '<div class="top dark"><img class="mark" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt=""><h1>' + h(title) + "</h1>" + (right || "") + "</div>"; }
@@ -1109,6 +1159,7 @@ function vJob() {
   var stops = o.stops.map(function (s) { var active = (s.kind === "pickup" && (st === "accepted" || st === "at_pickup")) || (next && s.id === next.id && st === "in_transit"); return stopBlock(s, active); }).join("");
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
     + locNote()
+    + chatBtn("Chat with customer", S.unread)
     + cashPlan(o)
     + '<div class="note n-info">Always collect the full amount above from the customer. Your commission and earnings are shown after you finish the job.</div>'
     + '<div class="card">'
@@ -1156,7 +1207,7 @@ function vAccount() {
 }
 function render() {
   killMap(); var v = S.view;
-  $("app").innerHTML = v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : vHome();
+  $("app").innerHTML = v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : vHome();
   if (v === "job") drawJobMap();
 }
 
@@ -1166,6 +1217,10 @@ document.addEventListener("click", function (ev) {
   if (a === "auth") doAuth();
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "signout") signOut();
+  else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
+  else if (a === "chatback") { stopChat(); openJob(CHAT.id); }
+  else if (a === "chatsend") sendChat(val("chat_in"));
+  else if (a === "chatquick") sendChat(CHAT_QUICK[+d.i]);
   else if (a === "hidejob") { HIDDEN[d.id] = Date.now(); saveHidden(); render(); toast("Job hidden. Other riders can still take it."); }
   else if (a === "unhidejobs") { HIDDEN = {}; saveHidden(); render(); }
   else if (a === "confirmedgo") { S.confirmErr = ""; if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }

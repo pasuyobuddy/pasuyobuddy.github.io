@@ -944,6 +944,7 @@ function viewOrderDetail() {
     '<div class="kv"><span>Receivers pay (cash)</span><span>' + peso(o.receiver_pays) + "</span></div>" +
     (o.cancel_reason ? '<div class="note soft small">' + h(o.cancel_reason) + "</div>" : "") +
     '<div class="note soft" style="display:flex;flex-direction:column;gap:6px;font-weight:400">' + stops + "</div>" + items +
+    (S.orderChat && S.orderChat.length ? '<div class="small" style="font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Chat · ' + S.orderChat.length + "</div>" + '<div class="note soft" style="display:flex;flex-direction:column;gap:6px;font-weight:400;max-height:260px;overflow:auto">' + S.orderChat.map(function (m) { return '<div><b>' + h(m.who) + "</b> " + '<span class="small muted">' + when(m.at) + "</span><br>" + h(m.body) + "</div>"; }).join("") + "</div>" : "") +
     '<div class="small" style="font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">History</div>' + ev + cancel + "</aside>";
 }
 
@@ -1105,7 +1106,7 @@ document.addEventListener("click", function (e) {
   if (a === "refresh") return void refresh("Updated");
   if (a === "signout") return void run(async function () { await sb.auth.signOut(); S.session = null; S.me = null; render(); });
   if (a === "order-filter") { S.orderFilter = d.f; S.order = null; return void refresh(); }
-  if (a === "open-order") return void run(async function () { S.tab = "orders"; S.cancelFor = null; S.order = await rpc("admin_order_detail", { p_order: d.id }); if (!S.orders) S.orders = await rpc("admin_orders", { p_filter: S.orderFilter, p_search: null, p_limit: 200 }); render(); });
+  if (a === "open-order") return void run(async function () { S.tab = "orders"; S.cancelFor = null; S.order = await rpc("admin_order_detail", { p_order: d.id }); try { S.orderChat = await rpc("admin_order_chat", { p_order: d.id }); } catch (e) { S.orderChat = null; } if (!S.orders) S.orders = await rpc("admin_orders", { p_filter: S.orderFilter, p_search: null, p_limit: 200 }); render(); });
   if (a === "close-order") { S.order = null; return render(); }
   if (a === "cancel-start") { S.cancelFor = S.order.order.id; return render(); }
   if (a === "cancel-abort") { S.cancelFor = null; return render(); }
