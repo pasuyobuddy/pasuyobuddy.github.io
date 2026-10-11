@@ -796,6 +796,7 @@ var ROLE_NAME = { owner: "Owner", dispatcher: "Dispatcher", finance: "Finance" }
 async function loadTab() {
   var t = S.tab;
   if (t === "overview") S.overview = await rpc("admin_overview");
+  if (t === "overview" && S.me && S.me.areas.indexOf("money") >= 0) { try { S.totals = await rpc("admin_totals"); } catch (e) { S.totals = null; } }   // needs the v2.7 database update
   if (t === "overview" || t === "riders" || t === "customers") { try { S.people = await rpc("admin_people"); } catch (e) { S.people = null; } }   // needs the v1.6 database update
   if (t === "orders") { S.orders = await rpc("admin_orders", { p_filter: S.orderFilter, p_search: S.orderSearch || null, p_limit: 200 }); if (S.order) S.order = await rpc("admin_order_detail", { p_order: S.order.order.id }); }
   if (t === "riders") S.riders = await rpc("admin_riders");
@@ -897,7 +898,15 @@ function viewOverview() {
       ["Riders approved", pp.riders.approved, pp.riders.online + " online now", "riders", "", 0, "approved"], ["Staff", pp.staff, "with dashboard access", "staff"]];
     rk[0][3] = "customers";
     reg = '<div><h2>Registered accounts</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + rk.map(tile).join("") + "</div></div>"; }
-  return '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + kp + "</div>" + reg +
+  var T = S.totals, inc = "";
+  if (T) { var mn = new Date().toLocaleDateString("en-PH", { month: "long", timeZone: "Asia/Manila" });
+    var ik = [["Your income · " + mn, peso0(T.month_commission - T.month_gateway), T.month_orders + " deliveries · fares " + peso0(T.month_fares), "money"],
+      ["Your income · all time", peso0(T.all_commission - T.all_gateway), "commission " + peso0(T.all_commission) + " − gateway fees " + peso0(T.all_gateway), "money"],
+      ["Fares · all time", peso0(T.all_fares), "total paid for completed deliveries", "money"],
+      ["Deliveries · all time", T.all_orders, T.first_order_at ? "since " + new Date(T.first_order_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" }) : "none yet", "orders", "completed", 0],
+      ["Rider top-ups · all time", peso0(T.all_topups), "load paid in by riders (not income)", "money"]];
+    inc = '<div><h2>Income</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + ik.map(tile).join("") + "</div></div>"; }
+  return '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + kp + "</div>" + inc + reg +
     '<div class="grid" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px"><div class="card"><div class="row" style="justify-content:space-between"><h2>Live map</h2><div class="small muted" style="font-weight:700"><span style="color:#0E6B58">●</span> riders online &nbsp; <span style="color:#B4400A">●</span> waiting for rider</div></div><div id="lmap" class="map" role="img" aria-label="Map of Metro Manila with riders online and bookings waiting"></div><div class="small muted" style="margin-top:6px">' + (o.map_riders || []).length + " rider(s) online · " + (o.map_waiting || []).length + ' booking(s) waiting</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:18px"><div class="card" style="display:flex;flex-direction:column;gap:8px"><h2>Needs attention</h2>' + alerts.join("") + '</div><div class="card"><h2>Bookings by hour (today)</h2><div class="bars">' + bars + "</div></div></div></div>";
 }
@@ -1009,7 +1018,7 @@ function viewCustomers() {
 
 function viewMoney() {
   var m = S.money; if (!m) return '<div class="empty">Loading…</div>';
-  var chips = [[1, "Today (24 h)"], [7, "7 days"], [30, "30 days"]].map(function (d) { return '<button class="chip' + (S.moneyDays === d[0] ? " on" : "") + '" data-act="money-days" data-d="' + d[0] + '">' + d[1] + "</button>"; }).join("");
+  var chips = [[1, "Today (24 h)"], [7, "7 days"], [30, "30 days"], [90, "90 days"], [366, "1 year"]].map(function (d) { return '<button class="chip' + (S.moneyDays === d[0] ? " on" : "") + '" data-act="money-days" data-d="' + d[0] + '">' + d[1] + "</button>"; }).join("");
   var k = [["Completed orders", m.orders, ""], ["Fares", peso0(m.fares), ""], ["Commission", peso0(m.commission), "Your income"], ["Gateway fees", peso0(m.gateway_fees), "PayMongo"], ["Net", peso0(m.commission - m.gateway_fees), "Commission − fees"], ["Riders owed", peso0(m.riders_owed), "In rider wallets now"]]
     .map(function (x) { return '<div class="kpi"><div class="l">' + x[0] + '</div><div class="v">' + h(x[1]) + '</div><div class="s">' + h(x[2]) + "</div></div>"; }).join("");
   var rows = (m.payouts || []).map(function (p) {
