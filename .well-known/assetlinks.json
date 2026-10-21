@@ -1,0 +1,18 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.pasuyobuddy.twa",
+      "sha256_cert_fingerprints": ["FB:25:93:AC:B0:68:83:5E:00:B4:1E:45:8A:21:44:FD:A6:79:23:97:88:7A:83:98:D8:46:2E:A4:55:BA:0F:8B"]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.pasuyobuddy.rider",
+      "sha256_cert_fingerprints": ["5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"]
+    }
+  }
+]
