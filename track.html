@@ -683,10 +683,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
 @keyframes rpulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.3);opacity:0}}
 .flg{font-size:30px;line-height:34px;position:relative;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .flg b{position:absolute;right:-6px;top:-4px;font:700 11px/1 sans-serif;background:#D7141A;color:#fff;border-radius:9px;padding:2px 5px;border:1.5px solid #fff}.flg.dim{opacity:.4}
+.map.full{height:calc(100vh - 66px);height:calc(100dvh - 66px);border-radius:0;border:none}
+.body.mapmode{padding:0}
+.body.mapmode .note{margin:14px 16px}
+.stat{position:absolute;top:10px;left:10px;z-index:500;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-weight:700;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:60%}
+.live{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);z-index:500;background:#fff;border-radius:999px;padding:6px 12px;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.25);white-space:nowrap}
+.live:empty{display:none}
 .foot{text-align:center;font-size:12px;color:var(--muted);padding:6px}
 </style></head><body>
 <div class="top"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt=""><h1>PasuyoBuddy · Live tracking</h1></div>
-<div class="body" id="app"><div class="card muted">Loading…</div></div>
+<div class="body mapmode" id="app"><div class="card muted">Loading…</div></div>
 <script>/* @preserve
  * Leaflet 1.9.4, a JS library for interactive maps. https://leafletjs.com
  * (c) 2010-2023 Vladimir Agafonkin, (c) 2010-2011 CloudMade
@@ -721,16 +727,15 @@ async function load() {
 function strip(o) { var c = JSON.parse(JSON.stringify(o)); if (c.rider) { delete c.rider.lat; delete c.rider.lng; delete c.rider.located_at; } return c; }
 function render() {
   if (!O) { document.getElementById("app").innerHTML = '<div class="note bad">' + h(fatal || "Loading…") + "</div>"; return; }
-  var idx = ORDER.indexOf(O.status), ended = ["cancelled_by_customer", "cancelled_by_rider", "no_rider_found"].indexOf(O.status) >= 0;
-  var steps = idx >= 0 ? '<div class="steps">' + ORDER.map(function (s, i) { return '<div class="step ' + (i < idx || O.status === "completed" ? "done" : i === idx ? "now" : "") + '"><span class="mk"></span><span>' + LABEL[s] + "</span></div>"; }).join("") + "</div>" : "";
-  var drops = O.stops.filter(function (s) { return s.kind === "dropoff"; });
-  var rider = O.rider ? '<div class="card" style="display:flex;gap:12px;align-items:center">' + (O.rider.photo ? '<img src="' + h(CONFIG.url + "/storage/v1/object/public/avatars/" + O.rider.photo) + '" alt="Photo of the rider" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:3px solid var(--yellow)">' : "") + '<div><div class="b" style="font-weight:700">' + h(O.rider.name || "Your rider") + '</div><div style="font-weight:800;letter-spacing:.04em">' + h(O.rider.plate || "") + '</div><div class="small muted">' + h(O.vehicle) + (O.rider.rating ? " · ★ " + h(O.rider.rating) : "") + "</div></div></div>" : "";
-  document.getElementById("app").innerHTML =
-    '<div class="card"><div class="small muted">Booking ' + h(O.order_no) + '</div><p class="big">' + (ended ? "This booking was cancelled" : h(LABEL[O.status] || O.status)) + "</p>" + steps + "</div>"
-    + (ended ? "" : '<div class="map"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-a="rider">&#128205; Rider</button><button data-a="all">&#127937; Route</button></div></div><div id="info" class="small muted" style="text-align:center">' + infoText() + "</div>")
-    + rider + '<div class="card"><div class="b" style="font-weight:700;margin-bottom:6px">Stops</div><div class="small">&#128681; Pickup: ' + h(O.stops[0] && O.stops[0].area || "") + "</div>" + drops.map(function (d) { return '<div class="small">&#127937; Drop-off' + (drops.length > 1 ? " " + d.seq : "") + ": " + h(d.area || "") + (d.status === "done" ? " ✔" : "") + "</div>"; }).join("") + "</div>"
-    + '<div class="foot">Powered by PasuyoBuddy · This page updates by itself</div>';
-  if (!ended) drawMap();
+  var ended = ["cancelled_by_customer", "cancelled_by_rider", "no_rider_found"].indexOf(O.status) >= 0;
+  if (ended) { if (mapObj) { try { mapObj.remove(); } catch (e) {} mapObj = null; riderMk = null; } document.getElementById("app").innerHTML = '<div class="note bad">This booking was cancelled.</div>'; return; }
+  var label = O.status === "completed" ? "&#9989; Delivered" : h(LABEL[O.status] || O.status);
+  if (!document.getElementById("tmap")) {
+    document.getElementById("app").innerHTML = '<div class="map full"><div id="tmap" style="height:100%"></div><div class="stat" id="stat"></div>'
+      + '<div class="mapbtns"><button data-a="rider">&#128205; Rider</button><button data-a="all">&#127937; Route</button></div><div class="live" id="info"></div></div>';
+    document.getElementById("stat").innerHTML = label; drawMap(); return;
+  }
+  document.getElementById("stat").innerHTML = label; drawMap();
 }
 // ---------------- Road routes on the map (follow the streets, not straight lines) ----------------
 function pickShortest(j) { var rs = (j && j.routes) || []; if (!rs.length) return null; return rs.slice().sort(function (a, b) { return a.distance - b.distance; })[0]; }
@@ -775,7 +780,7 @@ function nextStopOf(status, stops) {
 }
 function drawMap() {
   var el = document.getElementById("tmap"); if (!el) return; if (mapObj) { try { mapObj.remove(); } catch (e) {} mapObj = null; riderMk = null; }
-  mapObj = L.map(el, { zoomControl: true, minZoom: 9 });
+  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); L.control.zoom({ position: "bottomright" }).addTo(mapObj);
   L.tileLayer("https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=" + CONFIG.mapKey, { maxZoom: 20, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }).addTo(mapObj);
   var pts = [], multi = O.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   O.stops.forEach(function (s) { pts.push([s.lat, s.lng]); L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).addTo(mapObj); });

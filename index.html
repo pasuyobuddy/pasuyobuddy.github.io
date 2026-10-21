@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.28" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.29" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1088,9 +1088,9 @@ setInterval(function () { var el = $("rdrinfo"); if (el && S.view === "track" &&
 async function shareTrack() {
   var o = S.order; if (!o || !o.track_token) return;
   var url = location.origin + location.pathname.replace(/[^\/]*$/, "") + "track.html?t=" + o.track_token;
-  var text = "Track my PasuyoBuddy delivery live: " + url;
-  try { if (navigator.share) { await navigator.share({ title: "PasuyoBuddy live tracking", text: "Track my delivery live", url: url }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
-  try { await navigator.clipboard.writeText(text); toast("Link copied. Paste it in Messenger, Viber or SMS."); } catch (e) { window.prompt("Copy this link and send it:", url); }
+  try { await navigator.clipboard.writeText(url); toast("Tracking link copied. Paste it in Messenger, Viber or SMS."); return; } catch (e) {}
+  try { var ta = document.createElement("textarea"); ta.value = url; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); var ok = document.execCommand("copy"); document.body.removeChild(ta); if (ok) { toast("Tracking link copied. Paste it in Messenger, Viber or SMS."); return; } } catch (e) {}
+  window.prompt("Copy this tracking link:", url);
 }
 async function cancelOrder() {
   if (!S.cancelAsk) { S.cancelAsk = true; render(); return; }
@@ -1346,7 +1346,7 @@ function vTrack() {
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg
-    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Share tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They can watch the delivery live, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "")
+    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "")
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · Cash</h2>' + quoteLines(o) + '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>" + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
