@@ -724,7 +724,7 @@ function render() {
   var idx = ORDER.indexOf(O.status), ended = ["cancelled_by_customer", "cancelled_by_rider", "no_rider_found"].indexOf(O.status) >= 0;
   var steps = idx >= 0 ? '<div class="steps">' + ORDER.map(function (s, i) { return '<div class="step ' + (i < idx || O.status === "completed" ? "done" : i === idx ? "now" : "") + '"><span class="mk"></span><span>' + LABEL[s] + "</span></div>"; }).join("") + "</div>" : "";
   var drops = O.stops.filter(function (s) { return s.kind === "dropoff"; });
-  var rider = O.rider ? '<div class="card"><div class="b" style="font-weight:700">' + h(O.rider.name || "Your rider") + '</div><div class="small muted">' + h(O.vehicle) + " · " + h(O.rider.plate || "") + (O.rider.rating ? " · ★ " + h(O.rider.rating) : "") + "</div></div>" : "";
+  var rider = O.rider ? '<div class="card" style="display:flex;gap:12px;align-items:center">' + (O.rider.photo ? '<img src="' + h(CONFIG.url + "/storage/v1/object/public/avatars/" + O.rider.photo) + '" alt="Photo of the rider" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:3px solid var(--yellow)">' : "") + '<div><div class="b" style="font-weight:700">' + h(O.rider.name || "Your rider") + '</div><div style="font-weight:800;letter-spacing:.04em">' + h(O.rider.plate || "") + '</div><div class="small muted">' + h(O.vehicle) + (O.rider.rating ? " · ★ " + h(O.rider.rating) : "") + "</div></div></div>" : "";
   document.getElementById("app").innerHTML =
     '<div class="card"><div class="small muted">Booking ' + h(O.order_no) + '</div><p class="big">' + (ended ? "This booking was cancelled" : h(LABEL[O.status] || O.status)) + "</p>" + steps + "</div>"
     + (ended ? "" : '<div class="map"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-a="rider">&#128205; Rider</button><button data-a="all">&#127937; Route</button></div></div><div id="info" class="small muted" style="text-align:center">' + infoText() + "</div>")
@@ -732,13 +732,54 @@ function render() {
     + '<div class="foot">Powered by PasuyoBuddy · This page updates by itself</div>';
   if (!ended) drawMap();
 }
+// ---------------- Road routes on the map (follow the streets, not straight lines) ----------------
+function pickShortest(j) { var rs = (j && j.routes) || []; if (!rs.length) return null; return rs.slice().sort(function (a, b) { return a.distance - b.distance; })[0]; }
+var ROUTE_CACHE = {};
+async function roadRoute(pts) {
+  if (!pts || pts.length < 2) return null;
+  var key = pts.map(function (p) { return (+p[0]).toFixed(5) + "," + (+p[1]).toFixed(5); }).join(";");
+  if (ROUTE_CACHE[key]) return ROUTE_CACHE[key];
+  if (pts.length > 2) { var parts = []; for (var k = 1; k < pts.length; k++) parts.push(roadRoute([pts[k - 1], pts[k]]));
+    var segs = await Promise.all(parts); if (segs.some(function (x) { return !x; })) return null;
+    var all = []; segs.forEach(function (x, n) { all = all.concat(n ? x.slice(1) : x); }); ROUTE_CACHE[key] = all; return all; }
+  var u = "https://router.project-osrm.org/route/v1/driving/" + pts.map(function (p) { return p[1] + "," + p[0]; }).join(";") + "?overview=full&geometries=geojson&alternatives=3";
+  var ctl = typeof AbortController !== "undefined" ? new AbortController() : null, t = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+  try {
+    var j = await (await fetch(u, ctl ? { signal: ctl.signal } : {})).json();
+    var best = pickShortest(j), c = best && best.geometry && best.geometry.coordinates;
+    if (!c || c.length < 2) return null;
+    c = c.map(function (x) { return [x[1], x[0]]; }); ROUTE_CACHE[key] = c; return c;
+  } catch (e) { return null; } finally { clearTimeout(t); }
+}
+// Draws a light dashed line at once, then swaps it for the street route when it arrives
+function routeLine(map, pts, color) {
+  var line = L.polyline(pts, { color: color, weight: 4, opacity: 0.5, dashArray: "6 8" }).addTo(map);
+  roadRoute(pts).then(function (c) { if (c && map === mapObj) { line.setLatLngs(c); line.setStyle({ dashArray: null, weight: 5, opacity: 0.85 }); } });
+  return line;
+}
+// The rider's way to the next stop (blue), re-drawn when the rider has moved about 250 m
+var LEG = { map: null, line: null, from: null, to: null, at: 0 };
+function legDist(a, b) { var dx = (a[0] - b[0]) * 111000, dy = (a[1] - b[1]) * 111000 * Math.cos(a[0] * Math.PI / 180); return Math.sqrt(dx * dx + dy * dy); }
+function updateLeg(map, from, to) {
+  if (!map) return;
+  if (!from || !to) { if (LEG.line && LEG.map === map) { try { map.removeLayer(LEG.line); } catch (e) {} } LEG.line = null; return; }
+  var same = LEG.line && LEG.map === map, sameTo = same && LEG.to && legDist(LEG.to, to) < 5;
+  if (sameTo && (legDist(LEG.from, from) < 250 || Date.now() - LEG.at < 20000)) return;
+  if (same) { try { map.removeLayer(LEG.line); } catch (e) {} }
+  LEG = { map: map, from: from, to: to, at: Date.now(), line: routeLine(map, [from, to], "#1D3F8F") };
+}
+function nextStopOf(status, stops) {
+  if (status === "accepted" || status === "at_pickup") return stops[0];
+  if (status === "picked_up" || status === "in_transit") return stops.filter(function (s) { return s.kind === "dropoff" && s.status === "pending"; })[0] || null;
+  return null;
+}
 function drawMap() {
   var el = document.getElementById("tmap"); if (!el) return; if (mapObj) { try { mapObj.remove(); } catch (e) {} mapObj = null; riderMk = null; }
   mapObj = L.map(el, { zoomControl: true, minZoom: 9 });
   L.tileLayer("https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=" + CONFIG.mapKey, { maxZoom: 20, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }).addTo(mapObj);
   var pts = [], multi = O.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   O.stops.forEach(function (s) { pts.push([s.lat, s.lng]); L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).addTo(mapObj); });
-  L.polyline(pts.slice(), { color: "#D7141A", weight: 3, dashArray: "6 6" }).addTo(mapObj);
+  routeLine(mapObj, pts.slice(), "#D7141A");
   if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]);
   mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); updateRider();
 }
@@ -749,6 +790,7 @@ function updateRider() {
   if (!mapObj || !O.rider || O.rider.lat == null) return; var ll = [O.rider.lat, O.rider.lng];
   if (riderMk) glide(riderMk, ll);
   else { riderMk = L.marker(ll, { zIndexOffset: 1000, icon: L.divIcon({ className: "", html: '<div class="rdr">' + vehIcon(O.vehicle) + "</div>", iconSize: [40, 40], iconAnchor: [20, 20] }) }).addTo(mapObj); }
+  var nx = nextStopOf(O.status, O.stops); updateLeg(mapObj, nx ? ll : null, nx ? [nx.lat, nx.lng] : null);
 }
 document.addEventListener("click", function (ev) { var b = ev.target.closest("[data-a]"); if (!b || !mapObj || !O) return;
   if (b.dataset.a === "rider" && O.rider && O.rider.lat != null) mapObj.setView([O.rider.lat, O.rider.lng], 16);

@@ -749,6 +749,10 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .msg .t{display:block;font-size:11px;opacity:.75;margin-top:3px}
 .chatbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;z-index:600}
 .badge{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:4px}
+.bagopt{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:12px;border:2px solid #F2C94C;border-radius:12px;background:#FFFBE6;cursor:pointer}
+.bagopt.on{border-color:var(--accent);background:var(--accent-s)}
+.bagopt input{width:22px;height:22px;margin-top:2px;accent-color:var(--accent);flex:none}
+.rphoto{width:64px;height:64px;border-radius:50%;object-fit:cover;border:3px solid var(--yellow);background:var(--soft);flex:none;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 16px;border-radius:12px;max-width:90%;z-index:2000;font-weight:600;text-align:center}
 .toast.err{background:var(--bad)}
 .spin{padding:40px 0;text-align:center;color:var(--muted)}
@@ -779,14 +783,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.24" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.28" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
 
 // ---------------- State ----------------
 function newStop(kind) { return { kind: kind, address: "", area: "", lat: null, lng: null, detail: "", contact_name: "", contact_phone: "", payer: "sender", cod: "" }; }
-function freshBooking() { return { stops: [newStop("pickup"), newStop("dropoff")], legs: [], km: 0, approx: false, prices: null, vehicle: 1, level: "regular", tip: 0, customTip: "", itemType: "parcel", note: "", abonoPayer: "buyer", quote: null }; }
+function freshBooking() { return { stops: [newStop("pickup"), newStop("dropoff")], legs: [], km: 0, approx: false, prices: null, vehicle: 1, level: "regular", tip: 0, customTip: "", itemType: "parcel", note: "", needsBag: false, abonoPayer: "buyer", quote: null }; }
 var S = { session: null, me: null, view: "auth", authMode: "login", authEmail: "", authMsg: "", busy: false,
   bk: freshBooking(), idForm: { id: null, selfie: null }, editIdx: -1, place: null, order: null, orders: null, rateStars: 0 };
 var $ = function (id) { return document.getElementById(id); };
@@ -860,9 +864,9 @@ var GEO = window.__TEST_GEO__ || {
   },
   // Road distance in km between two points; null if the routing service is unavailable.
   route: async function (a, b) {
-    var u = "https://router.project-osrm.org/route/v1/driving/" + a.lng + "," + a.lat + ";" + b.lng + "," + b.lat + "?overview=false";
+    var u = "https://router.project-osrm.org/route/v1/driving/" + a.lng + "," + a.lat + ";" + b.lng + "," + b.lat + "?overview=false&alternatives=3";
     var ctl = new AbortController(); var t = setTimeout(function () { ctl.abort(); }, 6000);
-    try { var j = await (await fetch(u, { signal: ctl.signal })).json(); return j.routes && j.routes[0] ? j.routes[0].distance / 1000 : null; }
+    try { var j = await (await fetch(u, { signal: ctl.signal })).json(); var best = pickShortest(j); return best ? best.distance / 1000 : null; }
     catch (e) { return null; } finally { clearTimeout(t); }
   }
 };
@@ -960,10 +964,15 @@ function openPlace(i) { var s = S.bk.stops[i]; S.editIdx = i; S.place = JSON.par
 function addDrop() { if (S.bk.stops.length - 1 >= MAX_DROPS) return; S.bk.stops.push(newStop("dropoff")); openPlace(S.bk.stops.length - 1); }
 function removeDrop(i) { if (S.bk.stops.length <= 2) return; S.bk.stops.splice(i, 1); render(); }
 function readPlace() { var p = S.place; ["address", "detail", "contact_name", "contact_phone", "cod"].forEach(function (k) { var e = $("pl_" + k); if (e) p[k] = e.value.trim(); }); }
+// Pins that land on an expressway (Skyway, NLEX, SLEX, E-roads...) give strange routes and a higher fare
+function onHighway(a) { return /\b(skyway|expressway|express way|tollway|nlex|slex|cavitex|tplex|calax|naiax|elevated|flyover)\b|(^|[\s,(])E[1-9]\b/i.test(String(a || "")); }
+function hwNote() { return '<div id="hwwarn" class="note n-warn"' + (S.place && onHighway(S.place.address) ? "" : " hidden") + '>&#9888;&#65039; This pin is on an expressway or flyover. Riders cannot stop there, and the route and fare may come out wrong. Move the map so the pin is on the street of the exact place.</div>'; }
+function updHw() { var w = $("hwwarn"); if (w) w.hidden = !(S.place && onHighway(S.place.address)); }
 function savePlace() {
   readPlace(); var p = S.place;
   if (p.lat == null) { toast("Search for the address or move the map to set the pin", true); return; }
   if (!p.address) { toast("Type the address in the Address box", true); return; }
+  if (onHighway(p.address) && !p.hwOk) { p.hwOk = true; updHw(); toast("This pin is on an expressway. Move it to the street, or tap Save again to keep it.", true); return; }
   if (!p.contact_name) { toast("Add a contact name for this stop", true); return; }
   if (!phoneOk(p.contact_phone)) { toast(PHONE_MSG, true); return; }
   p.contact_phone = phoneFmt(p.contact_phone);
@@ -977,7 +986,7 @@ function onSearch(q) { clearTimeout(sugT); if (q.trim().length < 3) { drawSug([]
   sugT = setTimeout(async function () { try { var near = S.place && S.place.lat != null ? { lat: S.place.lat, lng: S.place.lng } : null; drawSug(await GEO.search(q.trim(), near)); } catch (e) { drawSug([]); } }, 350); }
 function drawSug(list) { if (!S.place) return; S.place.sug = list; var box = $("sug"); if (!box) return;
   box.hidden = !list.length; box.innerHTML = list.map(function (f, i) { return '<button data-act="pick" data-i="' + i + '">' + h(f.label) + "</button>"; }).join(""); }
-function pickSug(i) { var f = S.place.sug[i]; if (!f) return; readPlace(); S.place.address = f.label; S.place.area = areaOf(f.label); S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
+function pickSug(i) { var f = S.place.sug[i]; if (!f) return; readPlace(); S.place.address = f.label; S.place.area = areaOf(f.label); S.place.hwOk = false; S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
 function drawPlaceMap() {
   var el = $("pmap"); if (!el || typeof L === "undefined") return; killMap(); var p = S.place;
   mapObj = L.map(el, { zoomControl: true, minZoom: 9 }).setView(p.lat != null ? [p.lat, p.lng] : MANILA, p.lat != null ? 17 : 12); tiles(mapObj);
@@ -985,7 +994,7 @@ function drawPlaceMap() {
     if (!S.place) return; var c = mapObj.getCenter();
     S.place.lat = +c.lat.toFixed(6); S.place.lng = +c.lng.toFixed(6);
     clearTimeout(revT); revT = setTimeout(async function () {
-      try { var a = await GEO.reverse(S.place.lat, S.place.lng); if (a && S.place) { S.place.address = a; S.place.area = areaOf(a); var e = $("pl_address"); if (e) e.value = a; } } catch (e) {}
+      try { var a = await GEO.reverse(S.place.lat, S.place.lng); if (a && S.place) { S.place.address = a; S.place.area = areaOf(a); S.place.hwOk = false; var e = $("pl_address"); if (e) e.value = a; updHw(); } } catch (e) {}
     }, 500);
   });
 }
@@ -1020,7 +1029,7 @@ function poolOk() { return S.bk.vehicle === 1 && S.bk.stops.length === 2 && !has
 function payload() {
   var b = S.bk;
   return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: "cash", abono_payer: b.abonoPayer,
-    tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null,
+    tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag,
     stops: b.stops.map(function (s, i) {
       var o = { kind: s.kind, address: (s.detail ? s.detail + ", " : "") + s.address, area: s.area, lat: s.lat, lng: s.lng, contact_name: s.contact_name, contact_phone: s.contact_phone };
       if (i > 0) { o.leg_km = b.legs[i - 1]; o.payer = s.payer; if (Number(s.cod) > 0) o.cod_amount = Math.round(Number(s.cod) * 100); }
@@ -1073,6 +1082,7 @@ function updateRider() {
   var ll = [o.rider.lat, o.rider.lng];
   if (riderMk) glide(riderMk, ll);
   else { riderMk = L.marker(ll, { icon: vehMarker(o.vehicle), zIndexOffset: 1000 }).addTo(mapObj); }
+  custLeg();
 }
 setInterval(function () { var el = $("rdrinfo"); if (el && S.view === "track" && S.order) el.innerHTML = riderInfoText(S.order); }, 1000);
 async function shareTrack() {
@@ -1090,13 +1100,55 @@ async function tipNow(v) { await run(async function () { await rpc("add_tip", { 
 async function sendRating() { if (!S.rateStars) { toast("Tap a star first", true); return; }
   await run(async function () { await rpc("customer_rate", { p_order: S.order.id, p_stars: S.rateStars, p_comment: val("rate_note") || null }); S.busy = false; await openOrder(S.order.id); toast("Thanks for the rating!"); }); }
 async function showOrders() { go("orders"); try { S.orders = await rpc("customer_orders", { p_limit: 30 }); if (S.view === "orders") render(); } catch (e) { toast(e.message, true); } }
+// ---------------- Road routes on the map (follow the streets, not straight lines) ----------------
+function pickShortest(j) { var rs = (j && j.routes) || []; if (!rs.length) return null; return rs.slice().sort(function (a, b) { return a.distance - b.distance; })[0]; }
+var ROUTE_CACHE = {};
+async function roadRoute(pts) {
+  if (!pts || pts.length < 2) return null;
+  var key = pts.map(function (p) { return (+p[0]).toFixed(5) + "," + (+p[1]).toFixed(5); }).join(";");
+  if (ROUTE_CACHE[key]) return ROUTE_CACHE[key];
+  if (pts.length > 2) { var parts = []; for (var k = 1; k < pts.length; k++) parts.push(roadRoute([pts[k - 1], pts[k]]));
+    var segs = await Promise.all(parts); if (segs.some(function (x) { return !x; })) return null;
+    var all = []; segs.forEach(function (x, n) { all = all.concat(n ? x.slice(1) : x); }); ROUTE_CACHE[key] = all; return all; }
+  var u = "https://router.project-osrm.org/route/v1/driving/" + pts.map(function (p) { return p[1] + "," + p[0]; }).join(";") + "?overview=full&geometries=geojson&alternatives=3";
+  var ctl = typeof AbortController !== "undefined" ? new AbortController() : null, t = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+  try {
+    var j = await (await fetch(u, ctl ? { signal: ctl.signal } : {})).json();
+    var best = pickShortest(j), c = best && best.geometry && best.geometry.coordinates;
+    if (!c || c.length < 2) return null;
+    c = c.map(function (x) { return [x[1], x[0]]; }); ROUTE_CACHE[key] = c; return c;
+  } catch (e) { return null; } finally { clearTimeout(t); }
+}
+// Draws a light dashed line at once, then swaps it for the street route when it arrives
+function routeLine(map, pts, color) {
+  var line = L.polyline(pts, { color: color, weight: 4, opacity: 0.5, dashArray: "6 8" }).addTo(map);
+  roadRoute(pts).then(function (c) { if (c && map === mapObj) { line.setLatLngs(c); line.setStyle({ dashArray: null, weight: 5, opacity: 0.85 }); } });
+  return line;
+}
+// The rider's way to the next stop (blue), re-drawn when the rider has moved about 250 m
+var LEG = { map: null, line: null, from: null, to: null, at: 0 };
+function legDist(a, b) { var dx = (a[0] - b[0]) * 111000, dy = (a[1] - b[1]) * 111000 * Math.cos(a[0] * Math.PI / 180); return Math.sqrt(dx * dx + dy * dy); }
+function updateLeg(map, from, to) {
+  if (!map) return;
+  if (!from || !to) { if (LEG.line && LEG.map === map) { try { map.removeLayer(LEG.line); } catch (e) {} } LEG.line = null; return; }
+  var same = LEG.line && LEG.map === map, sameTo = same && LEG.to && legDist(LEG.to, to) < 5;
+  if (sameTo && (legDist(LEG.from, from) < 250 || Date.now() - LEG.at < 20000)) return;
+  if (same) { try { map.removeLayer(LEG.line); } catch (e) {} }
+  LEG = { map: map, from: from, to: to, at: Date.now(), line: routeLine(map, [from, to], "#1D3F8F") };
+}
+function nextStopOf(status, stops) {
+  if (status === "accepted" || status === "at_pickup") return stops[0];
+  if (status === "picked_up" || status === "in_transit") return stops.filter(function (s) { return s.kind === "dropoff" && s.status === "pending"; })[0] || null;
+  return null;
+}
+function custLeg() { var o = S.order; if (!mapObj || !o) return; var nx = o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0 ? nextStopOf(o.status, o.stops) : null; updateLeg(mapObj, nx ? [o.rider.lat, o.rider.lng] : null, nx ? [nx.lat, nx.lng] : null); }
 function drawTrackMap() {
   var el = $("tmap"); if (!el || typeof L === "undefined" || !S.order) return; killMap(); var o = S.order, pts = [];
   mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); tiles(mapObj);
   var multi = o.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   o.stops.forEach(function (s) { pts.push([s.lat, s.lng]);
     L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
-  L.polyline(pts, { color: "#D7141A", weight: 3, dashArray: "6 6" }).addTo(mapObj);
+  routeLine(mapObj, pts.slice(), "#D7141A");
   riderMk = null;
   if (o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0) { pts.push([o.rider.lat, o.rider.lng]); updateRider(); }
   mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 });
@@ -1143,6 +1195,8 @@ var CHAT_AS = "customer";
 var CHAT_QUICK = ["I'm coming down", "Please call me when you arrive", "I'm at the gate", "Thank you!"];
 function chatTop(t) { return '<div class="top"><button class="back" data-act="chatback" aria-label="Back">←</button><h1 id="chattitle">' + h(t) + "</h1></div>"; }
 function chatLeave() { stopPoll(); }
+function riderPhoto(r) { var ini = String(r.name || "R").trim().split(/\s+/).map(function (w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+  return r.photo ? '<img class="rphoto" src="' + h(CONFIG.url + "/storage/v1/object/public/avatars/" + r.photo) + '" alt="Photo of your rider">' : '<div class="rphoto">' + h(ini) + "</div>"; }
 function custChatLabel() { return S.order && ENDED.indexOf(S.order.status) >= 0 ? "View chat with rider" : "Chat with rider"; }
 
 // ---------------- Report a problem on a booking ----------------
@@ -1223,7 +1277,7 @@ function vPlace() {
   return topBar(i === 0 ? "Pickup" : "Drop-off " + i, "home") + '<div class="body">'
     + '<div class="field"><label for="pl_q">Search address or place</label><input class="in" id="pl_q" placeholder="e.g. SM North EDSA" autocomplete="off"></div><div id="sug" class="sug" hidden></div><div class="small muted">Can\'t find the place? Search a nearby street or landmark, then move the map so the pin is on the exact spot. Results show places near the pin first.</div>'
     + '<div class="map"><div id="pmap" style="height:100%"></div><div class="pin">📍</div></div>'
-    + '<div class="row"><div class="sp small muted">Move the map so the pin is on the exact spot.</div><button class="btn sm yel" data-act="myloc">Use my location</button></div>'
+    + '<div class="row"><div class="sp small muted">Move the map so the pin is on the exact spot.</div><button class="btn sm yel" data-act="myloc">Use my location</button></div>' + hwNote()
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px">'
     + '<div class="field"><label for="pl_address">Address (filled in from the pin, you can edit it)</label><input class="in" id="pl_address" placeholder="Search above or move the map" value="' + h(p.address) + '"></div>'
     + '<div class="field"><label for="pl_detail">Unit, floor or landmark (optional)</label><input class="in" id="pl_detail" value="' + h(p.detail) + '"></div>'
@@ -1267,7 +1321,8 @@ function vReview() {
   return topBar("Review booking", "vehicleback") + '<div class="body">'
     + '<div class="card"><h2>' + h(q.vehicle) + " · " + ({ regular: "Regular", priority: "Priority", pooling: "Saver" })[q.service_level] + "</h2>" + quoteLines(Object.assign({}, q, { tip_amount: tq })) + "</div>"
     + '<div class="card"><h2>At each drop-off</h2>' + stopLines(q) + "</div>"
-    + '<div class="card"><h2>What are you sending?</h2><div class="chips">' + items + '</div><div class="field" style="margin-top:12px"><label for="r_note">Note to rider (optional)</label><textarea class="in" id="r_note" placeholder="e.g. Call when outside">' + h(b.note) + "</textarea></div></div>"
+    + '<div class="card"><h2>What are you sending?</h2><div class="chips">' + items + '</div><div class="field" style="margin-top:12px"><label for="r_note">Note to rider (optional)</label><textarea class="in" id="r_note" placeholder="e.g. Call when outside">' + h(b.note) + "</textarea></div>"
+      + '<label class="bagopt' + (b.needsBag ? " on" : "") + '"><input type="checkbox" id="r_bag" data-act="bagtoggle"' + (b.needsBag ? " checked" : "") + '><span><b>&#127890; Ask the rider to bring a delivery bag</b><br><span class="small muted">For food, groceries or many small items. Riders see this before they accept.</span></span></label></div>'
     + '<div class="card"><h2>Tip for the rider</h2><div class="small muted" style="margin-bottom:8px">100% goes to the rider.</div><div class="chips">' + tipChips + '</div><div class="row" style="margin-top:10px"><input class="in sp" id="r_tip" type="number" inputmode="decimal" placeholder="Other amount (₱)" value="' + h(b.customTip) + '"><button class="btn sm" data-act="customtip">Apply</button></div></div>'
     + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee?</h2><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
     + '<div class="card"><h2>Payment</h2><div class="line"><span>Cash</span><span class="pill p-good">Selected</span></div><div class="small muted">GCash, Maya, QR Ph and card are coming soon.</div>'
@@ -1280,7 +1335,8 @@ function vTrack() {
   var idx = order.indexOf(o.status), steps = "";
   if (idx >= 0) steps = '<div class="steps">' + order.map(function (s, i) { return '<div class="step ' + (i < idx || o.status === "completed" ? "done" : i === idx ? "now" : "todo") + '"><span class="mk"></span><span>' + labels[s] + "</span></div>"; }).join("") + "</div>";
   var canCancel = ["searching", "accepted", "at_pickup"].indexOf(o.status) >= 0, canTip = ["searching", "accepted"].indexOf(o.status) >= 0;
-  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row"><div class="sp"><div class="b">' + h(o.rider.name || "Rider") + '</div><div class="small muted">' + h(o.vehicle) + " · " + h(o.rider.plate || "") + " · ★ " + h(o.rider.rating) + "</div></div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div></div>" : "";
+  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div></div>" : "";
+  if (o.needs_bag) rider += '<div class="note n-info">&#127890; You asked the rider to bring a delivery bag.</div>';
   var msg = o.status === "searching" ? '<div class="note n-warn">We are offering your booking to nearby riders. This page updates by itself.</div>'
     : o.status === "no_rider_found" ? '<div class="note n-bad">No rider was available. You were not charged. Please try booking again.</div>'
     : o.status === "cancelled_by_rider" ? '<div class="note n-bad">The rider cancelled this booking.' + (o.cancel_reason ? " Reason: " + h(o.cancel_reason) : "") + "</div>"
@@ -1319,6 +1375,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "saveprofile") saveProfile();
   else if (a === "signout") signOut();
+  else if (a === "bagtoggle") { readReview(); S.bk.needsBag = !!t.checked; var lb = t.closest(".bagopt"); if (lb) lb.classList.toggle("on", S.bk.needsBag); }
   else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
   else if (a === "repopen") { if (S.order) openReport(S.order.id); }
   else if (a === "repback") openOrder(REP.order);

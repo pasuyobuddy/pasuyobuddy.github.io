@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.28" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.35" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -815,7 +815,7 @@ var watchId = null, lastSent = 0;
 function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer. Keep this page open with the screen on.</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
 var meMk = null; setInterval(function () { updateMe(); }, 10000);
 // Move "You" on the job map and refresh the location note without redrawing the page (keeps the rider's zoom)
-function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (mapObj && meMk && S.pos) meMk.setLatLng([S.pos.lat, S.pos.lng]); }
+function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (mapObj && meMk && S.pos) { meMk.setLatLng([S.pos.lat, S.pos.lng]); riderLeg(); } }
 async function sendPos(lat, lng) {
   S.pos = { lat: lat, lng: lng }; S.posAt = Date.now(); S.posErr = ""; updateMe();
   if (Date.now() - lastSent < (S.view === "job" || S.view === "chat" ? 4000 : 15000)) return; lastSent = Date.now();
@@ -855,6 +855,8 @@ function vConfirmed() {
 async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; }
 async function afterLogin() {
   try { await reloadMe(); } catch (e) { S.session = null; S.authMsg = e.message; S.view = "auth"; if (/deactivated/i.test(e.message)) { try { await sb.auth.signOut(); } catch (x) {} } render(); return; }
+  checkPush().then(function () { if (S.view === "home" || S.view === "account") render(); });
+  topupReturn().then(function () { if (/[?&]topup=/.test(location.search) === false && S.view === "wallet") render(); });
   await route();
 }
 async function route() {
@@ -985,7 +987,7 @@ async function finishJob() {
   await run(async function () { var o = S.order; await rpc("complete_order", { p_order: o.id }); stopTimers(); await reloadMe();
     S.done = { id: o.id, order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
 }
-async function showWallet() { stopTimers(); S.view = "wallet"; render(); try { S.wallet = await rpc("rider_wallet"); if (S.view === "wallet") render(); } catch (e) { toast(e.message, true); } }
+async function showWallet() { stopTimers(); S.view = "wallet"; render(); try { S.wallet = await rpc("rider_wallet"); await refreshTopups(); if (S.view === "wallet") render(); loadTopupQuote(); } catch (e) { toast(e.message, true); } }
 async function showHistory() { stopTimers(); S.view = "history"; render(); try { S.history = await rpc("rider_history", { p_limit: 30 }); if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
 async function cashOut() {
   var amt = Number(val("w_amt")), g = val("w_gcash");
@@ -1001,6 +1003,47 @@ function killMap() { if (mapObj) { try { mapObj.remove(); } catch (e) {} mapObj 
 function vehIcon(name) { var n = String(name || "").toLowerCase(); return /motor/.test(n) ? "&#127949;&#65039;" : /sedan/.test(n) ? "&#128663;" : /suv/.test(n) ? "&#128665;" : /mpv/.test(n) ? "&#128656;" : /pickup/.test(n) ? "&#128763;" : /van|truck|cargo/.test(n) ? "&#128666;" : "&#128663;"; }
 function flagIcon(kind, n, multi, dim) { return L.divIcon({ className: "flgwrap", html: '<div class="flg' + (dim ? " dim" : "") + '">' + (kind === "pickup" ? "&#128681;" : "&#127937;") + (multi && kind !== "pickup" ? "<b>" + n + "</b>" : "") + "</div>", iconSize: [34, 34], iconAnchor: [8, 32] }); }
 function vehMarker(name) { return L.divIcon({ className: "", html: '<div class="rdr">' + vehIcon(name) + "</div>", iconSize: [38, 38], iconAnchor: [19, 19] }); }
+// ---------------- Road routes on the map (follow the streets, not straight lines) ----------------
+function pickShortest(j) { var rs = (j && j.routes) || []; if (!rs.length) return null; return rs.slice().sort(function (a, b) { return a.distance - b.distance; })[0]; }
+var ROUTE_CACHE = {};
+async function roadRoute(pts) {
+  if (!pts || pts.length < 2) return null;
+  var key = pts.map(function (p) { return (+p[0]).toFixed(5) + "," + (+p[1]).toFixed(5); }).join(";");
+  if (ROUTE_CACHE[key]) return ROUTE_CACHE[key];
+  if (pts.length > 2) { var parts = []; for (var k = 1; k < pts.length; k++) parts.push(roadRoute([pts[k - 1], pts[k]]));
+    var segs = await Promise.all(parts); if (segs.some(function (x) { return !x; })) return null;
+    var all = []; segs.forEach(function (x, n) { all = all.concat(n ? x.slice(1) : x); }); ROUTE_CACHE[key] = all; return all; }
+  var u = "https://router.project-osrm.org/route/v1/driving/" + pts.map(function (p) { return p[1] + "," + p[0]; }).join(";") + "?overview=full&geometries=geojson&alternatives=3";
+  var ctl = typeof AbortController !== "undefined" ? new AbortController() : null, t = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+  try {
+    var j = await (await fetch(u, ctl ? { signal: ctl.signal } : {})).json();
+    var best = pickShortest(j), c = best && best.geometry && best.geometry.coordinates;
+    if (!c || c.length < 2) return null;
+    c = c.map(function (x) { return [x[1], x[0]]; }); ROUTE_CACHE[key] = c; return c;
+  } catch (e) { return null; } finally { clearTimeout(t); }
+}
+// Draws a light dashed line at once, then swaps it for the street route when it arrives
+function routeLine(map, pts, color) {
+  var line = L.polyline(pts, { color: color, weight: 4, opacity: 0.5, dashArray: "6 8" }).addTo(map);
+  roadRoute(pts).then(function (c) { if (c && map === mapObj) { line.setLatLngs(c); line.setStyle({ dashArray: null, weight: 5, opacity: 0.85 }); } });
+  return line;
+}
+// The rider's way to the next stop (blue), re-drawn when the rider has moved about 250 m
+var LEG = { map: null, line: null, from: null, to: null, at: 0 };
+function legDist(a, b) { var dx = (a[0] - b[0]) * 111000, dy = (a[1] - b[1]) * 111000 * Math.cos(a[0] * Math.PI / 180); return Math.sqrt(dx * dx + dy * dy); }
+function updateLeg(map, from, to) {
+  if (!map) return;
+  if (!from || !to) { if (LEG.line && LEG.map === map) { try { map.removeLayer(LEG.line); } catch (e) {} } LEG.line = null; return; }
+  var same = LEG.line && LEG.map === map, sameTo = same && LEG.to && legDist(LEG.to, to) < 5;
+  if (sameTo && (legDist(LEG.from, from) < 250 || Date.now() - LEG.at < 20000)) return;
+  if (same) { try { map.removeLayer(LEG.line); } catch (e) {} }
+  LEG = { map: map, from: from, to: to, at: Date.now(), line: routeLine(map, [from, to], "#1D3F8F") };
+}
+function nextStopOf(status, stops) {
+  if (status === "accepted" || status === "at_pickup") return stops[0];
+  if (status === "picked_up" || status === "in_transit") return stops.filter(function (s) { return s.kind === "dropoff" && s.status === "pending"; })[0] || null;
+  return null;
+}
 function drawJobMap() {
   var el = $("jmap"); if (!el || typeof L === "undefined" || !S.order) return; killMap(); var pts = [];
   mapObj = L.map(el, { zoomControl: false, minZoom: 9 });
@@ -1008,9 +1051,12 @@ function drawJobMap() {
   var multi = S.order.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   S.order.stops.forEach(function (s) { pts.push([s.lat, s.lng]);
     L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status !== "pending") }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
+  routeLine(mapObj, pts.slice(), "#D7141A");
   meMk = null; if (S.pos) { pts.push([S.pos.lat, S.pos.lng]); meMk = L.marker([S.pos.lat, S.pos.lng], { icon: vehMarker(rider() && rider().vehicle), zIndexOffset: 1000 }).bindTooltip("You").addTo(mapObj); }
   mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 });
+  riderLeg();
 }
+function riderLeg() { if (!mapObj || !S.order || !S.pos) return; var nx = nextStopOf(S.order.status, S.order.stops); updateLeg(mapObj, nx ? [S.pos.lat, S.pos.lng] : null, nx ? [nx.lat, nx.lng] : null); }
 
 // ---------------- Chat with the other person on this booking ----------------
 var CHAT = { id: null, data: null, timer: null, first: false };
@@ -1076,6 +1122,86 @@ var REP_FROM = "job";
 function repTop(t) { return '<div class="top dark"><button class="btn sm" style="width:auto" data-act="repback">← Back</button><h1 style="margin-left:6px">' + h(t) + "</h1></div>"; }
 function repLeave() { stopTimers(); stopChat(); }
 
+// ---------------- Job alerts (notifications even when the app is closed) ----------------
+function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && location.protocol === "https:"; }
+function b64ToU8(b) { var p = "=".repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, "+").replace(/_/g, "/")), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+async function checkPush() {
+  S.pushOn = false; if (!pushSupported() || Notification.permission !== "granted") return;
+  try { var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription(); if (!sub) return;
+    var j = sub.toJSON(); await rpc("rider_save_push", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth }); S.pushOn = true; } catch (e) {}
+}
+async function enablePush() {
+  await run(async function () {
+    if (!pushSupported()) throw new Error("This phone or browser cannot receive job alerts. Use the installed app or Chrome.");
+    var perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Notifications are blocked. Allow notifications for PasuyoBuddy Rider in your phone settings, then try again.");
+    var st = await rpc("rider_push_status"); if (!st || !st.vapid_public) throw new Error("Job alerts are not set up yet. Ask the office.");
+    var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(st.vapid_public) });
+    var j = sub.toJSON(); await rpc("rider_save_push", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    S.pushOn = true; render(); toast("Job alerts are on");
+  });
+}
+async function disablePush() {
+  await run(async function () { var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (sub) { var ep = sub.endpoint; try { await sub.unsubscribe(); } catch (e) {} await rpc("rider_remove_push", { p_endpoint: ep }); }
+    S.pushOn = false; render(); toast("Job alerts are off on this phone"); });
+}
+function pushCard(full) {
+  if (!pushSupported()) return full ? '<div class="card"><h2>&#128276; Job alerts</h2><div class="small muted">This phone or browser cannot receive job alerts. Install the PasuyoBuddy Rider app or use Chrome.</div></div>' : "";
+  if (S.pushOn) return full ? '<div class="card"><div class="row"><div class="sp"><h2 style="margin:0">&#128276; Job alerts are ON</h2><div class="small muted">You get new bookings on this phone even when the app is closed or the screen is off, as long as you are <b>online</b>. Go offline to stop them.</div></div><button class="btn sm" style="width:auto" data-act="pushoff">Turn off</button></div></div>' : "";
+  return '<div class="card" style="border-color:var(--accent)"><h2 style="margin:0 0 4px">&#128276; Turn on job alerts</h2><div class="small muted" style="margin-bottom:10px">Get new bookings on this phone even when the app is closed or the screen is off. You only get them while you are online.</div><button class="btn pri" data-act="pushon">Turn on job alerts</button></div>';
+}
+
+function earnCard(w) {
+  if (!w.withdrawable) return '<div class="note n-info">Commission on cash jobs is taken <b>only from your load</b>. Your earnings are never used for commission unless you move them yourself.</div>';
+  return '<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2 style="margin:0">Use earnings as load</h2>'
+    + '<div class="small muted">You have <b>' + peso(w.withdrawable) + '</b> in earnings. You can cash them out, or move some to your load to keep taking cash jobs without paying a GCash fee. Commission is taken only from your load, never from your earnings unless you move them here.</div>'
+    + '<div class="row" style="gap:8px"><input class="in" id="e2l_amt" type="number" inputmode="decimal" min="1" max="' + (w.withdrawable / 100) + '" value="' + (w.withdrawable / 100) + '" style="flex:1" aria-label="Amount to move (pesos)"><button class="btn pri" style="width:auto" data-act="e2l">Move to load</button></div>'
+    + '<div class="small muted">Moved earnings become load and cannot be cashed out anymore.</div></div>';
+}
+async function earningsToLoad() {
+  var v = Number(val("e2l_amt")); if (!(v > 0)) { toast("Enter the amount to move", true); return; }
+  await run(async function () { await rpc("rider_earnings_to_load", { p_amount: Math.round(v * 100) }); S.wallet = await rpc("rider_wallet"); await reloadMe(); render(); toast("Moved " + peso(Math.round(v * 100)) + " to your load"); });
+}
+// ---------------- GCash top-up (PayMongo) ----------------
+var TOPUP = { amount: 300, quote: null, list: null, busy: false };
+async function loadTopupQuote() { try { TOPUP.quote = await rpc("topup_quote", { p_amount_pesos: TOPUP.amount }); } catch (e) { TOPUP.quote = { error: e.message }; } var q = $("tq"); if (q) q.innerHTML = topupQuoteText(); }
+function topupQuoteText() { var q = TOPUP.quote; if (!q) return '<span class="muted">Checking…</span>'; if (q.error) return '<span style="color:var(--bad)">' + h(q.error) + "</span>";
+  return 'Load <b>' + peso(q.amount) + '</b> + GCash fee ' + peso(q.fee) + ' = <b>you pay ' + peso(q.charged) + "</b>"; }
+function topupCard(w) {
+  var chips = [300, 500, 1000, 2000].map(function (a) { return '<button class="chip' + (TOPUP.amount === a ? " on" : "") + '" data-act="tuamt" data-v="' + a + '">₱' + a + "</button>"; }).join("");
+  var recent = (TOPUP.list || []).filter(function (t) { return t.status !== "expired" || Date.now() - new Date(t.created_at).getTime() < 864e5; }).slice(0, 3).map(function (t) {
+    return '<div class="line small"><span class="sp">' + peso(t.amount) + ' <span class="muted">· ' + h(new Date(t.created_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + "</span></span>" + pill(t.status === "paid" ? "Added" : t.status === "pending" ? "Waiting for payment" : "Not paid", t.status === "paid" ? "good" : t.status === "pending" ? "warn" : "soft") + "</div>"; }).join("");
+  return '<div class="card" style="display:flex;flex-direction:column;gap:10px;border-color:#0B6BFF"><h2 style="margin:0">Top up with GCash</h2>'
+    + '<div class="chips">' + chips + '</div><div class="field"><label for="tu_amt">Or type an amount (₱)</label><input class="in" id="tu_amt" type="number" inputmode="numeric" min="100" max="5000" value="' + TOPUP.amount + '"></div>'
+    + '<div class="small" id="tq">' + topupQuoteText() + "</div>"
+    + '<button class="btn pri" style="background:#0B6BFF;border-color:#0B6BFF" data-act="tupay">Pay with GCash</button>'
+    + '<div class="small muted">The load is added to your wallet automatically a few seconds after you pay. Minimum wallet to receive cash jobs: ' + peso(w.min_load) + ". Top-up load is used to pay commissions and is not refundable.</div>"
+    + (recent ? '<div><div class="small b" style="margin-top:4px">Recent GCash top-ups</div>' + recent + "</div>" : "") + "</div>";
+}
+async function payTopup() {
+  var v = Number(val("tu_amt")); if (v) TOPUP.amount = v;
+  await run(async function () {
+    var r = await sb.functions.invoke("topup-create", { body: { amount: TOPUP.amount, return_to: location.origin + location.pathname } });
+    var d = r.data, err = r.error;
+    if (err) { var msg = err.message; try { var b = err.context && (await err.context.json()); if (b && b.error) msg = b.error; } catch (x) {} throw new Error(msg); }
+    if (!d || !d.checkout_url) throw new Error((d && d.error) || "Could not open GCash. Please try again.");
+    toast("Opening GCash…"); location.href = d.checkout_url;
+  });
+}
+async function refreshTopups() { try { TOPUP.list = await rpc("rider_topups"); } catch (e) { TOPUP.list = null; } }
+// Back from PayMongo: wait for the webhook to add the load, then show it
+async function topupReturn() {
+  var p = new URLSearchParams(location.search).get("topup"); if (!p) return;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  if (p === "cancel") { toast("GCash payment cancelled", true); return; }
+  toast("Payment received. Adding your load…");
+  for (var i = 0; i < 12; i++) { await new Promise(function (r) { setTimeout(r, 2500); }); await refreshTopups(); if ((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; })) break; }
+  try { await reloadMe(); S.wallet = await rpc("rider_wallet"); } catch (e) {}
+  render(); toast((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; }) ? "Load added to your wallet" : "Payment is still being confirmed. Check your wallet in a minute.");
+}
+
 // ---------------- Screens ----------------
 function topBar(title, right) { return '<div class="top dark"><img class="mark" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt=""><h1>' + h(title) + "</h1>" + (right || "") + "</div>"; }
 function nav(on) { return '<div class="nav">' + [["home", "Jobs"], ["wallet", "Wallet"], ["history", "History"], ["account", "Account"]].map(function (x) { return '<button data-act="' + x[0] + '" class="' + (on === x[0] ? "on" : "") + '">' + x[1] + "</button>"; }).join("") + "</div>"; }
@@ -1123,6 +1249,7 @@ function saveHidden() { try { var now = Date.now(); Object.keys(HIDDEN).forEach(
 function jobCard(j) {
   var tags = [pill(j.payment_method === "cash" ? "Cash" : "Paid online", j.payment_method === "cash" ? "warn" : "blue")];
   if (j.receivers_pay) tags.push(pill("Receiver pays", "soft")); if (j.advance > 0) tags.push(pill("COD: advance " + peso(j.advance), "bad"));
+  if (j.needs_bag) tags.unshift(pill("🎒 Bring a delivery bag", "bad"));
   if (j.service_level === "priority") tags.push(pill("Priority", "blue")); if (j.service_level === "pooling") tags.push(pill("Saver", "soft"));
   return '<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><div class="b">' + h(j.pickup_area || "Pickup") + ' <span class="muted" style="font-weight:400">→</span> ' + h((j.drop_areas || []).join(" → ")) + '</div><div class="small muted">' + km(j.pickup_distance_m) + " to pickup · " + j.total_km + " km trip · " + j.drops + (j.drops > 1 ? " drop-offs" : " drop-off") + "</div></div>"
     + (j.customer_pays != null
@@ -1132,8 +1259,8 @@ function jobCard(j) {
     + '<div class="chips" style="margin:10px 0">' + tags.join("") + '</div><div class="row"><button class="btn" style="flex:0 0 32%" data-act="hidejob" data-id="' + j.order_id + '">Hide</button><button class="btn pri" style="flex:1" data-act="accept" data-id="' + j.order_id + '">Accept</button></div></div>';
 }
 function vHome() {
-  var r = rider(), on = r.is_online, low = r.wallet < S.me.settings.rider_min_load * 100;
-  var list = !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because the app was closed for more than 10 minutes. Tap <b>Go online</b> when you are ready for jobs again.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
+  var r = rider(), on = r.is_online, loadAmt = r.load != null ? r.load : r.wallet, low = loadAmt < S.me.settings.rider_min_load * 100;
+  var list = !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because the app was closed for a long time. Tap <b>Go online</b> when you are ready for jobs again.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
     : S.jobsErr ? '<div class="note n-warn">' + h(S.jobsErr) + "</div>"
     : !S.jobs ? '<div class="spin">Looking for jobs…</div>'
     : !S.jobs.length ? '<div class="card muted">No jobs ' + (r.region_id ? "in " + h(r.region_name) : "within " + (r.radius_m / 1000) + " km") + " right now. This list refreshes by itself.</div>" : (function () {
@@ -1141,9 +1268,11 @@ function vHome() {
         return (vis.length ? vis.map(jobCard).join("") : '<div class="card muted">No other jobs right now. This list refreshes by itself.</div>')
           + (nh ? '<div class="small muted" style="text-align:center">' + nh + " hidden job" + (nh > 1 ? "s" : "") + ' · <button class="link" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer" data-act="unhidejobs">Show again</button></div>' : ""); })();
   return topBar(on ? "Online" : "Offline", '<button class="btn sm ' + (on ? "" : "pri") + '" data-act="online" data-v="' + (on ? "0" : "1") + '">' + (on ? "Go offline" : "Go online") + "</button>") + '<div class="body">'
-    + '<div class="card"><div class="row"><div class="sp"><div class="small muted">Wallet</div><div class="b" style="font-size:20px">' + peso(r.wallet) + '</div></div><div class="right"><div class="small muted">' + h(r.vehicle) + " · ★ " + h(r.rating) + '</div><div class="small muted">' + h(r.completed_jobs) + " jobs done</div></div></div>"
-    + (low ? '<div class="note n-warn" style="margin-top:10px">Wallet is below ' + peso(S.me.settings.rider_min_load * 100) + ". Cash jobs need enough wallet to cover the commission, so some jobs may be hidden. Top up to see them all.</div>" : "") + "</div>"
-    + (on ? '<div class="note n-info">Keep this page open with the screen on. Your location is only sent while the app is open. If the app is closed for more than 10 minutes, you are switched offline.</div>' : "")
+    + '<div class="card"><div class="row"><div class="sp"><div class="small muted">Load</div><div class="b" style="font-size:20px">' + peso(loadAmt) + '</div>' + (r.withdrawable ? '<div class="small" style="color:var(--good)">Earnings ' + peso(r.withdrawable) + "</div>" : "") + '</div><div class="right"><div class="small muted">' + h(r.vehicle) + " · ★ " + h(r.rating) + '</div><div class="small muted">' + h(r.completed_jobs) + " jobs done</div></div></div>"
+    + (low ? '<div class="note n-warn" style="margin-top:10px">Your load is below ' + peso(S.me.settings.rider_min_load * 100) + ". Commission on cash jobs is taken only from your load, so cash jobs you cannot cover are hidden. Top up with GCash" + (r.withdrawable ? " or move your earnings to load" : "") + ' in <b>Wallet</b>.</div>' : "") + "</div>"
+    + pushCard(false)
+    + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
+    + (on ? '<div class="note n-info">Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.</div>' : "")
     + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
@@ -1182,6 +1311,7 @@ function vJob() {
   var stops = o.stops.map(function (s) { var active = (s.kind === "pickup" && (st === "accepted" || st === "at_pickup")) || (next && s.id === next.id && st === "in_transit"); return stopBlock(s, active); }).join("");
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
     + locNote()
+    + (o.needs_bag ? '<div class="note n-warn" style="font-weight:700">&#127890; The customer asked you to bring a delivery bag.</div>' : "")
     + chatBtn("Chat with customer", S.unread)
     + '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="job">&#9888;&#65039; Report a problem</button>'
     + cashPlan(o)
@@ -1200,8 +1330,8 @@ function vDone() {
     + '<div class="line"><span class="b">Customer paid in total</span><span class="b">' + peso(gross) + "</span></div>"
     + '<div class="line"><span class="muted">Platform commission</span><span style="color:var(--bad)">&minus;' + peso(d.commission) + "</span></div>"
     + '<div class="line tot"><span>Your earnings</span><span style="color:var(--good)">' + peso(d.earns) + "</span></div>"
-    + '<div class="small muted" style="margin-top:8px">You keep the cash you collected. Only the commission comes off your wallet.</div></div>'
-    + '<div class="card"><div class="line"><span class="muted">Wallet now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
+    + '<div class="small muted" style="margin-top:8px">You keep the cash you collected. The commission comes off your <b>load</b> only, never your earnings.</div></div>'
+    + '<div class="card"><div class="line"><span class="muted">Balance now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
     + '<button class="btn pri" data-act="home">Find the next job</button><button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="done" data-id="' + h(d.id) + '">&#9888;&#65039; Report a problem with this job</button></div>';
 }
 var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
@@ -1210,7 +1340,8 @@ function vWallet() {
   var tx = w.tx.length ? w.tx.map(function (t) { return '<div class="line"><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--accent-d)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + "</span></div>"; }).join("") : '<div class="muted">No wallet activity yet.</div>';
   var po = w.payouts.length ? '<div class="card"><h2>Cash-outs</h2>' + w.payouts.map(function (p) { return '<div class="line"><span class="sp">' + peso(p.amount) + ' <span class="small muted">to ' + h(p.destination) + " · " + h(when(p.requested_at)) + "</span></span>" + pill(p.status, p.status === "sent" ? "good" : p.status === "failed" ? "bad" : "warn") + "</div>"; }).join("") + "</div>" : "";
   return topBar("Wallet") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">Balance</div><div style="font-size:30px;font-weight:800">' + peso(w.balance) + '</div><div class="row" style="margin-top:10px;justify-content:space-around"><div><div class="small muted">Load (non-refundable)</div><div class="b">' + peso(w.load) + '</div></div><div><div class="small muted">You can cash out</div><div class="b" style="color:var(--good)">' + peso(w.withdrawable) + "</div></div></div></div>"
-    + '<div class="note n-info">To top up (minimum ' + peso(w.min_load) + "), pay PasuyoBuddy and the office will add it to your wallet. Top-up load is used to pay commissions and is not refundable. Online top-up by GCash is coming soon.</div>"
+    + topupCard(w)
+    + earnCard(w)
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Cash out</h2><div class="field"><label for="w_gcash">GCash number</label><input class="in" id="w_gcash" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(w.payout_gcash)) + '"></div>'
     + '<div class="field"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div><div class="small muted">Only your earnings can be cashed out, not top-up load. A ' + peso(w.payout_fee) + " fee applies to each cash-out. Cash-outs are sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>"
     + po + '<div class="card"><h2>Activity</h2>' + tx + "</div></div>" + nav("wallet");
@@ -1220,9 +1351,17 @@ function vHistory() {
     : list.map(function (o) { return '<div class="card"><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + "</div></div><div class=\"right\">" + (o.status === "completed" ? '<div class="b">' + peso(o.rider_earns) + "</div>" : pill("Cancelled", "soft")) + "</div></div></div>"; }).join("");
   return topBar("History") + '<div class="body">' + body + "</div>" + nav("history");
 }
+function photoUrl(p) { return p ? CONFIG.url + "/storage/v1/object/public/avatars/" + p : ""; }
+function photoCard() {
+  var p = S.me && S.me.photo;
+  return '<div class="card"><div class="row" style="gap:12px;align-items:center">' + (p ? '<img src="' + h(photoUrl(p)) + '" alt="Your profile photo" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:3px solid var(--yellow)">' : '<div style="width:64px;height:64px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:28px">&#128100;</div>')
+    + '<div class="sp"><div class="b">Profile photo</div><div class="small muted">' + (p ? "Customers see this photo with your name, plate and mobile number." : "Take a clear selfie of your face (no cap, no sunglasses). Customers see it so they know who is coming.") + "</div></div>"
+    + '<label class="btn sm' + (p ? "" : " pri") + '" style="cursor:pointer;width:auto">' + (p ? "Retake selfie" : "Take selfie") + '<input type="file" accept="image/*" capture="user" data-photo="1" hidden></label></div></div>';
+}
+async function uploadPhoto(file) { await run(async function () { toast("Uploading…"); var path = await upload("avatars", "photo", file); await rpc("rider_set_photo", { p_path: path }); await reloadMe(); render(); toast("Profile photo saved"); }); }
 function vAccount() {
   var r = rider();
-  return topBar("Account") + '<div class="body"><div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>' + h(phoneFmt(S.me.phone)) + '</span></div><div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+  return topBar("Account") + '<div class="body">' + photoCard() + pushCard(true) + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>' + h(phoneFmt(S.me.phone)) + '</span></div><div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
     + (S.me.regions || []).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
@@ -1241,6 +1380,11 @@ document.addEventListener("click", function (ev) {
   if (a === "auth") doAuth();
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "signout") signOut();
+  else if (a === "tuamt") { TOPUP.amount = +d.v; var inp = $("tu_amt"); if (inp) inp.value = d.v; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", b === t); }); TOPUP.quote = null; loadTopupQuote(); }
+  else if (a === "tupay") payTopup();
+  else if (a === "e2l") earningsToLoad();
+  else if (a === "pushon") enablePush();
+  else if (a === "pushoff") disablePush();
   else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
   else if (a === "repopen") { REP_FROM = d.from || "job"; var oid = d.id || (S.order && S.order.id); if (oid) openReport(oid); }
   else if (a === "repback") { if (REP_FROM === "job") openJob(REP.order); else goHome(); }
@@ -1275,9 +1419,12 @@ document.addEventListener("click", function (ev) {
   else if (a === "radius") setRadius(+d.v);
   else if (a === "region") setRegion(d.v ? +d.v : null);
 });
+var tuT = null;
+document.addEventListener("input", function (ev) { if (ev.target && ev.target.id === "tu_amt") { clearTimeout(tuT); tuT = setTimeout(function () { var v = Number(ev.target.value); if (v) { TOPUP.amount = v; TOPUP.quote = null; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", +b.dataset.v === v); }); loadTopupQuote(); } }, 400); } });
 document.addEventListener("change", function (ev) {
   var t = ev.target; if (t.type !== "file" || !t.files || !t.files[0]) return;
   if (t.dataset.doc) uploadDoc(t.dataset.doc, t.files[0]);
+  else if (t.dataset.photo) uploadPhoto(t.files[0]);
   else if (t.dataset.pod && S.stopForm) { S.stopForm.name = val("st_name"); S.stopForm.file = t.files[0]; render(); }
 });
 document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash") ev.target.value = phoneFmt(ev.target.value); });
