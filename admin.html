@@ -789,7 +789,7 @@ async function run(fn, okMsg) { try { await fn(); if (okMsg) toast(okMsg); } cat
 var STATUS = { searching: ["Waiting for rider", "warn"], accepted: ["Rider assigned", "blue"], at_pickup: ["At pickup", "blue"], at_store: ["At store", "blue"], bought: ["Bought · on the way", "blue"],
   picked_up: ["Picked up", "blue"], in_transit: ["In transit", "blue"], completed: ["Completed", "good"], cancelled_by_customer: ["Cancelled", "soft"], cancelled_by_rider: ["Rider cancelled", "soft"], no_rider_found: ["No rider found", "bad"] };
 function statusPill(s) { var x = STATUS[s] || [s, "soft"]; return pill(x[0], x[1]); }
-var AREAS = [["overview", "Overview"], ["orders", "Orders"], ["reports", "Reports"], ["riders", "Riders"], ["customers", "Customers"], ["money", "Money"], ["pricing", "Pricing & settings"], ["staff", "Staff"]];
+var AREAS = [["overview", "Overview"], ["orders", "Orders"], ["reports", "Reports"], ["riders", "Riders"], ["customers", "Customers"], ["money", "Money"], ["accounting", "Accounting"], ["pricing", "Pricing & settings"], ["staff", "Staff"]];
 var ROLE_NAME = { owner: "Owner", dispatcher: "Dispatcher", finance: "Finance" };
 
 // ---------------- Data loading ----------------
@@ -803,6 +803,7 @@ async function loadTab() {
   if (t === "customers") S.customers = await rpc("admin_customers", { p_search: S.custSearch || null, p_limit: 200 });
   if (t === "money") S.money = await rpc("admin_money", { p_days: S.moneyDays });
   if (t === "money") { try { S.gcash = await rpc("admin_gcash_status"); } catch (e) { S.gcash = null; } try { S.promos = await rpc("admin_promos"); } catch (e) { S.promos = null; } }   // needs the v2.13 database update
+  if (t === "accounting") { if (!S.accFrom) accRange("month"); S.acc = null; render(); S.acc = await rpc("admin_accounting", { p_from: S.accFrom, p_to: S.accTo }); }
   if (t === "pricing") { S.rates = await rpc("admin_rates"); S.draft = makeDraft(S.rates); }
   if (t === "staff") S.staff = await rpc("admin_staff");
   if (t === "reports" || (t === "overview" && canSee("reports"))) { try { var rr = await rpc("admin_reports", { p_status: t === "reports" ? (S.repFilter || "open") : "open" }); S.openReports = rr.open_count; if (t === "reports") S.reports = rr.items; } catch (e) { S.reports = null; S.openReports = 0; } }   // needs the v2.9 database update
@@ -863,7 +864,7 @@ function viewNoAccess() {
     '<div class="note soft small">Owner: in Supabase → SQL Editor run<br><code>update public.profiles set role = \'admin\', staff_role = \'owner\' where email = \'' + h(S.me.email || "you@example.com") + "';</code><br>then sign in again.</div>" +
     '<button class="btn" data-act="signout">Sign out</button></div></div>';
 }
-function canSee(tab) { return tab === "reports" ? S.me.areas.indexOf("orders") >= 0 : S.me.areas.indexOf(tab) >= 0; }
+function canSee(tab) { return tab === "reports" ? S.me.areas.indexOf("orders") >= 0 : tab === "accounting" ? S.me.areas.indexOf("money") >= 0 : S.me.areas.indexOf(tab) >= 0; }
 function layout(inner) {
   var nav = AREAS.filter(function (a) { return canSee(a[0]); }).map(function (a) {
     return '<button class="nav' + (S.tab === a[0] ? " on" : "") + '" data-act="go" data-tab="' + a[0] + '">' + a[1] + (a[0] === "reports" && S.openReports ? ' <span style="background:#FFC629;color:#15171C;border-radius:10px;padding:0 7px;font-size:12px;margin-left:4px">' + S.openReports + "</span>" : "") + "</button>"; }).join("");
@@ -1044,6 +1045,61 @@ function gcashBox() {
     + '<div class="small muted">Riders load their wallet with GCash in the rider app. The load is added automatically when PayMongo confirms the payment. The rider pays the GCash fee on top.</div>'
     + (rows ? '<div class="tablewrap"><table><thead><tr><th>Rider</th><th>Load</th><th>Fee paid</th><th>When</th><th>Status</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="small muted">No GCash top-ups yet.</div>') + "</div>";
 }
+// ---------------- Accounting ----------------
+function phDate(d) { return (d || new Date()).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); }   // YYYY-MM-DD in PH time
+function accRange(k) {
+  var t = phDate(), y = Number(t.slice(0, 4)), m = Number(t.slice(5, 7));
+  function ymd(Y, M, D) { return Y + "-" + String(M).padStart(2, "0") + "-" + String(D).padStart(2, "0"); }
+  function last(Y, M) { return new Date(Date.UTC(Y, M, 0)).getUTCDate(); }
+  S.accKey = k;
+  if (k === "today") { S.accFrom = S.accTo = t; }
+  else if (k === "yesterday") { var d = new Date(Date.UTC(y, m - 1, Number(t.slice(8, 10)) - 1)); S.accFrom = S.accTo = d.toISOString().slice(0, 10); }
+  else if (k === "month") { S.accFrom = ymd(y, m, 1); S.accTo = t; }
+  else if (k === "lastmonth") { var Y = m === 1 ? y - 1 : y, M = m === 1 ? 12 : m - 1; S.accFrom = ymd(Y, M, 1); S.accTo = ymd(Y, M, last(Y, M)); }
+}
+function accTile(label, val, sub, tone) { return '<div class="kpi"' + (tone ? ' style="border-color:' + tone + '"' : "") + '><div class="l">' + label + '</div><div class="v"' + (tone ? ' style="color:' + tone + '"' : "") + ">" + val + '</div><div class="s">' + (sub || "") + "</div></div>"; }
+function accSection(title, note, tiles, tone) { return '<div class="card" style="display:flex;flex-direction:column;gap:10px' + (tone ? ";border-color:" + tone : "") + '"><h2 style="margin:0">' + title + "</h2>" + (note ? '<div class="small muted">' + note + "</div>" : "") + '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + tiles + "</div></div>"; }
+function viewAccounting() {
+  var chips = [["today", "Today"], ["yesterday", "Yesterday"], ["month", "This month"], ["lastmonth", "Last month"]].map(function (c) { return '<button class="chip' + (S.accKey === c[0] ? " on" : "") + '" data-act="acc-range" data-k="' + c[0] + '">' + c[1] + "</button>"; }).join("");
+  var bar = '<div class="card row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">' + chips
+    + '<label class="f">From<input type="date" id="accFrom" value="' + h(S.accFrom) + '"></label><label class="f">To<input type="date" id="accTo" value="' + h(S.accTo) + '"></label>'
+    + '<button class="btn dark sm" data-act="acc-apply">Show</button><span style="flex:1"></span><button class="btn sm" data-act="csv-acc"' + (S.acc ? "" : " disabled") + ">Export per day (CSV)</button></div>";
+  var a = S.acc; if (!a) return bar + '<div class="empty">Loading…</div>';
+  var GOOD = "var(--good,#0B6B45)", GOLD = "#C98A00";
+  var realComm = Math.max(0, a.commission - a.commission_free_load), realNet = realComm + a.payout_fees - a.gateway_fees;
+  var income = accSection("&#128176; Your income (real money)", "Commission paid with <b>free load</b> is not real money: the rider paid it with promo load you gave. Only the rest is real income.",
+      accTile("Commission (all)", peso(a.commission), "12% of completed fares")
+    + accTile("− Paid with free load", peso(a.commission_free_load), "promo, not real money", GOLD)
+    + accTile("= Real commission", peso(realComm), "real money", GOOD)
+    + accTile("+ Cash-out fees", peso(a.payout_fees), a.payouts_sent_n + " cash-out(s) sent")
+    + accTile("− Payment gateway fees", peso(a.gateway_fees), "PayMongo, online payments")
+    + accTile("= Real net income", peso(realNet), "before your own costs", GOOD), GOOD);
+  var act = accSection("&#128230; Activity", "",
+      accTile("Bookings made", a.bookings) + accTile("Deliveries completed", a.completed) + accTile("Cancelled", a.cancelled, "by customer or rider") + accTile("No rider found", a.no_rider)
+    + accTile("Riders who worked", a.active_riders) + accTile("Customers who booked", a.active_customers) + accTile("New customers", a.new_customers) + accTile("New rider sign-ups", a.new_riders));
+  var del = accSection("&#128666; Deliveries", "Tips and abono go 100% to riders. They are not your income.",
+      accTile("Delivery fares", peso(a.fares)) + accTile("Tips", peso(a.tips), "for riders") + accTile("Abono", peso(a.abono), "for riders") + accTile("Paid online", peso(a.online_paid), "GCash / card through PayMongo"));
+  var rid = accSection("&#127949;&#65039; Rider money", "Top-ups are real money paid in advance by riders. They become your commission as riders do cash jobs.",
+      accTile("GCash top-ups received", peso(a.topup_gcash), a.topup_gcash_n + " payment(s)", GOOD)
+    + accTile("Cash top-ups recorded", peso(a.topup_manual), a.topup_manual_n + " added by staff")
+    + (a.topup_gcash_test ? accTile("TEST top-ups", peso(a.topup_gcash_test), "PayMongo test mode, not real", GOLD) : "")
+    + accTile("Earnings moved to load", peso(a.earnings_to_load), "by riders themselves")
+    + accTile("Cash-outs sent", peso(a.payouts_sent), a.payouts_sent_n + " sent to riders")
+    + accTile("Cash-outs waiting", peso(a.payouts_waiting), "to send now (any date)", a.payouts_waiting ? "var(--bad,#C0392B)" : ""));
+  var pro = accSection("&#127873; Promos (free load, NOT real money)", "Free load you gave riders. It only pays commissions and is never cashed out.",
+      accTile("Welcome load given", peso(a.promo_welcome), a.promo_welcome_n + " rider(s)", GOLD)
+    + accTile("Invite rewards given", peso(a.promo_invite), a.promo_invite_n + " reward(s)", GOLD)
+    + accTile("Free load used", peso(a.promo_used), "on commissions")
+    + accTile("Expired or removed", peso(a.promo_expired), "not used in time")
+    + accTile("Skipped", a.promo_skipped_n, "budget or same person"), GOLD);
+  var now = accSection("&#128203; Right now (all riders, any date)", "",
+      accTile("Earnings riders can cash out", peso(a.now_cashable), "you owe this to riders", "var(--bad,#C0392B)")
+    + accTile("Paid load not used yet", peso(a.now_paid_load), "real money riders prepaid")
+    + accTile("Free load not used yet", peso(a.now_free_load), "promo, not real money", GOLD));
+  var rows = (a.daily || []).map(function (x) { var rc = Math.max(0, x.commission - x.free_load); return "<tr><td>" + h(x.day) + "</td><td>" + x.completed + "</td><td>" + peso(x.fares) + "</td><td>" + peso(x.commission) + '</td><td style="color:#C98A00">' + peso(x.free_load) + '</td><td style="font-weight:700">' + peso(rc) + "</td><td>" + peso(x.topups) + "</td><td>" + peso(x.payouts) + '</td><td style="color:#C98A00">' + peso(x.promo_given) + "</td></tr>"; }).join("");
+  var daily = '<div><h2>Per day</h2>' + (rows ? '<div class="tablewrap"><table><thead><tr><th>Day</th><th>Deliveries</th><th>Fares</th><th>Commission</th><th>Paid with free load</th><th>Real commission</th><th>Top-ups</th><th>Cash-outs sent</th><th>Free load given</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="empty">Nothing happened in these dates.</div>') + "</div>";
+  return bar + income + act + del + rid + pro + now + daily;
+}
 function viewMoney() {
   var m = S.money; if (!m) return '<div class="empty">Loading…</div>';
   var chips = [[1, "Today (24 h)"], [7, "7 days"], [30, "30 days"], [90, "90 days"], [366, "1 year"]].map(function (d) { return '<button class="chip' + (S.moneyDays === d[0] ? " on" : "") + '" data-act="money-days" data-d="' + d[0] + '">' + d[1] + "</button>"; }).join("");
@@ -1129,7 +1185,7 @@ function render() {
   if (!S.session) { root.innerHTML = viewLogin(); return; }
   if (!S.me) { root.innerHTML = '<div class="empty">Loading…</div>'; return; }
   if (!S.me.is_admin) { root.innerHTML = viewNoAccess(); return; }
-  var v = { reports: viewReports, overview: viewOverview, orders: viewOrders, riders: viewRiders, customers: viewCustomers, money: viewMoney, pricing: viewPricing, staff: viewStaff }[S.tab];
+  var v = { reports: viewReports, overview: viewOverview, orders: viewOrders, riders: viewRiders, customers: viewCustomers, money: viewMoney, accounting: viewAccounting, pricing: viewPricing, staff: viewStaff }[S.tab];
   root.innerHTML = layout(v ? v() : "");
   if (S.tab === "overview" && S.overview) drawMap();
 }
@@ -1188,6 +1244,9 @@ document.addEventListener("click", function (e) {
   if (a === "load-close") { S.loadFor = null; return render(); }
   if (a === "rider-status") return void run(async function () { await rpc("admin_set_rider_status", { p_rider: d.id, p_status: d.s }); await loadTab(); render(); }, "Rider " + d.s);
   if (a === "cash-block") return void run(async function () { await rpc("admin_set_cash_blocked", { p_profile: d.id, p_blocked: d.b === "1" }); await loadTab(); render(); }, d.b === "1" ? "Cash Pabili/COD blocked" : "Cash unblocked");
+  if (a === "acc-range") { accRange(d.k); return void refresh(); }
+  if (a === "acc-apply") { var f = $("accFrom").value, t = $("accTo").value; if (!f || !t) return void toast("Choose both dates", true); if (t < f) return void toast("The end date is before the start date", true); S.accFrom = f; S.accTo = t; S.accKey = ""; return void refresh(); }
+  if (a === "csv-acc") return csv("pasuyobuddy_accounting_" + S.accFrom + "_to_" + S.accTo + ".csv", [["Day", "Deliveries", "Fares (PHP)", "Commission (PHP)", "Paid with free load (PHP)", "Real commission (PHP)", "Top-ups (PHP)", "Cash-outs sent (PHP)", "Free load given (PHP)"]].concat((S.acc.daily || []).map(function (x) { return [x.day, x.completed, x.fares / 100, x.commission / 100, x.free_load / 100, Math.max(0, x.commission - x.free_load) / 100, x.topups / 100, x.payouts / 100, x.promo_given / 100]; })));
   if (a === "money-days") { S.moneyDays = Number(d.d); return void refresh(); }
   if (a === "payout") return void run(async function () { await rpc("admin_set_payout_status", { p_payout: d.id, p_status: d.s, p_ref: null }); await loadTab(); render(); }, "Payout marked " + d.s);
   if (a === "csv-daily") return csv("pasuyobuddy_daily_sales.csv", [["Day", "Orders", "Fares (PHP)", "Commission (PHP)"]].concat((S.money.daily || []).map(function (x) { return [x.day, x.orders, x.fares / 100, x.commission / 100]; })));
