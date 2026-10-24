@@ -2,7 +2,7 @@
  "id": "/index.html",
  "name": "PasuyoBuddy",
  "short_name": "PasuyoBuddy",
- "description": "Book a Padala delivery in Metro Manila.",
+ "description": "Book a Pasuyo Delivery in Metro Manila.",
  "start_url": "/index.html",
  "scope": "/",
  "display": "standalone",
