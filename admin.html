@@ -1374,7 +1374,10 @@ document.addEventListener("click", function (e) {
   if (a === "load-close") { S.loadFor = null; return render(); }
   if (a === "rider-status") return void run(async function () { await rpc("admin_set_rider_status", { p_rider: d.id, p_status: d.s }); await loadTab(); render(); }, "Rider " + d.s);
   if (a === "cash-block") return void run(async function () { await rpc("admin_set_cash_blocked", { p_profile: d.id, p_blocked: d.b === "1" }); await loadTab(); render(); }, d.b === "1" ? "Cash Pabili/COD blocked" : "Cash unblocked");
-  if (a === "acc-print") return void run(async function () { if (d.r === "daily") await printDaily(); else if (d.r === "statement") printStatement(); else if (d.r === "riders") await printRiders(); else await printPromos(); });
+  if (a === "acc-print") return void run(async function () {
+    var nf = $("accFrom") && $("accFrom").value, nt = $("accTo") && $("accTo").value;   // dates changed without pressing Show: use the new dates
+    if (nf && nt && (nf !== S.accFrom || nt !== S.accTo)) { if (nt < nf) throw new Error("The end date is before the start date"); S.accFrom = nf; S.accTo = nt; S.accKey = ""; await loadTab(); render(); }
+    if (d.r === "daily") await printDaily(); else if (d.r === "statement") printStatement(); else if (d.r === "riders") await printRiders(); else await printPromos(); });
   if (a === "csv-riders") return csv("pasuyobuddy_rider_balances_" + phDate() + ".csv", [["Rider", "Plate", "Status", "Top-up load left (PHP)", "Free load left (PHP)", "Can cash out (PHP)", "Wallet total (PHP)"]].concat((S.acc.now_riders || []).map(function (x) { return [x.name || "", x.plate || "", x.status, x.paid_load / 100, x.free_load / 100, x.cashable / 100, x.balance / 100]; })));
   if (a === "acc-range") { accRange(d.k); return void refresh(); }
   if (a === "acc-apply") { var f = $("accFrom").value, t = $("accTo").value; if (!f || !t) return void toast("Choose both dates", true); if (t < f) return void toast("The end date is before the start date", true); S.accFrom = f; S.accTo = t; S.accKey = ""; return void refresh(); }
