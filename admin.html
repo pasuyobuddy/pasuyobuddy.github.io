@@ -1059,11 +1059,137 @@ function accRange(k) {
 }
 function accTile(label, val, sub, tone) { return '<div class="kpi"' + (tone ? ' style="border-color:' + tone + '"' : "") + '><div class="l">' + label + '</div><div class="v"' + (tone ? ' style="color:' + tone + '"' : "") + ">" + val + '</div><div class="s">' + (sub || "") + "</div></div>"; }
 function accSection(title, note, tiles, tone) { return '<div class="card" style="display:flex;flex-direction:column;gap:10px' + (tone ? ";border-color:" + tone : "") + '"><h2 style="margin:0">' + title + "</h2>" + (note ? '<div class="small muted">' + note + "</div>" : "") + '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">' + tiles + "</div></div>"; }
+// ---------------- Printable reports (A4) ----------------
+function fmtDay(d) { return new Date(d + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }); }
+function fmtPeriod(f, t) { return f === t ? fmtDay(f) : fmtDay(f) + " – " + fmtDay(t); }
+function pTime(t) { return t ? new Date(t).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }) : ""; }
+function pDate(t) { return t ? new Date(t).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" }) : ""; }
+var PRINT_CSS = "body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;margin:0}"
+  + ".head{display:flex;align-items:center;gap:14px;border-bottom:3px solid #D7141A;padding-bottom:8px;margin-bottom:10px}.head img{height:50px}"
+  + "h1{font-size:19px;margin:0}h2{font-size:12px;margin:12px 0 4px;padding:4px 8px;background:#F3F1EC;border-left:4px solid #D7141A;break-after:avoid}"
+  + "table{width:100%;border-collapse:collapse}td,th{padding:3px 6px;border-bottom:1px solid #E4E2DC;text-align:left;vertical-align:top}th{background:#FAF9F6;font-size:10px}.n{text-align:right;white-space:nowrap}"
+  + "tr{break-inside:avoid}tr.total td{font-weight:bold;border-top:2px solid #111}tr.grand td{font-weight:bold;font-size:12.5px;border-top:2px solid #111;border-bottom:3px double #111}"
+  + "tr.sub td{font-weight:bold}tr.promo td,.promo{color:#8A5A00}.ind td:first-child{padding-left:22px}.muted{color:#666}.small{font-size:9.5px}"
+  + ".note{font-size:9.5px;color:#666;margin-top:6px;break-inside:avoid}.cols{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}"
+  + ".sign{display:flex;gap:40px;margin-top:28px;break-inside:avoid}.sign div{flex:1;border-top:1px solid #111;padding-top:4px;text-align:center;font-size:10px}"
+  + "table.list td{font-size:9.5px;padding:3px 5px}table.list th{font-size:9px;padding:3px 5px}.nw{white-space:nowrap}"
+  + ".page{break-after:page}.page:last-child{break-after:auto}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:6px 0}"
+  + ".kpis div{border:1px solid #E4E2DC;border-radius:6px;padding:5px 7px}.kpis b{display:block;font-size:13px;margin-top:2px}";
+function pHead(title, period) {
+  var logo = (document.querySelector(".brand img") || {}).src || "";
+  return '<div class="head">' + (logo ? '<img src="' + logo + '" alt="">' : "") + "<div><h1>" + h(title) + "</h1><div><b>Period:</b> " + h(period) + '</div><div class="muted small">Printed ' + h(new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila" })) + " by " + h((S.me && (S.me.full_name || S.me.email)) || "") + " · PasuyoBuddy</div></div></div>";
+}
+function pRow(label, val, cls) { return '<tr class="' + (cls || "") + '"><td>' + label + '</td><td class="n">' + val + "</td></tr>"; }
+function pSign() { return '<div class="sign"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>'; }
+var PROMO_NOTE = "Free load is promo credit given to riders. It pays commissions but is never paid out as cash, so it is not counted as real income. Times are Philippine time.";
+function printDoc(title, body, landscape) {
+  var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + h(title) + "</title><style>@page{size:A4 " + (landscape ? "landscape" : "portrait") + ";margin:12mm}" + PRINT_CSS + "</style></head><body>" + body + "</body></html>";
+  var f = document.createElement("iframe"); f.setAttribute("aria-hidden", "true"); f.className = "printframe";
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+  document.body.appendChild(f);
+  var doc = f.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast("Could not open printing: " + e.message, true); } setTimeout(function () { f.remove(); }, 60000); }, 450);
+}
+
+// 1. Daily sales report: one page per day, with every completed booking
+async function printDaily() {
+  var a = S.acc; if (!a) return;
+  var orders = await rpc("admin_report_orders", { p_from: a.from, p_to: a.to });
+  var days = (a.daily || []).filter(function (d) { return d.completed > 0 || d.topups > 0 || d.payouts > 0 || d.promo_given > 0; });
+  if (!days.length) return void toast("Nothing happened in these dates, so there is nothing to print", true);
+  var PAY = { cash: "Cash", gcash: "GCash", maya: "Maya", card: "Card", qrph: "QR Ph" };
+  var pages = days.map(function (d) {
+    var list = orders.filter(function (o) { return o.day === d.day; });
+    var tips = list.reduce(function (s, o) { return s + o.tip; }, 0), abono = list.reduce(function (s, o) { return s + o.abono; }, 0);
+    var real = Math.max(0, d.commission - d.free_load);
+    var rows = list.map(function (o, i) { return "<tr><td>" + (i + 1) + '</td><td class="nw">' + h(o.order_no) + '</td><td class="nw">' + h(pTime(o.completed_at)) + "</td><td>" + h(o.customer || "") + "</td><td>" + h(o.rider || "") + "</td><td>" + h(o.vehicle || "") + (o.drops > 1 ? " · " + o.drops + " drops" : "") + "</td><td>" + h(PAY[o.pay] || o.pay) + '</td><td class="n">' + peso(o.fare) + '</td><td class="n">' + peso(o.tip + o.abono) + '</td><td class="n">' + peso(o.commission) + '</td><td class="n promo">' + (o.free_load ? peso(o.free_load) : "") + "</td></tr>"; }).join("");
+    return '<div class="page">' + pHead("Daily sales report", fmtDay(d.day))
+      + '<div class="kpis"><div>Deliveries<b>' + d.completed + "</b></div><div>Fares<b>" + peso(d.fares) + "</b></div><div>Commission<b>" + peso(d.commission) + '</b></div><div class="promo">Paid w/ free load<b>' + peso(d.free_load) + "</b></div><div>Real commission<b>" + peso(real) + "</b></div></div>"
+      + '<div class="cols"><div><h2>Sales</h2><table>' + pRow("Delivery fares", peso(d.fares)) + pRow("Tips (for riders)", peso(tips)) + pRow("Abono (for riders)", peso(abono)) + pRow("Commission", peso(d.commission))
+      + pRow("Less: paid with free load (promo)", "− " + peso(d.free_load), "promo") + pRow("REAL COMMISSION", peso(real), "total") + "</table></div>"
+      + "<div><h2>Rider money</h2><table>" + pRow("Top-ups received", peso(d.topups)) + pRow("Cash-outs sent", peso(d.payouts)) + pRow("Free load given (promo)", peso(d.promo_given), "promo") + "</table></div></div>"
+      + (rows ? '<h2>Completed bookings (' + list.length + ')</h2><table class="list"><tr><th>#</th><th>Booking</th><th>Done</th><th>Customer</th><th>Rider</th><th>Vehicle</th><th>Paid by</th><th class="n">Fare</th><th class="n">Tip+abono</th><th class="n">Commission</th><th class="n">Free load</th></tr>' + rows
+        + '<tr class="total"><td colspan="7">Total</td><td class="n">' + peso(d.fares) + '</td><td class="n">' + peso(tips + abono) + '</td><td class="n">' + peso(d.commission) + '</td><td class="n">' + peso(list.reduce(function (s, o) { return s + o.free_load; }, 0)) + "</td></tr></table>" : '<div class="note">No completed bookings this day.</div>')
+      + '<div class="note">' + PROMO_NOTE + "</div>" + pSign() + "</div>";
+  }).join("");
+  printDoc("PasuyoBuddy daily sales " + a.from + (a.to !== a.from ? " to " + a.to : ""), pages, false);
+}
+
+// 2. Monthly income statement
+function printStatement() {
+  var a = S.acc; if (!a) return;
+  var realComm = Math.max(0, a.commission - a.commission_free_load), revenue = realComm + a.payout_fees, net = revenue - a.gateway_fees;
+  var avgFare = a.completed ? Math.round(a.fares / a.completed) : 0, avgComm = a.completed ? Math.round(a.commission / a.completed) : 0;
+  var days = (a.daily || []).map(function (x) { return "<tr><td>" + h(x.day) + '</td><td class="n">' + x.completed + '</td><td class="n">' + peso(x.fares) + '</td><td class="n">' + peso(x.commission) + '</td><td class="n promo">' + peso(x.free_load) + '</td><td class="n"><b>' + peso(Math.max(0, x.commission - x.free_load)) + '</b></td><td class="n">' + peso(x.topups) + '</td><td class="n">' + peso(x.payouts) + "</td></tr>"; }).join("");
+  var body = pHead("Income statement", fmtPeriod(a.from, a.to))
+    + "<h2>Statement of income</h2><table>"
+    + '<tr class="sub"><td>Revenue</td><td></td></tr>'
+    + '<tr class="ind"><td>Commission earned on completed deliveries</td><td class="n">' + peso(a.commission) + "</td></tr>"
+    + '<tr class="ind promo"><td>Less: commission paid with promotional free load</td><td class="n">(' + peso(a.commission_free_load) + ")</td></tr>"
+    + '<tr class="ind"><td><b>Net commission revenue</b></td><td class="n"><b>' + peso(realComm) + "</b></td></tr>"
+    + '<tr class="ind"><td>Cash-out fees collected</td><td class="n">' + peso(a.payout_fees) + "</td></tr>"
+    + '<tr class="total"><td>Total revenue</td><td class="n">' + peso(revenue) + "</td></tr>"
+    + '<tr class="sub"><td>Deductions</td><td></td></tr>'
+    + '<tr class="ind"><td>Payment gateway fees (PayMongo)</td><td class="n">(' + peso(a.gateway_fees) + ")</td></tr>"
+    + '<tr class="grand"><td>NET INCOME</td><td class="n">' + peso(net) + "</td></tr></table>"
+    + '<div class="note">Net income is before your own operating costs (staff, server, marketing, taxes).</div>'
+    + '<div class="cols"><div><h2>Key figures</h2><table>' + pRow("Deliveries completed", a.completed) + pRow("Bookings made", a.bookings) + pRow("Cancelled / no rider", a.cancelled + " / " + a.no_rider)
+    + pRow("Average fare per delivery", peso(avgFare)) + pRow("Average commission per delivery", peso(avgComm)) + pRow("Riders who worked", a.active_riders) + pRow("Customers who booked", a.active_customers) + pRow("New customers / new riders", a.new_customers + " / " + a.new_riders) + "</table></div>"
+    + "<div><h2>Money handled for riders (not income)</h2><table>" + pRow("Delivery fares", peso(a.fares)) + pRow("Tips paid to riders", peso(a.tips)) + pRow("Abono paid to riders", peso(a.abono))
+    + pRow("Top-ups received (GCash " + a.topup_gcash_n + ", cash " + a.topup_manual_n + ")", peso(a.topup_gcash + a.topup_manual)) + pRow("Cash-outs paid (" + a.payouts_sent_n + ")", peso(a.payouts_sent)) + pRow("Cash-outs still to send", peso(a.payouts_waiting))
+    + pRow("Promotional free load given", peso(a.promo_welcome + a.promo_invite), "promo") + "</table></div></div>"
+    + "<h2>Balances at time of printing</h2><table>" + pRow("Owed to riders: earnings they can cash out", peso(a.now_cashable)) + pRow("Top-up load remaining (prepaid by riders)", peso(a.now_paid_load)) + pRow("Free load remaining (promo, not a debt)", peso(a.now_free_load), "promo") + "</table>"
+    + (days ? '<h2>Per day</h2><table><tr><th>Day</th><th class="n">Deliveries</th><th class="n">Fares</th><th class="n">Commission</th><th class="n">Free load</th><th class="n">Real commission</th><th class="n">Top-ups</th><th class="n">Cash-outs</th></tr>' + days
+      + '<tr class="total"><td>Total</td><td class="n">' + a.completed + '</td><td class="n">' + peso(a.fares) + '</td><td class="n">' + peso(a.commission) + '</td><td class="n">' + peso(a.commission_free_load) + '</td><td class="n">' + peso(realComm) + '</td><td class="n">' + peso(a.topup_gcash + a.topup_manual) + '</td><td class="n">' + peso(a.payouts_sent) + "</td></tr></table>" : "")
+    + '<div class="note">' + PROMO_NOTE + "</div>" + pSign();
+  printDoc("PasuyoBuddy income statement " + a.from + " to " + a.to, body, false);
+}
+
+// 3. Rider report
+async function printRiders() {
+  var a = S.acc; if (!a) return;
+  var rs = await rpc("admin_report_riders", { p_from: a.from, p_to: a.to });
+  if (!rs.length) return void toast("No rider activity in these dates", true);
+  var T = { jobs: 0, fares: 0, extra: 0, commission: 0, free: 0, earned: 0, topups: 0, promos: 0, cashouts: 0, load: 0, freeleft: 0, cash: 0 };
+  var rows = rs.map(function (r) {
+    var extra = r.tips + r.abono, earned = r.fares + extra - r.commission, paidLoad = Math.max(0, r.load_now - r.free_left);
+    T.jobs += r.jobs; T.fares += r.fares; T.extra += extra; T.commission += r.commission; T.free += r.free_load_used; T.earned += earned; T.topups += r.topups; T.promos += r.promos; T.cashouts += r.cashouts; T.load += paidLoad; T.freeleft += r.free_left; T.cash += r.cashable;
+    return "<tr><td>" + h(r.name || "—") + '<div class="small muted">' + h((r.vehicle || "") + (r.plate ? " · " + r.plate : "") + (r.status !== "approved" ? " · " + r.status : "")) + '</div></td><td class="n">' + r.jobs + '</td><td class="n">' + peso(r.fares) + '</td><td class="n">' + peso(extra) + '</td><td class="n">' + peso(r.commission) + '</td><td class="n promo">' + peso(r.free_load_used) + '</td><td class="n"><b>' + peso(earned) + '</b></td><td class="n">' + peso(r.topups) + '</td><td class="n promo">' + peso(r.promos) + '</td><td class="n">' + peso(r.cashouts) + '</td><td class="n">' + peso(paidLoad) + '</td><td class="n promo">' + peso(r.free_left) + '</td><td class="n">' + peso(r.cashable) + "</td></tr>";
+  }).join("");
+  var body = pHead("Rider report", fmtPeriod(a.from, a.to))
+    + '<table class="list"><tr><th>Rider</th><th class="n">Jobs</th><th class="n">Fares</th><th class="n">Tips + abono</th><th class="n">Commission</th><th class="n">Paid w/ free load</th><th class="n">Rider earned</th><th class="n">Top-ups</th><th class="n">Promos received</th><th class="n">Cash-outs</th><th class="n">Top-up load left*</th><th class="n">Free load left*</th><th class="n">Can cash out*</th></tr>' + rows
+    + '<tr class="total"><td>Total (' + rs.length + ' riders)</td><td class="n">' + T.jobs + '</td><td class="n">' + peso(T.fares) + '</td><td class="n">' + peso(T.extra) + '</td><td class="n">' + peso(T.commission) + '</td><td class="n">' + peso(T.free) + '</td><td class="n">' + peso(T.earned) + '</td><td class="n">' + peso(T.topups) + '</td><td class="n">' + peso(T.promos) + '</td><td class="n">' + peso(T.cashouts) + '</td><td class="n">' + peso(T.load) + '</td><td class="n">' + peso(T.freeleft) + '</td><td class="n">' + peso(T.cash) + "</td></tr></table>"
+    + '<div class="note">Rider earned = fares + tips + abono − commission (what the rider keeps from these jobs). * = balance at time of printing, not for the dates. ' + PROMO_NOTE + "</div>" + pSign();
+  printDoc("PasuyoBuddy rider report " + a.from + " to " + a.to, body, true);
+}
+
+// 4. Promo report
+async function printPromos() {
+  var a = S.acc; if (!a) return;
+  var p = await rpc("admin_report_promos", { p_from: a.from, p_to: a.to });
+  var KIND = { signup: "Welcome load", referral: "Invite reward", manual: "Manual" }, ST = { active: "Active", used: "Used up", expired: "Expired", skipped: "Skipped" };
+  var given = p.list.filter(function (g) { return g.status !== "skipped"; });
+  function sum(arr, k) { return arr.reduce(function (s, g) { return s + (g[k] || 0); }, 0); }
+  function byKind(k) { var l = given.filter(function (g) { return g.kind === k; }); return [l.length, sum(l, "amount")]; }
+  var w = byKind("signup"), inv = byKind("referral"), man = byKind("manual");
+  var months = (p.months || []).map(function (m) { var pct = p.budget_month ? Math.round((m.given || 0) * 100 / p.budget_month) : 0; return "<tr><td>" + h(m.month) + '</td><td class="n">' + peso(m.given || 0) + '</td><td class="n">' + peso(p.budget_month) + '</td><td class="n">' + pct + "%</td></tr>"; }).join("");
+  var rows = p.list.map(function (g) { return '<tr><td class="nw">' + h(pDate(g.created_at)) + "</td><td>" + h(g.rider || "—") + '<div class="small muted">' + h(g.plate || "") + "</div></td><td>" + h(KIND[g.kind] || g.kind) + (g.invited ? '<div class="small muted">for inviting ' + h(g.invited) + "</div>" : "") + '</td><td class="n">' + peso(g.amount) + '</td><td class="n">' + peso(g.used) + '</td><td class="n">' + (g.expired_amount ? peso(g.expired_amount) : "") + "</td><td>" + h(ST[g.status] || g.status) + (g.skip_reason ? '<div class="small muted">' + h(g.skip_reason) + "</div>" : "") + '</td><td class="nw">' + h(g.status === "active" ? pDate(g.expires_at) : "") + "</td></tr>"; }).join("");
+  var body = pHead("Promo report (free load)", fmtPeriod(a.from, a.to))
+    + '<div class="cols"><div><h2>Summary</h2><table>' + pRow("Welcome load given (" + w[0] + ")", peso(w[1]), "promo") + pRow("Invite rewards given (" + inv[0] + ")", peso(inv[1]), "promo") + (man[0] ? pRow("Given by hand (" + man[0] + ")", peso(man[1]), "promo") : "")
+    + pRow("TOTAL FREE LOAD GIVEN", peso(w[1] + inv[1] + man[1]), "total") + pRow("Used on commissions (in these dates)", peso(p.used_in_dates)) + pRow("Expired, not used", peso(sum(p.list, "expired_amount")))
+    + pRow("Skipped (budget or same person)", p.list.length - given.length) + pRow("Unused free load right now (all riders)", peso(p.active_now)) + "</table></div>"
+    + "<div><h2>Current promo settings</h2><table>" + pRow("Welcome load when approved", peso(p.settings.welcome)) + pRow("Invite reward", peso(p.settings.invite)) + pRow("Jobs before invite reward", p.settings.invite_jobs) + pRow("Free load expires after", p.settings.expiry_days + " days") + pRow("Monthly budget", peso(p.budget_month)) + "</table>"
+    + (months ? '<h2>Budget used per month</h2><table><tr><th>Month</th><th class="n">Given</th><th class="n">Budget</th><th class="n">Used</th></tr>' + months + "</table>" : "") + "</div></div>"
+    + (rows ? '<h2>Every promo (' + p.list.length + ')</h2><table class="list"><tr><th>Date</th><th>Rider</th><th>Promo</th><th class="n">Amount</th><th class="n">Used</th><th class="n">Expired</th><th>Status</th><th>Expires</th></tr>' + rows + "</table>" : '<div class="note">No promos in these dates.</div>')
+    + '<div class="note">' + PROMO_NOTE + "</div>" + pSign();
+  printDoc("PasuyoBuddy promo report " + a.from + " to " + a.to, body, false);
+}
+
 function viewAccounting() {
   var chips = [["today", "Today"], ["yesterday", "Yesterday"], ["month", "This month"], ["lastmonth", "Last month"]].map(function (c) { return '<button class="chip' + (S.accKey === c[0] ? " on" : "") + '" data-act="acc-range" data-k="' + c[0] + '">' + c[1] + "</button>"; }).join("");
   var bar = '<div class="card row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">' + chips
     + '<label class="f">From<input type="date" id="accFrom" value="' + h(S.accFrom) + '"></label><label class="f">To<input type="date" id="accTo" value="' + h(S.accTo) + '"></label>'
-    + '<button class="btn dark sm" data-act="acc-apply">Show</button><span style="flex:1"></span><button class="btn sm" data-act="csv-acc"' + (S.acc ? "" : " disabled") + ">Export per day (CSV)</button></div>";
+    + '<button class="btn dark sm" data-act="acc-apply">Show</button><span style="flex:1"></span><span class="small" style="font-weight:800;color:var(--muted)">&#128424;&#65039; PRINT</span>' + [["daily", "Daily sales"], ["statement", "Income statement"], ["riders", "Rider report"], ["promos", "Promo report"]].map(function (x) { return '<button class="btn sm primary" data-act="acc-print" data-r="' + x[0] + '"' + (S.acc ? "" : " disabled") + ">" + x[1] + "</button>"; }).join("") + '<button class="btn sm" data-act="csv-acc"' + (S.acc ? "" : " disabled") + ">Export per day (CSV)</button></div>";
   var a = S.acc; if (!a) return bar + '<div class="empty">Loading…</div>';
   var GOOD = "var(--good,#0B6B45)", GOLD = "#C98A00";
   var realComm = Math.max(0, a.commission - a.commission_free_load), realNet = realComm + a.payout_fees - a.gateway_fees;
@@ -1085,17 +1211,21 @@ function viewAccounting() {
     + (a.topup_gcash_test ? accTile("TEST top-ups", peso(a.topup_gcash_test), "PayMongo test mode, not real", GOLD) : "")
     + accTile("Earnings moved to load", peso(a.earnings_to_load), "by riders themselves")
     + accTile("Cash-outs sent", peso(a.payouts_sent), a.payouts_sent_n + " sent to riders")
-    + accTile("Cash-outs waiting", peso(a.payouts_waiting), "to send now (any date)", a.payouts_waiting ? "var(--bad,#C0392B)" : ""));
+    + accTile("Cash-outs waiting", peso(a.payouts_waiting), "to send now (any date)", a.payouts_waiting ? "var(--bad,#C0392B)" : "")
+    + accTile("Top-up load remaining", peso(a.now_paid_load), "all riders, right now", "#1D3F8F"));
   var pro = accSection("&#127873; Promos (free load, NOT real money)", "Free load you gave riders. It only pays commissions and is never cashed out.",
       accTile("Welcome load given", peso(a.promo_welcome), a.promo_welcome_n + " rider(s)", GOLD)
     + accTile("Invite rewards given", peso(a.promo_invite), a.promo_invite_n + " reward(s)", GOLD)
     + accTile("Free load used", peso(a.promo_used), "on commissions")
     + accTile("Expired or removed", peso(a.promo_expired), "not used in time")
     + accTile("Skipped", a.promo_skipped_n, "budget or same person"), GOLD);
-  var now = accSection("&#128203; Right now (all riders, any date)", "",
-      accTile("Earnings riders can cash out", peso(a.now_cashable), "you owe this to riders", "var(--bad,#C0392B)")
-    + accTile("Paid load not used yet", peso(a.now_paid_load), "real money riders prepaid")
-    + accTile("Free load not used yet", peso(a.now_free_load), "promo, not real money", GOLD));
+  var rlist = (a.now_riders || []).map(function (x) { return "<tr><td>" + h(x.name || "—") + (x.status !== "approved" ? ' <span class="small muted">(' + h(x.status) + ")</span>" : "") + '<div class="small muted">' + h(x.plate || "") + '</div></td><td style="font-weight:700;color:#1D3F8F">' + peso(x.paid_load) + '</td><td style="color:#C98A00">' + peso(x.free_load) + '</td><td style="color:var(--bad,#C0392B)">' + peso(x.cashable) + '</td><td style="font-weight:700">' + peso(x.balance) + "</td></tr>"; }).join("");
+  var now = accSection("&#128203; Right now (all riders, any date)", "Top-up load = real money riders paid in advance (plus earnings they moved to load). It is used up as commission on cash jobs and cannot be cashed out.",
+      accTile("Top-up load remaining", peso(a.now_paid_load), "real money riders prepaid", "#1D3F8F")
+    + accTile("Free load remaining", peso(a.now_free_load), "promo, not real money", GOLD)
+    + accTile("Earnings riders can cash out", peso(a.now_cashable), "you owe this to riders", "var(--bad,#C0392B)"))
+    + (rlist ? '<div class="card" style="display:flex;flex-direction:column;gap:8px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Each rider right now</h2><button class="btn sm" data-act="csv-riders">Export (CSV)</button></div><div class="tablewrap"><table><thead><tr><th>Rider</th><th>Top-up load left</th><th>Free load left</th><th>Can cash out</th><th>Wallet total</th></tr></thead><tbody>' + rlist
+      + '<tr style="font-weight:800;border-top:2px solid #111"><td>Total</td><td>' + peso(a.now_paid_load) + "</td><td>" + peso(a.now_free_load) + "</td><td>" + peso(a.now_cashable) + "</td><td>" + peso(a.now_paid_load + a.now_free_load + a.now_cashable) + "</td></tr></tbody></table></div></div>" : "");
   var rows = (a.daily || []).map(function (x) { var rc = Math.max(0, x.commission - x.free_load); return "<tr><td>" + h(x.day) + "</td><td>" + x.completed + "</td><td>" + peso(x.fares) + "</td><td>" + peso(x.commission) + '</td><td style="color:#C98A00">' + peso(x.free_load) + '</td><td style="font-weight:700">' + peso(rc) + "</td><td>" + peso(x.topups) + "</td><td>" + peso(x.payouts) + '</td><td style="color:#C98A00">' + peso(x.promo_given) + "</td></tr>"; }).join("");
   var daily = '<div><h2>Per day</h2>' + (rows ? '<div class="tablewrap"><table><thead><tr><th>Day</th><th>Deliveries</th><th>Fares</th><th>Commission</th><th>Paid with free load</th><th>Real commission</th><th>Top-ups</th><th>Cash-outs sent</th><th>Free load given</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="empty">Nothing happened in these dates.</div>') + "</div>";
   return bar + income + act + del + rid + pro + now + daily;
@@ -1244,6 +1374,8 @@ document.addEventListener("click", function (e) {
   if (a === "load-close") { S.loadFor = null; return render(); }
   if (a === "rider-status") return void run(async function () { await rpc("admin_set_rider_status", { p_rider: d.id, p_status: d.s }); await loadTab(); render(); }, "Rider " + d.s);
   if (a === "cash-block") return void run(async function () { await rpc("admin_set_cash_blocked", { p_profile: d.id, p_blocked: d.b === "1" }); await loadTab(); render(); }, d.b === "1" ? "Cash Pabili/COD blocked" : "Cash unblocked");
+  if (a === "acc-print") return void run(async function () { if (d.r === "daily") await printDaily(); else if (d.r === "statement") printStatement(); else if (d.r === "riders") await printRiders(); else await printPromos(); });
+  if (a === "csv-riders") return csv("pasuyobuddy_rider_balances_" + phDate() + ".csv", [["Rider", "Plate", "Status", "Top-up load left (PHP)", "Free load left (PHP)", "Can cash out (PHP)", "Wallet total (PHP)"]].concat((S.acc.now_riders || []).map(function (x) { return [x.name || "", x.plate || "", x.status, x.paid_load / 100, x.free_load / 100, x.cashable / 100, x.balance / 100]; })));
   if (a === "acc-range") { accRange(d.k); return void refresh(); }
   if (a === "acc-apply") { var f = $("accFrom").value, t = $("accTo").value; if (!f || !t) return void toast("Choose both dates", true); if (t < f) return void toast("The end date is before the start date", true); S.accFrom = f; S.accTo = t; S.accKey = ""; return void refresh(); }
   if (a === "csv-acc") return csv("pasuyobuddy_accounting_" + S.accFrom + "_to_" + S.accTo + ".csv", [["Day", "Deliveries", "Fares (PHP)", "Commission (PHP)", "Paid with free load (PHP)", "Real commission (PHP)", "Top-ups (PHP)", "Cash-outs sent (PHP)", "Free load given (PHP)"]].concat((S.acc.daily || []).map(function (x) { return [x.day, x.completed, x.fares / 100, x.commission / 100, x.free_load / 100, Math.max(0, x.commission - x.free_load) / 100, x.topups / 100, x.payouts / 100, x.promo_given / 100]; })));
