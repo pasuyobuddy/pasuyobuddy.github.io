@@ -665,7 +665,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 	}
 
 :root{--bg:#F6F5F1;--ink:#15171C;--muted:#5B6070;--line:#E4E2DC;--accent:#D7141A;--accent-s:#FFF1BF;--yellow:#FFC629;--good:#0B6B45}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);max-width:560px;margin:0 auto;min-height:100vh}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
 .top{display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--accent);color:#fff;border-bottom:4px solid var(--yellow)}
 .top img{width:34px;height:34px;border-radius:9px;background:#fff}.top h1{font-size:18px;margin:0}
 .body{padding:14px 16px 28px;display:flex;flex-direction:column;gap:12px}
@@ -685,7 +685,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 .flg b{position:absolute;right:-6px;top:-4px;font:700 11px/1 sans-serif;background:#D7141A;color:#fff;border-radius:9px;padding:2px 5px;border:1.5px solid #fff}.flg.dim{opacity:.4}
 .map.full{height:calc(100vh - 66px);height:calc(100dvh - 66px);border-radius:0;border:none}
 .body.mapmode{padding:0}
-.body.mapmode .note{margin:14px 16px}
+.body.mapmode .note,.body.mapmode>.card{margin:14px auto;max-width:560px;width:calc(100% - 32px)}
 .stat{position:absolute;top:10px;left:10px;z-index:500;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-weight:700;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:60%}
 .live{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);z-index:500;background:#fff;border-radius:999px;padding:6px 12px;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.25);white-space:nowrap}
 .live:empty{display:none}
