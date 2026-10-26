@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.44" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.45" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -809,10 +809,86 @@ function pill(text, kind) { return '<span class="pill p-' + kind + '">' + h(text
 function navLink(s) { return "https://www.google.com/maps/dir/?api=1&destination=" + s.lat + "," + s.lng; }
 function rider() { return S.me && S.me.rider; }
 
+// ---------------- Android app extras (PasuyoBuddy Rider app from Google Play / APK) ----------------
+// In the Android app, location keeps being shared while the rider is online or on a job, even when the app
+// is minimized, the screen is off or Waze is open (Android shows a "sharing your location" notification).
+// New jobs come as phone notifications while online. In a normal browser none of this runs.
+var NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+var NAT = { bg: null, ln: null, app: null, http: null, watcher: null, starting: false, active: true, lastSent: 0, lastJobs: 0, told: {} };
+function natPlugin(n) { var C = window.Capacitor; return (C.registerPlugin ? C.registerPlugin(n) : null) || (C.Plugins && C.Plugins[n]); }
+if (NATIVE) { try { NAT.bg = natPlugin("BackgroundGeolocation"); NAT.ln = natPlugin("LocalNotifications"); NAT.app = natPlugin("App"); NAT.http = natPlugin("CapacitorHttp"); } catch (e) { NATIVE = false; } }
+// Supabase call through Android's own internet connection (keeps working in the background)
+async function nativeRpc(name, params) {
+  for (var tries = 0; tries < 2; tries++) {
+    var s = (await sb.auth.getSession()).data.session; if (!s) throw new Error("Not signed in");
+    if (tries || (s.expires_at && s.expires_at * 1000 < Date.now() + 60000)) { try { var rr = await sb.auth.refreshSession(); if (rr.data && rr.data.session) s = rr.data.session; } catch (e) {} }
+    var r = await NAT.http.request({ method: "POST", url: CONFIG.url + "/rest/v1/rpc/" + name, data: params || {},
+      headers: { apikey: CONFIG.key, Authorization: "Bearer " + s.access_token, "Content-Type": "application/json" } });
+    if (r.status === 401 && !tries) continue;
+    if (r.status >= 300) throw new Error((r.data && (r.data.message || r.data.error)) || ("Error " + r.status));
+    return r.data;
+  }
+}
+function nativeWanted() { var r = rider(); return !!(S.session && r && r.status === "approved" && (r.is_online || (S.me && S.me.active_order))); }
+async function nativeSync(force) {
+  if (!NATIVE || NAT.starting) return;
+  var want = force || nativeWanted();
+  if (want && NAT.watcher == null) {
+    NAT.starting = true;
+    try {
+      try { await NAT.ln.requestPermissions(); } catch (e) {}
+      NAT.watcher = await NAT.bg.addWatcher({ backgroundTitle: "PasuyoBuddy Rider: you are online",
+        backgroundMessage: "Sharing your location for job alerts and live tracking. Go offline to stop.",
+        requestPermissions: true, stale: false, distanceFilter: 0 }, nativePos);
+      stopGps();   // the browser GPS is not needed while the app's own GPS runs
+    } catch (e) { S.posErr = "Could not start location sharing. Allow location for PasuyoBuddy Rider in your phone settings."; }
+    NAT.starting = false;
+  } else if (!want && NAT.watcher != null) {
+    var id = NAT.watcher; NAT.watcher = null;
+    try { await NAT.bg.removeWatcher({ id: id }); } catch (e) {}
+    if (S.session && rider() && rider().status === "approved") startGps();
+  }
+}
+function nativePos(loc, err) {
+  if (err) { if (err.code === "NOT_AUTHORIZED") { S.posErr = "Location permission is off. Allow location for PasuyoBuddy Rider in your phone settings."; if (NAT.active && (S.view === "home" || S.view === "job")) render(); } return; }
+  if (!loc) return;
+  var now = Date.now(), onJob = !!(S.me && S.me.active_order) || S.view === "job";
+  S.pos = { lat: loc.latitude, lng: loc.longitude }; S.posAt = now; S.posErr = "";
+  if (NAT.active) updateMe();
+  if (now - NAT.lastSent >= (onJob ? 3000 : 15000)) { NAT.lastSent = now; lastSent = now; nativeRpc("update_my_location", { p_lat: loc.latitude, p_lng: loc.longitude }).catch(function () {}); }
+  if (!NAT.active && !onJob && rider() && rider().is_online && now - NAT.lastJobs >= 15000) { NAT.lastJobs = now; nativeJobAlerts(); }
+}
+// While the app is in the background: check for new jobs and show a phone notification
+async function nativeJobAlerts() {
+  try {
+    var list = await nativeRpc("rider_jobs") || [];
+    var fresh = list.filter(function (j) { return !NAT.told[j.order_id] && !HIDDEN[j.order_id]; }); if (!fresh.length) return;
+    fresh.forEach(function (j) { NAT.told[j.order_id] = 1; });
+    var j = fresh[0], more = fresh.length - 1;
+    await NAT.ln.schedule({ notifications: [{ id: Math.floor(Date.now() / 1000) % 2000000000, channelId: "jobs",
+      title: "New job · you earn " + peso(j.rider_earns) + (more ? "  (+" + more + " more)" : ""),
+      body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + " · " + Number(j.total_km || 0).toFixed(1) + " km trip · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
+  } catch (e) {}
+}
+function nativeInit() {
+  if (!NATIVE) return;
+  try { NAT.ln.createChannel({ id: "jobs", name: "New job alerts", description: "New bookings while you are online", importance: 5, visibility: 1, vibration: true }); } catch (e) {}
+  NAT.app.addListener("appStateChange", function (st) {
+    NAT.active = !!st.isActive;
+    if (!NAT.active) { (S.jobs || []).forEach(function (j) { NAT.told[j.order_id] = 1; }); return; }
+    if (S.session && S.me) run(async function () { await reloadMe(); S.busy = false;
+      if (S.view === "home" || S.view === "job") { if (S.me.active_order) await openJob(S.me.active_order); else if (S.view === "home") await goHome(); }
+      else if (S.view === "wallet") await showWallet(); else render(); });
+  });
+  NAT.app.addListener("appUrlOpen", function (ev) { var m = /[?&]topup=(ok|cancel)/.exec((ev && ev.url) || ""); if (m) topupReturn(m[1]); });
+  NAT.app.addListener("backButton", function (ev) { if (ev && ev.canGoBack) history.back(); else NAT.app.minimizeApp(); });   // back never closes the app (that would stop tracking)
+  NAT.ln.addListener("localNotificationActionPerformed", function () { if (S.session && S.me) run(async function () { await reloadMe(); S.busy = false; if (S.me.active_order) await openJob(S.me.active_order); else await goHome(); }); });
+}
+
 // ---------------- Location ----------------
 // The app must be open for location to be sent. window.__TEST_POS__ lets automated tests supply a position.
 var watchId = null, lastSent = 0;
-function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer. Keep this page open with the screen on.</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
+function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer.' + (NATIVE && NAT.watcher != null ? " It keeps sharing even when you minimize the app, lock the screen or use Waze." : " Keep this page open with the screen on.") + '</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
 var meMk = null; setInterval(function () { updateMe(); }, 10000);
 // Move "You" on the job map and refresh the location note without redrawing the page (keeps the rider's zoom)
 function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (!mapObj || !S.pos) return; var ll = [S.pos.lat, S.pos.lng];
@@ -840,6 +916,7 @@ async function sendPos(lat, lng) {
 // A phone that is not moving sends no new GPS fixes, so re-send the last known spot to stay "fresh" for job matching.
 async function keepAlive() { if (S.pos && Date.now() - lastSent > (S.view === "job" || S.view === "chat" ? 8000 : 30000)) { lastSent = Date.now(); try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); } catch (e) {} } }
 function startGps() {
+  if (NATIVE && NAT.watcher != null) return;
   keepAwake();
   if (window.__TEST_POS__) { sendPos(window.__TEST_POS__.lat, window.__TEST_POS__.lng); return; }
   if (watchId != null) return;
@@ -916,7 +993,7 @@ async function copyRef() {
   var txt = "Join PasuyoBuddy as a rider! Use my invite code " + c + " when you apply: " + location.origin + location.pathname;
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
 }
-async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; }
+async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; if (NATIVE) nativeSync(); }
 async function afterLogin() {
   try { await reloadMe(); } catch (e) { S.session = null; S.authMsg = e.message; S.view = "auth"; if (/deactivated/i.test(e.message)) { try { await sb.auth.signOut(); } catch (x) {} } render(); return; }
   checkPush().then(function () { if (S.view === "home" || S.view === "account") render(); });
@@ -1055,7 +1132,7 @@ async function signOut() {
   if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before signing out.", true); return; }
   stopTimers(); stopGps();
   try { if (rider() && rider().is_online) await rpc("rider_set_online", { p_online: false }); } catch (e) {}
-  await sb.auth.signOut(); S.session = null; S.me = null; S.order = null; S.jobs = null; S.pos = null; S.view = "auth"; render();
+  await sb.auth.signOut(); S.session = null; S.me = null; S.order = null; S.jobs = null; S.pos = null; S.view = "auth"; render(); if (NATIVE) nativeSync();
 }
 
 // ---------------- Application and documents ----------------
@@ -1113,6 +1190,11 @@ async function goHome() {
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
 async function setOnline(on) {
+  if (on && NATIVE) {   // start the app's GPS first and send one location, so the rider is not switched off as "no location"
+    await nativeSync(true);
+    for (var i = 0; i < 20 && !(S.posAt && Date.now() - S.posAt < 30000); i++) await new Promise(function (r) { setTimeout(r, 400); });
+    if (S.pos) { try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); NAT.lastSent = lastSent = Date.now(); } catch (e) {} }
+  }
   if (!on) { try { await reloadMe(); } catch (e) {} if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before going offline.", true); await openJob(S.me.active_order); return; } }
   await run(async function () { await rpc("rider_set_online", { p_online: on }); S.autoOff = false; await reloadMe(); S.jobs = null; S.seen = {}; S.busy = false; await goHome(); toast(on ? "You are online" : "You are offline"); });
 }
@@ -1320,6 +1402,7 @@ async function disablePush() {
     S.pushOn = false; render(); toast("Job alerts are off on this phone"); });
 }
 function pushCard(full) {
+  if (NATIVE) return full ? '<div class="card"><h2>&#128276; Job alerts</h2><div class="small muted">While you are <b>online</b>, new jobs come as phone notifications, even when the app is minimized or the screen is off. Going offline stops them and stops location sharing.</div><div class="small muted" style="margin-top:6px">Tip: in your phone <b>Settings &rarr; Apps &rarr; PasuyoBuddy Rider &rarr; Battery</b>, choose <b>Unrestricted</b> (or turn off battery optimization) so the phone does not stop it. Do not swipe the app away from recent apps while online.</div></div>' : "";
   if (!pushSupported()) return full ? '<div class="card"><h2>&#128276; Job alerts</h2><div class="small muted">This phone or browser cannot receive job alerts. Install the PasuyoBuddy Rider app or use Chrome.</div></div>' : "";
   if (S.pushOn) return full ? '<div class="card"><div class="row"><div class="sp"><h2 style="margin:0">&#128276; Job alerts are ON</h2><div class="small muted">You get new bookings on this phone even when the app is closed or the screen is off, as long as you are <b>online</b>. Go offline to stop them.</div></div><button class="btn sm" style="width:auto" data-act="pushoff">Turn off</button></div></div>' : "";
   return '<div class="card" style="border-color:var(--accent)"><h2 style="margin:0 0 4px">&#128276; Turn on job alerts</h2><div class="small muted" style="margin-bottom:10px">Get new bookings on this phone even when the app is closed or the screen is off. You only get them while you are online.</div><button class="btn pri" data-act="pushon">Turn on job alerts</button></div>';
@@ -1364,9 +1447,9 @@ async function payTopup() {
 }
 async function refreshTopups() { try { TOPUP.list = await rpc("rider_topups"); } catch (e) { TOPUP.list = null; } }
 // Back from PayMongo: wait for the webhook to add the load, then show it
-async function topupReturn() {
-  var p = new URLSearchParams(location.search).get("topup"); if (!p) return;
-  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+async function topupReturn(pv) {
+  var p = pv || new URLSearchParams(location.search).get("topup"); if (!p) return;
+  if (!pv) try { history.replaceState(null, "", location.pathname); } catch (e) {}
   if (p === "cancel") { toast("GCash payment cancelled", true); return; }
   toast("Payment received. Adding your load…");
   for (var i = 0; i < 12; i++) { await new Promise(function (r) { setTimeout(r, 2500); }); await refreshTopups(); if ((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; })) break; }
@@ -1449,7 +1532,7 @@ function vHome() {
     + (low ? '<div class="note n-warn" style="margin-top:10px">Your load is below ' + peso(S.me.settings.rider_min_load * 100) + ". Commission on cash jobs is taken only from your load, so cash jobs you cannot cover are hidden. Top up with GCash" + (r.withdrawable ? " or move your earnings to load" : "") + ' in <b>Wallet</b>.</div>' : "") + "</div>"
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
-    + (on ? '<div class="note n-info">Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.</div>' : "")
+    + (on ? '<div class="note n-info">' + (NATIVE ? "&#128994; You can minimize the app, lock the screen or use Waze. New jobs come as notifications and your location keeps sharing until you go offline." : "Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.") + '</div>' : "")
     + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
@@ -1495,7 +1578,7 @@ function vJob() {
     + '<div class="note n-info">Always collect the full amount above from the customer. Your commission and earnings are shown after you finish the job.</div>'
     + '<div class="card">'
     + (o.note ? '<div class="note n-info" style="margin-top:10px">Note: ' + h(o.note) + "</div>" : "") + '<div class="small muted" style="margin-top:8px">Customer: ' + h(o.customer.name || "") + " · " + h(o.item_type) + " " + (o.customer.verified ? pill("Verified customer", "good") : pill("ID not verified", "soft")) + "</div></div>"
-    + extra + '<div class="map" style="height:260px"><div id="jmap" style="height:100%"></div><div class="mapbtns"><button data-act="mapme">&#128205; Me</button><button data-act="mapall">&#127937; Route</button></div></div><div class="note n-warn">Tip: tracking pauses while another app (like Google Maps) is on the full screen. After navigating, come back to this page so the customer sees you again.</div>' + stops
+    + extra + '<div class="map" style="height:260px"><div id="jmap" style="height:100%"></div><div class="mapbtns"><button data-act="mapme">&#128205; Me</button><button data-act="mapall">&#127937; Route</button></div></div>' + (NATIVE ? "" : '<div class="note n-warn">Tip: tracking pauses while another app (like Google Maps) is on the full screen. After navigating, come back to this page so the customer sees you again.</div>') + '' + stops
     + (canCancel ? (S.ask === "cancel" ? '<div class="card"><div class="b" style="margin-bottom:10px">Give up this job? It goes back to other riders and counts against your record.</div><div class="row"><button class="btn" data-act="asknone">Keep the job</button><button class="btn bad" data-act="canceljob">Yes, give up</button></div></div>' : '<button class="btn bad" data-act="canceljob">I cannot do this job</button>') : "")
     + "</div>" + (foot ? '<div class="foot">' + foot + "</div>" : "");
 }
@@ -1620,6 +1703,7 @@ document.addEventListener("input", function (ev) { var id = ev.target.id; if (id
 document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.target.id === "a_pw" || ev.target.id === "a_email")) doAuth(); else if (ev.key === "Enter" && ev.target.id === "v_code") doVerify(); else if (ev.key === "Enter" && ev.target.id === "f_email") forgotSend(false); else if (ev.key === "Enter" && ev.target.id === "f_pw2") forgotSave(); });
 // Installable app: register the service worker when served from the website (not from a local file)
 if ("serviceWorker" in navigator && location.protocol === "https:") { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); }); }
+nativeInit();
 boot();
 </script>
 </body>
