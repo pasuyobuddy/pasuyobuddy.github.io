@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.42" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.43" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -850,7 +850,7 @@ function startGps() {
 }
 var wakeLock = null;
 async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", function () { wakeLock = null; }); } } catch (e) {} }
-document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && S.session) { keepAwake(); if (S.pos) { lastSent = 0; sendPos(S.pos.lat, S.pos.lng); } } });
+document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && S.session) { keepAwake(); checkNotices(); if (S.pos) { lastSent = 0; sendPos(S.pos.lat, S.pos.lng); } } });
 function stopGps() { if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
 
 // ---------------- Session ----------------
@@ -922,11 +922,34 @@ async function afterLogin() {
   topupReturn().then(function () { if (/[?&]topup=/.test(location.search) === false && S.view === "wallet") render(); });
   await route();
 }
+// ---------------- Messages from PasuyoBuddy (e.g. promo congratulations). Each one shows once. ----------------
+var NOTE = { list: [], lastAt: 0 };
+async function checkNotices(force) {
+  if (!S.session || (!force && Date.now() - NOTE.lastAt < 30000)) return; NOTE.lastAt = Date.now();
+  try { var l = await rpc("rider_notices"); NOTE.list = Array.isArray(l) ? l : []; } catch (e) { NOTE.list = []; }
+  showNotice();
+}
+function showNotice() {
+  var old = $("notice"); if (old) old.remove();
+  var n = NOTE.list[0]; if (!n) return;
+  var d = document.createElement("div"); d.id = "notice";
+  d.style.cssText = "position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px";
+  d.innerHTML = '<div class="card" role="dialog" aria-modal="true" style="max-width:360px;width:100%;text-align:center;padding:24px 20px"><div style="font-size:56px;line-height:1">' + (n.kind === "signup" ? "&#127881;" : "&#127873;") + '</div>'
+    + '<h2 style="margin:12px 0 8px;font-size:21px">' + h(n.title) + '</h2><div style="font-size:15px;line-height:1.55;margin-bottom:18px">' + h(n.body) + '</div>'
+    + '<button class="btn pri" data-act="noticeok" data-v="' + n.id + '">OK</button></div>';
+  document.body.appendChild(d);
+}
+async function noticeOk(id) {
+  NOTE.list = NOTE.list.filter(function (x) { return x.id !== id; }); showNotice();
+  try { await rpc("rider_notice_seen", { p_id: id }); } catch (e) {}
+  try { await reloadMe(); if (["home", "wallet", "account"].indexOf(S.view) >= 0) render(); } catch (e) {}
+}
 async function route() {
   var r = rider();
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
   if (r.status !== "approved") { S.view = "docs"; render(); return; }
+  checkNotices(true);
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
   await goHome();
@@ -1084,6 +1107,7 @@ async function loadJobs() {
   } catch (e) { S.jobsErr = /stale/i.test(e.message) ? "Waiting for your location. Keep this page open with location on." : e.message; S.jobs = null; if (S.view === "home") render(); }
 }
 async function goHome() {
+  checkNotices();
   stopTimers(); S.view = "home"; S.order = null; S.done = null; S.ask = ""; render(); window.scrollTo(0, 0);
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
@@ -1558,6 +1582,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "mapall") { FOLLOW.on = false; if (mapObj && S.order) { var q = S.order.stops.map(function (x) { return [x.lat, x.lng]; }); if (S.pos) q.push([S.pos.lat, S.pos.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
   else if (a === "apply") apply();
   else if (a === "check") checkStatus();
+  else if (a === "noticeok") noticeOk(+d.v);
   else if (a === "online") setOnline(d.v === "1");
   else if (a === "home") run(async function () { await reloadMe(); S.busy = false; if (S.me.active_order) await openJob(S.me.active_order); else await goHome(); });
   else if (a === "wallet") showWallet();
