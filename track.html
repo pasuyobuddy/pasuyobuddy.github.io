@@ -780,7 +780,7 @@ function nextStopOf(status, stops) {
 }
 function drawMap() {
   var el = document.getElementById("tmap"); if (!el) return; if (mapObj) { try { mapObj.remove(); } catch (e) {} mapObj = null; riderMk = null; }
-  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); L.control.zoom({ position: "bottomright" }).addTo(mapObj);
+  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); L.control.zoom({ position: "bottomright" }).addTo(mapObj); FOLLOW.on = false; watchDrag(mapObj);
   L.tileLayer("https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=" + CONFIG.mapKey, { maxZoom: 20, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }).addTo(mapObj);
   var pts = [], multi = O.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   O.stops.forEach(function (s) { pts.push([s.lat, s.lng]); L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).addTo(mapObj); });
@@ -788,18 +788,30 @@ function drawMap() {
   if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]);
   mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); updateRider();
 }
-function glide(mk, to) { var from = mk.getLatLng(), t0 = Date.now(), ms = 2500; if (mk._glide) cancelAnimationFrame(mk._glide);
-  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (k < 1) mk._glide = requestAnimationFrame(step); })(); }
+// Smooth vehicle: glide to each new spot over about the time between updates, so it keeps moving instead of jumping.
+function glide(mk, to, onStep) {
+  var from = mk.getLatLng(); if (Math.abs(from.lat - to[0]) < 1e-7 && Math.abs(from.lng - to[1]) < 1e-7) return;
+  var now = Date.now(), gap = mk._lastAt ? now - mk._lastAt : 3000; mk._lastAt = now;
+  if (mk._glide) cancelAnimationFrame(mk._glide);
+  if (from.distanceTo(L.latLng(to[0], to[1])) > 3000) { mk.setLatLng(to); if (onStep) onStep(mk.getLatLng()); return; }
+  var t0 = now, ms = Math.max(1200, Math.min(6000, gap * 1.1));
+  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (onStep) onStep(mk.getLatLng()); if (k < 1) mk._glide = requestAnimationFrame(step); })();
+}
+// Follow the vehicle after "Rider"/"Me" is tapped (until the map is dragged); otherwise move the map only when it nears the edge.
+var FOLLOW = { on: false };
+function followStep(map) { return function (ll) { if (map && FOLLOW.on) map.panTo(ll, { animate: false }); }; }
+function keepInView(map, ll) { if (!map || FOLLOW.on) return; try { if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll, { animate: true, duration: 0.8 }); } catch (e) {} }
+function watchDrag(map) { map.on("dragstart", function () { FOLLOW.on = false; }); }
 function updateRider() {
   var el = document.getElementById("info"); if (el) el.innerHTML = infoText();
   if (!mapObj || !O.rider || O.rider.lat == null) return; var ll = [O.rider.lat, O.rider.lng];
-  if (riderMk) glide(riderMk, ll);
+  if (riderMk) { glide(riderMk, ll, followStep(mapObj)); keepInView(mapObj, ll); }
   else { riderMk = L.marker(ll, { zIndexOffset: 1000, icon: L.divIcon({ className: "", html: '<div class="rdr">' + vehIcon(O.vehicle) + "</div>", iconSize: [40, 40], iconAnchor: [20, 20] }) }).addTo(mapObj); }
   var nx = nextStopOf(O.status, O.stops); updateLeg(mapObj, nx ? ll : null, nx ? [nx.lat, nx.lng] : null);
 }
 document.addEventListener("click", function (ev) { var b = ev.target.closest("[data-a]"); if (!b || !mapObj || !O) return;
-  if (b.dataset.a === "rider" && O.rider && O.rider.lat != null) mapObj.setView([O.rider.lat, O.rider.lng], 16);
-  else if (b.dataset.a === "all") { var pts = O.stops.map(function (s) { return [s.lat, s.lng]; }); if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]); mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); } });
+  if (b.dataset.a === "rider" && O.rider && O.rider.lat != null) { FOLLOW.on = true; mapObj.setView(riderMk ? riderMk.getLatLng() : [O.rider.lat, O.rider.lng], 16); }
+  else if (b.dataset.a === "all") { FOLLOW.on = false; var pts = O.stops.map(function (s) { return [s.lat, s.lng]; }); if (O.rider && O.rider.lat != null) pts.push([O.rider.lat, O.rider.lng]); mapObj.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); } });
 setInterval(function () { var el = document.getElementById("info"); if (el && O) el.innerHTML = infoText(); }, 1000);
 load(); setInterval(load, 3000);
 </script></body></html>

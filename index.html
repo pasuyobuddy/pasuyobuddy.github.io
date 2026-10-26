@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.32" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.34" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -989,7 +989,8 @@ async function doAuth() {
     if (S.authMode === "signup") {
       var name = val("a_name"); if (!name) throw new Error("Please enter your name");
       if (pw.length < 8) throw new Error("Password must be at least 8 characters");
-      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { full_name: name } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
+      if (!S.termsOk && !($("a_terms") && $("a_terms").checked)) throw new Error("Please tick the box to agree to the Terms & Conditions and Privacy Policy.");
+      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { full_name: name, terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
       if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
@@ -1151,13 +1152,25 @@ function riderInfoText(o) {
   var secs = (Date.now() - new Date(o.rider.located_at).getTime()) / 1000;
   return secs > 120 ? "&#128308; Rider location last seen " + agoText(o.rider.located_at) + ". The rider may have the app closed." : "&#128994; Live rider location · updated " + agoText(o.rider.located_at);
 }
-function glide(mk, to) { var from = mk.getLatLng(), t0 = Date.now(), ms = 2500; if (mk._glide) cancelAnimationFrame(mk._glide);
-  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (k < 1) mk._glide = requestAnimationFrame(step); })(); }
+// Smooth vehicle: glide to each new spot over about the time between updates, so it keeps moving instead of jumping.
+function glide(mk, to, onStep) {
+  var from = mk.getLatLng(); if (Math.abs(from.lat - to[0]) < 1e-7 && Math.abs(from.lng - to[1]) < 1e-7) return;
+  var now = Date.now(), gap = mk._lastAt ? now - mk._lastAt : 3000; mk._lastAt = now;
+  if (mk._glide) cancelAnimationFrame(mk._glide);
+  if (from.distanceTo(L.latLng(to[0], to[1])) > 3000) { mk.setLatLng(to); if (onStep) onStep(mk.getLatLng()); return; }
+  var t0 = now, ms = Math.max(1200, Math.min(6000, gap * 1.1));
+  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (onStep) onStep(mk.getLatLng()); if (k < 1) mk._glide = requestAnimationFrame(step); })();
+}
+// Follow the vehicle after "Rider"/"Me" is tapped (until the map is dragged); otherwise move the map only when it nears the edge.
+var FOLLOW = { on: false };
+function followStep(map) { return function (ll) { if (map && FOLLOW.on) map.panTo(ll, { animate: false }); }; }
+function keepInView(map, ll) { if (!map || FOLLOW.on) return; try { if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll, { animate: true, duration: 0.8 }); } catch (e) {} }
+function watchDrag(map) { map.on("dragstart", function () { FOLLOW.on = false; }); }
 function updateRider() {
   var o = S.order, el = $("rdrinfo"); if (el) el.innerHTML = riderInfoText(o);
   if (!mapObj || !o.rider || o.rider.lat == null || ENDED.indexOf(o.status) >= 0) return;
   var ll = [o.rider.lat, o.rider.lng];
-  if (riderMk) glide(riderMk, ll);
+  if (riderMk) { glide(riderMk, ll, followStep(mapObj)); keepInView(mapObj, ll); }
   else { riderMk = L.marker(ll, { icon: vehMarker(o.vehicle), zIndexOffset: 1000 }).addTo(mapObj); }
   custLeg();
 }
@@ -1221,7 +1234,7 @@ function nextStopOf(status, stops) {
 function custLeg() { var o = S.order; if (!mapObj || !o) return; var nx = o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0 ? nextStopOf(o.status, o.stops) : null; updateLeg(mapObj, nx ? [o.rider.lat, o.rider.lng] : null, nx ? [nx.lat, nx.lng] : null); }
 function drawTrackMap() {
   var el = $("tmap"); if (!el || typeof L === "undefined" || !S.order) return; killMap(); var o = S.order, pts = [];
-  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); tiles(mapObj);
+  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); tiles(mapObj); FOLLOW.on = false; watchDrag(mapObj);
   var multi = o.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   o.stops.forEach(function (s) { pts.push([s.lat, s.lng]);
     L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status === "done") }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
@@ -1311,9 +1324,11 @@ function vAuth() {
     + (su ? '<div class="field"><label for="a_name">Your name</label><input class="in" id="a_name" autocomplete="name"></div>' : "")
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
+    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
     + '<button class="btn" data-act="authmode">' + (su ? "I already have an account" : "New here? Create an account") + "</button>"
+    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
     + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div></div>";
 }
 function vProfile(first) {
@@ -1324,7 +1339,7 @@ function vProfile(first) {
     + '<button class="btn pri" data-act="saveprofile">Save</button></div>'
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
     + (first ? "" : vVerify())
-    + '<button class="btn bad" data-act="signout">Sign out</button></div>' + (first ? "" : nav("account"));
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
 }
 function vVerify() {
   var st = S.me.id_status, f = S.idForm;
@@ -1472,8 +1487,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "chatback") { stopChat(); openOrder(CHAT.id); }
   else if (a === "chatsend") sendChat(val("chat_in"));
   else if (a === "chatquick") sendChat(CHAT_QUICK[+d.i]);
-  else if (a === "maprider") { var o = S.order; if (mapObj && o && o.rider && o.rider.lat != null) mapObj.setView([o.rider.lat, o.rider.lng], 16); else toast("Rider location is not available yet", true); }
-  else if (a === "mapall") { if (mapObj && S.order) { var q = S.order.stops.map(function (s) { return [s.lat, s.lng]; }); if (S.order.rider && S.order.rider.lat != null) q.push([S.order.rider.lat, S.order.rider.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
+  else if (a === "maprider") { var o = S.order; if (mapObj && o && o.rider && o.rider.lat != null) { FOLLOW.on = true; mapObj.setView(riderMk ? riderMk.getLatLng() : [o.rider.lat, o.rider.lng], 16); toast("Following the rider. Drag the map to stop."); } else toast("Rider location is not available yet", true); }
+  else if (a === "mapall") { FOLLOW.on = false; if (mapObj && S.order) { var q = S.order.stops.map(function (s) { return [s.lat, s.lng]; }); if (S.order.rider && S.order.rider.lat != null) q.push([S.order.rider.lat, S.order.rider.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
   else if (a === "sharetrack") shareTrack();
   else if (a === "confirmedgo") { if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
   else if (a === "submitid") submitId();

@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.38" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.42" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -815,10 +815,26 @@ var watchId = null, lastSent = 0;
 function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer. Keep this page open with the screen on.</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
 var meMk = null; setInterval(function () { updateMe(); }, 10000);
 // Move "You" on the job map and refresh the location note without redrawing the page (keeps the rider's zoom)
-function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (mapObj && meMk && S.pos) { meMk.setLatLng([S.pos.lat, S.pos.lng]); riderLeg(); } }
+function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (!mapObj || !S.pos) return; var ll = [S.pos.lat, S.pos.lng];
+  if (meMk) { glide(meMk, ll, followStep(mapObj)); keepInView(mapObj, ll); } else { meMk = L.marker(ll, { icon: vehMarker(rider() && rider().vehicle), zIndexOffset: 1000 }).bindTooltip("You").addTo(mapObj); }
+  riderLeg(); }
+// Smooth vehicle: glide to each new spot over about the time between updates, so it keeps moving instead of jumping.
+function glide(mk, to, onStep) {
+  var from = mk.getLatLng(); if (Math.abs(from.lat - to[0]) < 1e-7 && Math.abs(from.lng - to[1]) < 1e-7) return;
+  var now = Date.now(), gap = mk._lastAt ? now - mk._lastAt : 3000; mk._lastAt = now;
+  if (mk._glide) cancelAnimationFrame(mk._glide);
+  if (from.distanceTo(L.latLng(to[0], to[1])) > 3000) { mk.setLatLng(to); if (onStep) onStep(mk.getLatLng()); return; }
+  var t0 = now, ms = Math.max(1200, Math.min(6000, gap * 1.1));
+  (function step() { var k = Math.min(1, (Date.now() - t0) / ms); mk.setLatLng([from.lat + (to[0] - from.lat) * k, from.lng + (to[1] - from.lng) * k]); if (onStep) onStep(mk.getLatLng()); if (k < 1) mk._glide = requestAnimationFrame(step); })();
+}
+// Follow the vehicle after "Rider"/"Me" is tapped (until the map is dragged); otherwise move the map only when it nears the edge.
+var FOLLOW = { on: false };
+function followStep(map) { return function (ll) { if (map && FOLLOW.on) map.panTo(ll, { animate: false }); }; }
+function keepInView(map, ll) { if (!map || FOLLOW.on) return; try { if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll, { animate: true, duration: 0.8 }); } catch (e) {} }
+function watchDrag(map) { map.on("dragstart", function () { FOLLOW.on = false; }); }
 async function sendPos(lat, lng) {
   S.pos = { lat: lat, lng: lng }; S.posAt = Date.now(); S.posErr = ""; updateMe();
-  if (Date.now() - lastSent < (S.view === "job" || S.view === "chat" ? 4000 : 15000)) return; lastSent = Date.now();
+  if (Date.now() - lastSent < (S.view === "job" || S.view === "chat" ? 3000 : 15000)) return; lastSent = Date.now();
   try { await rpc("update_my_location", { p_lat: lat, p_lng: lng }); } catch (e) {}
 }
 // A phone that is not moving sends no new GPS fixes, so re-send the last known spot to stay "fresh" for job matching.
@@ -830,7 +846,7 @@ function startGps() {
   if (!navigator.geolocation) { S.posErr = "This device has no location service"; return; }
   watchId = navigator.geolocation.watchPosition(function (p) { var first = !S.pos; sendPos(p.coords.latitude, p.coords.longitude); if (first && S.view === "home") loadJobs(); },
     function (e) { S.posErr = e.code === 1 ? "Location permission is off. Allow location for this site, then reload." : "Still finding your location…"; if (S.view === "home") render(); },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
 }
 var wakeLock = null;
 async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", function () { wakeLock = null; }); } } catch (e) {} }
@@ -996,7 +1012,8 @@ async function doAuth() {
   await run(async function () {
     if (S.authMode === "signup") {
       if (pw.length < 8) throw new Error("Password must be at least 8 characters");
-      var r = await sb.auth.signUp({ email: email, password: pw, options: (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {}) });
+      if (!S.termsOk && !($("a_terms") && $("a_terms").checked)) throw new Error("Please tick the box to agree to the Terms & Conditions and Privacy Policy.");
+      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
       if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
@@ -1010,6 +1027,8 @@ async function doAuth() {
   });
 }
 async function signOut() {
+  try { await reloadMe(); } catch (e) {}
+  if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before signing out.", true); return; }
   stopTimers(); stopGps();
   try { if (rider() && rider().is_online) await rpc("rider_set_online", { p_online: false }); } catch (e) {}
   await sb.auth.signOut(); S.session = null; S.me = null; S.order = null; S.jobs = null; S.pos = null; S.view = "auth"; render();
@@ -1069,6 +1088,7 @@ async function goHome() {
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
 async function setOnline(on) {
+  if (!on) { try { await reloadMe(); } catch (e) {} if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before going offline.", true); await openJob(S.me.active_order); return; } }
   await run(async function () { await rpc("rider_set_online", { p_online: on }); S.autoOff = false; await reloadMe(); S.jobs = null; S.seen = {}; S.busy = false; await goHome(); toast(on ? "You are online" : "You are offline"); });
 }
 async function accept(id) {
@@ -1170,7 +1190,7 @@ function nextStopOf(status, stops) {
 }
 function drawJobMap() {
   var el = $("jmap"); if (!el || typeof L === "undefined" || !S.order) return; killMap(); var pts = [];
-  mapObj = L.map(el, { zoomControl: false, minZoom: 9 });
+  mapObj = L.map(el, { zoomControl: false, minZoom: 9 }); FOLLOW.on = false; watchDrag(mapObj);
   L.tileLayer("https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=" + CONFIG.mapKey, { maxZoom: 20, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }).addTo(mapObj);
   var multi = S.order.stops.filter(function (s) { return s.kind === "dropoff"; }).length > 1;
   S.order.stops.forEach(function (s) { pts.push([s.lat, s.lng]);
@@ -1339,9 +1359,11 @@ function vAuth() {
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>' + (su ? "Create your rider account" : "Log in") + "</h2>"
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
+    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
     + '<button class="btn" data-act="authmode">' + (su ? "I already have an account" : "New rider? Create an account") + "</button>"
+    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
     + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>";
 }
 function vApply() {
@@ -1491,10 +1513,10 @@ function vAccount() {
   var r = rider();
   return topBar("Account") + '<div class="body">' + photoCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>' + h(phoneFmt(S.me.phone)) + '</span></div><div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
-    + (S.me.regions || []).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
+    + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
-    + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
-    + '<button class="btn bad" data-act="signout">Sign out</button><div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
+    + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000, 20000, 30000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {
   killMap(); var v = S.view;
@@ -1532,8 +1554,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "hidejob") { HIDDEN[d.id] = Date.now(); saveHidden(); render(); toast("Job hidden. Other riders can still take it."); }
   else if (a === "unhidejobs") { HIDDEN = {}; saveHidden(); render(); }
   else if (a === "confirmedgo") { S.confirmErr = ""; if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
-  else if (a === "mapme") { if (mapObj && S.pos) mapObj.setView([S.pos.lat, S.pos.lng], 16); else toast("Finding your location…", true); }
-  else if (a === "mapall") { if (mapObj && S.order) { var q = S.order.stops.map(function (x) { return [x.lat, x.lng]; }); if (S.pos) q.push([S.pos.lat, S.pos.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
+  else if (a === "mapme") { if (mapObj && S.pos) { FOLLOW.on = true; mapObj.setView(meMk ? meMk.getLatLng() : [S.pos.lat, S.pos.lng], 16); toast("Following you. Drag the map to stop."); } else toast("Finding your location…", true); }
+  else if (a === "mapall") { FOLLOW.on = false; if (mapObj && S.order) { var q = S.order.stops.map(function (x) { return [x.lat, x.lng]; }); if (S.pos) q.push([S.pos.lat, S.pos.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
   else if (a === "apply") apply();
   else if (a === "check") checkStatus();
   else if (a === "online") setOnline(d.v === "1");
