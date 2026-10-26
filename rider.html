@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.43" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.44" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -892,6 +892,7 @@ function referralApplyCard() {
   var p = S.promos, r = rider(); if (!p || r.status !== "pending") return "";
   var welcome = p.signup_load > 0 ? '<div class="note n-good">&#127873; When you are approved you get <b>' + peso(p.signup_load) + " free load</b> for your first commissions.</div>" : "";
   if (p.referred_by) return welcome + '<div class="card"><div class="line"><span class="muted">Invited by</span><span class="b">' + h(p.referred_by) + " &#10004;</span></div></div>";
+  if (!(p.referral_load > 0)) return welcome;   // invite rewards switched off: no invite-code box
   return welcome + '<div class="card" style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0">Invited by another rider?</h2><div class="small muted">Enter their invite code. You can only do this before you are approved.</div>'
     + '<div class="row" style="gap:8px"><input class="in" id="refcode" maxlength="10" placeholder="e.g. PB7K2QX" style="flex:1;text-transform:uppercase" autocapitalize="characters"><button class="btn pri" style="width:auto" data-act="refset">Use code</button></div></div>';
 }
@@ -949,7 +950,7 @@ async function route() {
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
   if (r.status !== "approved") { S.view = "docs"; render(); return; }
-  checkNotices(true);
+  checkNotices(true); prefetchWallet();
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
   await goHome();
@@ -1155,7 +1156,10 @@ async function finishJob() {
   await run(async function () { var o = S.order; await rpc("complete_order", { p_order: o.id }); stopTimers(); await reloadMe();
     S.done = { id: o.id, order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
 }
-async function showWallet() { stopTimers(); S.view = "wallet"; render(); try { S.wallet = await rpc("rider_wallet"); await Promise.all([refreshTopups(), loadPromos()]); if (S.view === "wallet") render(); loadTopupQuote(); } catch (e) { toast(e.message, true); } }
+// Wallet opens at once with the last numbers seen (if any), then refreshes. All parts load at the same time.
+async function showWallet() { stopTimers(); S.view = "wallet"; render(); window.scrollTo(0, 0);
+  try { var res = await Promise.all([rpc("rider_wallet"), refreshTopups(), loadPromos()]); S.wallet = res[0]; if (S.view === "wallet") render(); loadTopupQuote(); } catch (e) { if (!S.wallet) toast(e.message, true); } }
+async function prefetchWallet() { try { S.wallet = await rpc("rider_wallet"); } catch (e) {} }
 async function showHistory() { stopTimers(); S.view = "history"; render(); try { S.history = await rpc("rider_history", { p_limit: 30 }); if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
 async function cashOut() {
   var amt = Number(val("w_amt")), g = val("w_gcash");
