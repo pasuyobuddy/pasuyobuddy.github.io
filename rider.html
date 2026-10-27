@@ -678,7 +678,7 @@ html,body{margin:0;min-height:100%}
 body{background:#E9E7E1;color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.4;-webkit-text-size-adjust:100%}
 button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 #app{max-width:480px;margin:0 auto;min-height:100vh;background:var(--bg);display:flex;flex-direction:column;position:relative}
-.top{display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--accent);color:#fff;border-bottom:4px solid var(--yellow);position:sticky;top:0;z-index:500}
+.top{display:flex;align-items:center;gap:10px;padding:calc(14px + env(safe-area-inset-top)) 16px 14px;background:var(--accent);color:#fff;border-bottom:4px solid var(--yellow);position:sticky;top:0;z-index:500}
 .top h1{font-size:17px;margin:0;font-weight:800;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .top.dark{background:var(--accent);color:#fff}
 .top.dark .btn{color:var(--ink)}
@@ -687,7 +687,7 @@ select.in{appearance:auto}
 .biglogo{display:block;width:250px;height:auto;margin:18px auto 6px}
 .mark{width:32px;height:32px;border-radius:9px;flex-shrink:0}
 .back{border:none;color:#fff;background:rgba(255,255,255,.22);width:36px;height:36px;border-radius:10px;font-size:18px;cursor:pointer;flex-shrink:0}
-.body{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;padding-bottom:150px}
+.body{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;padding-bottom:150px}#app>.body:first-child{padding-top:calc(16px + env(safe-area-inset-top))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
 h2{font-size:15px;margin:0 0 8px;font-weight:800}
 .muted{color:var(--muted)} .small{font-size:13px} .b{font-weight:800} .right{text-align:right}
@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.45" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.47" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -870,12 +870,16 @@ async function nativeJobAlerts() {
       body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + " · " + Number(j.total_km || 0).toFixed(1) + " km trip · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
   } catch (e) {}
 }
+// Back from the GCash page (Android app): look for the new load
+function topupBack() { if (!TOPUP.waiting || Date.now() - TOPUP.waiting > 30 * 60000) return; TOPUP.waiting = 0; topupReturn("check"); }
 function nativeInit() {
   if (!NATIVE) return;
+  try { var br = natPlugin("Browser"); if (br && br.addListener) br.addListener("browserFinished", topupBack); } catch (e) {}
   try { NAT.ln.createChannel({ id: "jobs", name: "New job alerts", description: "New bookings while you are online", importance: 5, visibility: 1, vibration: true }); } catch (e) {}
   NAT.app.addListener("appStateChange", function (st) {
     NAT.active = !!st.isActive;
     if (!NAT.active) { (S.jobs || []).forEach(function (j) { NAT.told[j.order_id] = 1; }); return; }
+    if (TOPUP.waiting) { topupBack(); return; }
     if (S.session && S.me) run(async function () { await reloadMe(); S.busy = false;
       if (S.view === "home" || S.view === "job") { if (S.me.active_order) await openJob(S.me.active_order); else if (S.view === "home") await goHome(); }
       else if (S.view === "wallet") await showWallet(); else render(); });
@@ -1026,7 +1030,7 @@ async function route() {
   var r = rider();
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
-  if (r.status !== "approved") { S.view = "docs"; render(); return; }
+  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); return; }
   checkNotices(true); prefetchWallet();
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
@@ -1114,7 +1118,10 @@ async function doAuth() {
     if (S.authMode === "signup") {
       if (pw.length < 8) throw new Error("Password must be at least 8 characters");
       if (!S.termsOk && !($("a_terms") && $("a_terms").checked)) throw new Error("Please tick the box to agree to the Terms & Conditions and Privacy Policy.");
-      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
+      var ref = (val("a_ref") || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); S.refCode = ref;
+      if (ref && !REF_RE.test(ref)) throw new Error("The invite code looks wrong. Check it, or leave it empty.");
+      refSave(ref);
+      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: Object.assign({ terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() }, ref ? { ref_code: ref } : {}) }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
       if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
@@ -1136,12 +1143,30 @@ async function signOut() {
 }
 
 // ---------------- Application and documents ----------------
+// ---------------- Invite code typed at sign-up ----------------
+// Saved on this phone and on the account, then attached automatically once the rider application exists.
+// The inviter's reward still needs the new rider to be approved and finish the required jobs.
+var REF_RE = /^[A-Z0-9]{5,12}$/;
+function refFromLink() { try { var c = (new URLSearchParams(location.search).get("ref") || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); return REF_RE.test(c) ? c : ""; } catch (e) { return ""; } }
+function refSave(c) { try { if (c) localStorage.setItem("pb_ref_code", c); else localStorage.removeItem("pb_ref_code"); } catch (e) {} }
+async function refSaved() {
+  var c = ""; try { c = localStorage.getItem("pb_ref_code") || ""; } catch (e) {}
+  if (!c) { try { var u = (await sb.auth.getSession()).data.session; c = (u && u.user && u.user.user_metadata && u.user.user_metadata.ref_code) || ""; } catch (e) {} }
+  return REF_RE.test(c) ? c : "";
+}
+async function applySavedRef() {
+  var r = rider(); if (!r || r.status === "approved") { refSave(""); return; }
+  var c = await refSaved(); if (!c) return;
+  try { var name = await rpc("rider_set_referral", { p_code: c }); refSave(""); await loadPromos(); toast("Invite code " + c + " saved. Invited by " + name); }
+  catch (e) { refSave(""); if (!/already entered/i.test(e.message)) toast("Invite code " + c + ": " + e.message + ". You can type it again below.", true); }
+  if (S.view === "docs") render();
+}
 async function apply() {
   var name = val("ap_name"), phone = val("ap_phone"), plate = val("ap_plate"), veh = Number(val("ap_vehicle"));
   if (!name) { toast("Please enter your full name", true); return; }
   if (!phoneOk(phone)) { toast(PHONE_MSG, true); return; }
   if (plate.length < 4) { toast("Enter your plate number", true); return; }
-  await run(async function () { await rpc("rider_apply", { p_name: name, p_phone: phoneDigits(phone), p_vehicle: veh, p_plate: plate }); await reloadMe(); S.busy = false; await route(); toast("Application saved. Now upload your documents."); });
+  await run(async function () { await rpc("rider_apply", { p_name: name, p_phone: phoneDigits(phone), p_vehicle: veh, p_plate: plate }); await reloadMe(); S.busy = false; await route(); toast("Application saved. Now upload your documents."); await applySavedRef(); });
 }
 // Shrink photos before upload so they are quick to send on mobile data.
 function shrink(file) {
@@ -1427,7 +1452,7 @@ function topupQuoteText() { var q = TOPUP.quote; if (!q) return '<span class="mu
 function topupCard(w) {
   var chips = [300, 500, 1000, 2000].map(function (a) { return '<button class="chip' + (TOPUP.amount === a ? " on" : "") + '" data-act="tuamt" data-v="' + a + '">₱' + a + "</button>"; }).join("");
   var recent = (TOPUP.list || []).filter(function (t) { return t.status !== "expired" || Date.now() - new Date(t.created_at).getTime() < 864e5; }).slice(0, 3).map(function (t) {
-    return '<div class="line small"><span class="sp">' + peso(t.amount) + ' <span class="muted">· ' + h(new Date(t.created_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + "</span></span>" + pill(t.status === "paid" ? "Added" : t.status === "pending" ? "Waiting for payment" : "Not paid", t.status === "paid" ? "good" : t.status === "pending" ? "warn" : "soft") + "</div>"; }).join("");
+    return '<div class="line small"><span class="sp">' + peso(t.amount) + ' <span class="muted">· ' + h(new Date(t.created_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + "</span></span>" + (t.status === "pending" && topupFresh(t) ? '<button class="pill p-warn" data-act="tureopen" style="border:0;cursor:pointer;font:inherit;font-weight:700">Continue to GCash &rsaquo;</button>' : pill(t.status === "paid" ? "Added" : "Not paid", t.status === "paid" ? "good" : "soft")) + "</div>"; }).join("");
   return '<div class="card" style="display:flex;flex-direction:column;gap:10px;border-color:#0B6BFF"><h2 style="margin:0">Top up with GCash</h2>'
     + '<div class="chips">' + chips + '</div><div class="field"><label for="tu_amt">Or type an amount (₱)</label><input class="in" id="tu_amt" type="number" inputmode="numeric" min="100" max="5000" value="' + TOPUP.amount + '"></div>'
     + '<div class="small" id="tq">' + topupQuoteText() + "</div>"
@@ -1435,14 +1460,31 @@ function topupCard(w) {
     + '<div class="small muted">The load is added to your wallet automatically a few seconds after you pay. Minimum wallet to receive cash jobs: ' + peso(w.min_load) + ". Top-up load is used to pay commissions and is not refundable.</div>"
     + (recent ? '<div><div class="small b" style="margin-top:4px">Recent GCash top-ups</div>' + recent + "</div>" : "") + "</div>";
 }
+// The last GCash payment page made on this phone, so "Continue to GCash" reopens it instead of making a new one
+function topupLast() { try { return JSON.parse(localStorage.getItem("pb_topup_last") || "null"); } catch (e) { return null; } }
+function topupFresh(t) { var l = topupLast(); return !!(l && Date.now() - l.at < 15 * 60000 && Date.now() - new Date(t.created_at).getTime() < 15 * 60000 && Math.abs(new Date(t.created_at).getTime() - l.at) < 120000); }
+async function openCheckout(url) {
+  toast("Opening GCash…");
+  if (NATIVE) {   // the Android app opens the payment page in the phone's browser screen, then comes back here
+    var br = natPlugin("Browser");
+    if (br && br.open) { TOPUP.waiting = Date.now(); await br.open({ url: url, toolbarColor: "#D7141A" }); return; }
+    throw new Error("Please update the PasuyoBuddy Rider app to pay with GCash.");
+  }
+  location.href = url;
+}
+async function reopenTopup() { var l = topupLast(); if (!l || Date.now() - l.at > 15 * 60000) { toast("This payment expired. Tap Pay with GCash again.", true); return; } await run(async function () { await openCheckout(l.url); }); }
 async function payTopup() {
   var v = Number(val("tu_amt")); if (v) TOPUP.amount = v;
+  var l = topupLast(), pend = (TOPUP.list || [])[0];
+  if (l && l.amount === TOPUP.amount && pend && pend.status === "pending" && topupFresh(pend)) { await reopenTopup(); return; }   // same unpaid request: reuse it
   await run(async function () {
     var r = await sb.functions.invoke("topup-create", { body: { amount: TOPUP.amount, return_to: location.origin + location.pathname } });
     var d = r.data, err = r.error;
     if (err) { var msg = err.message; try { var b = err.context && (await err.context.json()); if (b && b.error) msg = b.error; } catch (x) {} throw new Error(msg); }
     if (!d || !d.checkout_url) throw new Error((d && d.error) || "Could not open GCash. Please try again.");
-    toast("Opening GCash…"); location.href = d.checkout_url;
+    try { localStorage.setItem("pb_topup_last", JSON.stringify({ url: d.checkout_url, amount: TOPUP.amount, at: Date.now() })); } catch (e) {}
+    refreshTopups().then(function () { if (S.view === "wallet") render(); });
+    await openCheckout(d.checkout_url);
   });
 }
 async function refreshTopups() { try { TOPUP.list = await rpc("rider_topups"); } catch (e) { TOPUP.list = null; } }
@@ -1451,10 +1493,10 @@ async function topupReturn(pv) {
   var p = pv || new URLSearchParams(location.search).get("topup"); if (!p) return;
   if (!pv) try { history.replaceState(null, "", location.pathname); } catch (e) {}
   if (p === "cancel") { toast("GCash payment cancelled", true); return; }
-  toast("Payment received. Adding your load…");
+  toast(p === "check" ? "Checking your GCash payment…" : "Payment received. Adding your load…");
   for (var i = 0; i < 12; i++) { await new Promise(function (r) { setTimeout(r, 2500); }); await refreshTopups(); if ((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; })) break; }
   try { await reloadMe(); S.wallet = await rpc("rider_wallet"); } catch (e) {}
-  render(); toast((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; }) ? "Load added to your wallet" : "Payment is still being confirmed. Check your wallet in a minute.");
+  render(); toast((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; }) ? "Load added to your wallet" : (p === "check" ? "No GCash payment found yet. If you paid, your load will appear in a minute." : "Payment is still being confirmed. Check your wallet in a minute."));
 }
 
 // ---------------- Screens ----------------
@@ -1470,6 +1512,7 @@ function vAuth() {
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>' + (su ? "Create your rider account" : "Log in") + "</h2>"
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
+    + (su ? '<div class="field"><label for="a_ref">Invite code <span class="muted" style="font-weight:400">(optional)</span></label><input class="in" id="a_ref" autocomplete="off" autocapitalize="characters" maxlength="12" placeholder="From the rider who invited you" style="text-transform:uppercase;letter-spacing:1px" value="' + h(S.refCode || refFromLink()) + '"><div class="small muted" style="margin-top:4px">Invited by a PasuyoBuddy rider? Type their code. They get a reward after you are approved and finish your first jobs.</div></div>' : "")
     + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
@@ -1651,6 +1694,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "signout") signOut();
   else if (a === "tuamt") { TOPUP.amount = +d.v; var inp = $("tu_amt"); if (inp) inp.value = d.v; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", b === t); }); TOPUP.quote = null; loadTopupQuote(); }
   else if (a === "tupay") payTopup();
+  else if (a === "tureopen") reopenTopup();
   else if (a === "e2l") earningsToLoad();
   else if (a === "pushon") enablePush();
   else if (a === "pushoff") disablePush();
