@@ -783,14 +783,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.36" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.38" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
 
 // ---------------- State ----------------
 function newStop(kind) { return { kind: kind, address: "", area: "", lat: null, lng: null, detail: "", contact_name: "", contact_phone: "", payer: "sender", cod: "" }; }
-function freshBooking() { return { stops: [newStop("pickup"), newStop("dropoff")], legs: [], km: 0, approx: false, prices: null, vehicle: 1, level: "regular", tip: 0, customTip: "", itemType: "parcel", note: "", needsBag: false, abonoPayer: "buyer", quote: null }; }
+function freshBooking() { return { stops: [newStop("pickup"), newStop("dropoff")], legs: [], km: 0, approx: false, prices: null, vehicle: 1, level: "regular", tip: 0, customTip: "", itemType: "parcel", note: "", needsBag: false, abonoPayer: "buyer", quote: null, pay: "cash" }; }
 var S = { session: null, me: null, view: "auth", authMode: "login", authEmail: "", authMsg: "", busy: false,
   bk: freshBooking(), idForm: { id: null, selfie: null }, editIdx: -1, place: null, order: null, orders: null, rateStars: 0 };
 var $ = function (id) { return document.getElementById(id); };
@@ -909,6 +909,8 @@ async function afterLogin() {
   if (!S.me.name || !S.me.phone) { S.view = "profile"; render(); return; }
   try { var dv = deviceId(); if (dv) await rpc("customer_set_device", { p_device: dv }); } catch (e) {}
   await loadPromo();
+  loadWallet(); checkPush();
+  if (payReturnStart()) return;
   if (S.me.active_order) { await openOrder(S.me.active_order); return; }
   S.view = "home"; render();
 }
@@ -1111,7 +1113,7 @@ function hasCod() { return S.bk.stops.some(function (s) { return s.kind === "dro
 function poolOk() { return S.bk.vehicle === 1 && S.bk.stops.length === 2 && !hasCod(); }
 function payload() {
   var b = S.bk;
-  return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: "cash", abono_payer: b.abonoPayer,
+  return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: b.pay === "wallet" ? "wallet" : "cash", abono_payer: b.abonoPayer,
     tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag,
     stops: b.stops.map(function (s, i) {
       var o = { kind: s.kind, address: (s.detail ? s.detail + ", " : "") + s.address, area: s.area, lat: s.lat, lng: s.lng, contact_name: s.contact_name, contact_phone: s.contact_phone };
@@ -1125,7 +1127,140 @@ async function applyCustomTip() { readReview(); var v = Number(val("r_tip")); va
   if (!(v >= mn && v <= mx)) { toast("Tip can be from " + peso(mn * 100) + " to " + peso(mx * 100), true); return; } S.bk.tip = v; S.bk.customTip = String(v); await requote(); }
 async function book() {
   readReview();
-  await run(async function () { var id = await rpc("customer_book", { p: payload() }); S.bk = freshBooking(); loadPromo(); toast("Booked! Finding a rider…"); S.busy = false; await openOrder(id); });
+  if (S.bk.pay === "gcash") { await payGcash(); return; }
+  if (S.bk.pay === "wallet" && S.wallet && S.wallet.balance < S.bk.quote.sender_pays) { toast("Not enough money in your wallet. Top up first, or choose Cash or GCash.", true); return; }
+  await run(async function () { var id = await rpc("customer_book", { p: payload() }); var wasWallet = S.bk.pay === "wallet"; S.bk = freshBooking(); loadPromo(); if (wasWallet) loadWallet(); toast(wasWallet ? "Paid from your wallet. Finding a rider…" : "Booked! Finding a rider…"); S.busy = false; await openOrder(id); });
+}
+
+// ---------------- PasuyoBuddy Wallet and GCash ----------------
+// Money in the wallet is only for PasuyoBuddy bookings (no cash-out). GCash goes through PayMongo:
+// the customer-pay Edge Function opens the checkout, and the webhook adds the money (and makes the booking).
+async function loadWallet() { try { S.wallet = await rpc("customer_wallet"); } catch (e) { S.wallet = S.wallet || null; } return S.wallet; }
+function gcashFee(c) { var pct = (S.wallet && S.wallet.fee_pct) || 2.4976; var t = Math.ceil(c / (1 - pct / 100)); return t - c; }
+async function callPay(body) {
+  var r = await sb.functions.invoke("customer-pay", { body: Object.assign({ return_to: location.origin + location.pathname }, body) });
+  var d = r.data, err = r.error;
+  if (err) { var msg = err.message; try { var b = err.context && (await err.context.json()); if (b && b.error) msg = b.error; } catch (x) {} throw new Error(msg); }
+  if (!d || !d.checkout_url) throw new Error((d && d.error) || "Could not open GCash. Please try again.");
+  try { localStorage.setItem("pb_pay_wait", JSON.stringify({ id: d.id, at: Date.now(), booking: !!body.booking, url: d.checkout_url })); } catch (e) {}
+  toast("Opening GCash…"); location.href = d.checkout_url;
+}
+async function payGcash() {
+  var p = payload(); delete p.payment_method;
+  try { localStorage.setItem("pb_bk_saved", JSON.stringify(Object.assign({}, S.bk, { quote: null }))); } catch (e) {}
+  await run(async function () { await callPay({ booking: p }); });
+}
+async function topupWallet() {
+  var v = Number(val("w_amt")); var w = S.wallet || {};
+  if (!(v >= (w.topup_min || 100) && v <= (w.topup_max || 5000))) { toast("Top-up can be from " + peso((w.topup_min || 100) * 100) + " to " + peso((w.topup_max || 5000) * 100), true); return; }
+  S.topAmt = v; await run(async function () { await callPay({ amount: v }); });
+}
+function payWaitGet() { try { var x = JSON.parse(localStorage.getItem("pb_pay_wait") || "null"); return x && Date.now() - x.at < 60 * 60000 ? x : null; } catch (e) { return null; } }
+function payWaitClear() { try { localStorage.removeItem("pb_pay_wait"); } catch (e) {} }
+// GCash not finished: bring back the booking the customer was making
+async function payBackToBooking() {
+  var b = null; try { b = JSON.parse(localStorage.getItem("pb_bk_saved") || "null"); localStorage.removeItem("pb_bk_saved"); } catch (e) {}
+  if (b && b.stops && b.prices) { S.bk = b; await loadWallet(); await requote("review"); if (S.view !== "review") go("home"); } else go("home");
+}
+var PAYW = { t: null, tries: 0, id: null, cancel: false, booking: false };
+// Back from GCash (or the app was reopened while a payment was waiting): wait for PayMongo to confirm
+function payReturnStart() {
+  var qs = new URLSearchParams(location.search), pv = qs.get("pay"), id = qs.get("t"), pend = payWaitGet();
+  if (pv) { try { history.replaceState(null, "", location.pathname); } catch (e) {} }
+  if (!pv && pend && Date.now() - pend.at > 10 * 60000) { payWaitClear(); return false; }
+  if (!id && pend) id = pend.id;
+  if (!id) return false;
+  PAYW.id = id; PAYW.tries = 0; PAYW.cancel = pv === "cancel"; PAYW.booking = !!(pend && pend.booking);
+  S.view = "paywait"; S.payMsg = ""; render(); payPoll(); return true;
+}
+async function payPoll() {
+  clearTimeout(PAYW.t); if (S.view !== "paywait") return;
+  var st = null; try { st = await rpc("customer_topup_status", { p_id: PAYW.id }); } catch (e) {}
+  if (!st) { payWaitClear(); go("home"); return; }
+  PAYW.booking = st.for_booking;
+  if (st.status === "paid") {
+    payWaitClear(); S.wallet = null; loadWallet();
+    if (st.order_id) { try { localStorage.removeItem("pb_bk_saved"); } catch (e) {} S.bk = freshBooking(); loadPromo(); toast("GCash payment received. Finding a rider…"); await openOrder(st.order_id); return; }
+    if (st.for_booking) { S.payMsg = "Your GCash payment of " + peso(st.amount) + " is in your PasuyoBuddy Wallet, but the booking could not be made" + (st.book_error ? ": " + st.book_error : ".") + " Book again and choose Wallet."; await loadWallet(); go("wallet"); return; }
+    toast(peso(st.amount) + " added to your wallet"); await loadWallet(); go("wallet"); return;
+  }
+  if (st.status === "expired" || (PAYW.cancel && PAYW.tries >= 2)) { payWaitClear(); toast("GCash payment was not completed. You were not charged.", true); if (PAYW.booking) await payBackToBooking(); else { await loadWallet(); go("wallet"); } return; }
+  PAYW.tries++; if (PAYW.tries <= 40) PAYW.t = setTimeout(payPoll, 3000); else render();
+}
+function vPayWait() {
+  var long = PAYW.tries > 40, pend = payWaitGet();
+  return topBar("GCash payment") + '<div class="body" style="text-align:center">'
+    + '<div style="font-size:52px;line-height:1;margin-top:12px">&#8987;</div><h2 style="margin:8px 0">' + (long ? "Still waiting for GCash" : "Confirming your payment…") + "</h2>"
+    + '<div class="muted">' + (long ? "We have not received the confirmation yet. If you already paid, tap Check again in a minute. If you did not finish paying, you can go back to GCash." : PAYW.booking ? "Your booking starts as soon as GCash confirms. This takes a few seconds." : "Your wallet is updated as soon as GCash confirms. This takes a few seconds.") + "</div>"
+    + (long ? '<button class="btn pri" data-act="paycheck">Check again</button>' + (pend && pend.url ? '<button class="btn" data-act="paygo">Continue to GCash</button>' : "") : '<div class="spin">Please wait</div>')
+    + '<button class="btn" data-act="paystop">Back</button></div>';
+}
+function walletLabel(k) { return { top_up: "Top-up", payment: "Booking", tip: "Tip", refund: "Refund", adjustment: "Adjustment" }[k] || k; }
+function vWallet() {
+  var w = S.wallet;
+  if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
+  var amt = S.topAmt || 200, quick = [100, 200, 500, 1000].filter(function (x) { return x >= w.topup_min && x <= w.topup_max; });
+  var hist = !w.history.length ? '<div class="muted small">No transactions yet.</div>' : w.history.map(function (x) {
+    return '<div class="line"><span class="sp"><span class="b">' + walletLabel(x.kind) + (x.order_no ? " · " + h(x.order_no) : "") + '</span><br><span class="small muted">' + h(when(x.created_at)) + (x.note && x.kind !== "payment" ? " · " + h(x.note) : "") + '</span></span><span class="b" style="color:' + (x.amount > 0 ? "var(--good)" : "inherit") + '">' + (x.amount > 0 ? "+" : "−") + peso(Math.abs(x.amount)) + "</span></div>"; }).join("");
+  return topBar("PasuyoBuddy Wallet") + '<div class="body">'
+    + (S.payMsg ? '<div class="note n-warn">' + h(S.payMsg) + "</div>" : "")
+    + '<div class="card" style="text-align:center"><div class="muted small">Balance</div><div style="font-size:34px;font-weight:800;margin:4px 0">' + peso(w.balance) + '</div><div class="small muted">Pay for bookings without cash. Choose <b>Wallet</b> when you book.</div></div>'
+    + '<div class="card"><h2>Top up with GCash</h2><div class="chips">' + quick.map(function (x) { return '<button class="chip ' + (amt === x ? "on" : "") + '" data-act="wamt" data-v="' + x + '">' + peso(x * 100) + "</button>"; }).join("") + "</div>"
+    + '<div class="field" style="margin-top:10px"><label for="w_amt">Amount (₱' + w.topup_min + " to ₱" + w.topup_max + ')</label><input class="in" id="w_amt" type="number" inputmode="numeric" value="' + h(amt) + '"></div>'
+    + '<div class="line"><span class="muted">GCash fee</span><span id="w_fee">' + peso(gcashFee(amt * 100)) + '</span></div><div class="line tot"><span>You pay in GCash</span><span id="w_tot">' + peso(amt * 100 + gcashFee(amt * 100)) + "</span></div>"
+    + '<button class="btn pri" data-act="wtopup">Top up with GCash</button><div class="small muted" style="margin-top:8px">Wallet money is only for PasuyoBuddy bookings and tips. It cannot be cashed out or sent to others. Cancelled bookings go back to your wallet.</div></div>'
+    + '<div class="card"><h2>History</h2>' + hist + "</div></div>" + nav("wallet");
+}
+function wAmtInput() { var v = Number(val("w_amt")) || 0, c = Math.round(v * 100), f = $("w_fee"), t = $("w_tot"); S.topAmt = v; if (f) f.textContent = peso(gcashFee(c)); if (t) t.textContent = peso(c + gcashFee(c)); }
+function payChoice(q) {
+  var b = S.bk, w = S.wallet, need = q.sender_pays, bal = w ? w.balance : 0, fee = gcashFee(Math.max(need, 2000));
+  var chip = function (v, label) { return '<button class="chip ' + (b.pay === v ? "on" : "") + '" data-act="paym" data-v="' + v + '"' + (v !== "cash" && need <= 0 ? " disabled" : "") + ">" + label + "</button>"; };
+  var info = b.pay === "wallet" ? (bal >= need ? '<div class="small muted">' + peso(need) + " will be taken from your wallet. Balance: " + peso(bal) + ".</div>" : '<div class="note n-warn">Your wallet has ' + peso(bal) + ". Top up first, or choose Cash or GCash.</div>" + '<button class="btn sm yel" data-act="wallet">Top up wallet</button>')
+    : b.pay === "gcash" ? '<div class="small muted">You pay ' + peso(Math.max(need, 2000)) + " + " + peso(fee) + " GCash fee. Your booking starts as soon as GCash confirms. If it is cancelled, the money goes to your PasuyoBuddy Wallet.</div>"
+    : '<div class="small muted">Pay the rider in cash at the pickup.</div>';
+  var tot = b.pay === "cash" ? '<div class="line tot"><span>You pay the rider</span><span>' + peso(need) + "</span></div>" : '<div class="line tot"><span>' + (b.pay === "gcash" ? "You pay in GCash" : "Paid from wallet") + "</span><span>" + peso(b.pay === "gcash" ? Math.max(need, 2000) + fee : need) + "</span></div>";
+  return '<div class="card"><h2>Payment</h2><div class="chips">' + chip("cash", "Cash") + chip("wallet", "Wallet" + (w ? " · " + peso(bal) : "")) + chip("gcash", "GCash") + "</div>" + '<div style="margin-top:8px">' + info + "</div>" + tot
+    + (q.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(q.receiver_pays) + "</span></div>" : "") + "</div>";
+}
+function bookLabel(q) { var b = S.bk, need = q.sender_pays; return b.pay === "gcash" ? "Pay with GCash · " + peso(Math.max(need, 2000) + gcashFee(Math.max(need, 2000))) : b.pay === "wallet" ? "Book and pay from wallet · " + peso(need) : "Book now · " + peso(q.sender_pays + q.receiver_pays) + " total"; }
+function payTitle(o) { return o.payment_method === "wallet" ? "Wallet" : o.payment_method === "gcash" ? "GCash" : "Cash"; }
+function payLines(o) {
+  if (o.payment_method === "cash") return '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>";
+  return '<div class="line tot"><span>Paid online (' + payTitle(o) + ')</span><span>' + peso(o.wallet_paid || o.sender_pays) + "</span></div>"
+    + (o.wallet_refunded ? '<div class="line" style="color:var(--good)"><span>Returned to your wallet</span><span class="b">' + peso(o.wallet_refunded) + "</span></div>" : "")
+    + '<div class="small muted">Nothing to pay the rider for your part.</div>';
+}
+
+// ---------------- Delivery alerts (phone notifications, even when the app is closed) ----------------
+function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && location.protocol === "https:"; }
+function b64ToU8(b) { var p = "=".repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, "+").replace(/_/g, "/")), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+async function checkPush() {
+  S.pushOn = false; if (!pushSupported() || Notification.permission !== "granted") return;
+  try { var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (!sub) { var st = await rpc("customer_push_status"); if (!st || !st.vapid_public) return; sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(st.vapid_public) }); }
+    var j = sub.toJSON(); await rpc("customer_save_push", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth }); S.pushOn = true; } catch (e) {}
+}
+async function enablePush() {
+  await run(async function () {
+    if (!pushSupported()) throw new Error("This phone or browser cannot show delivery alerts. Use the installed app or Chrome.");
+    var perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Notifications are blocked. Allow notifications for PasuyoBuddy in your phone settings, then try again.");
+    var st = await rpc("customer_push_status"); if (!st || !st.vapid_public) throw new Error("Alerts are not set up yet. Please try again later.");
+    var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(st.vapid_public) });
+    var j = sub.toJSON(); await rpc("customer_save_push", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    S.pushOn = true; render(); toast("Delivery alerts are on");
+  });
+}
+async function disablePush() {
+  await run(async function () { var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (sub) { var ep = sub.endpoint; await rpc("customer_remove_push", { p_endpoint: ep }); }
+    S.pushOn = false; render(); toast("Delivery alerts are off on this phone"); });
+}
+function pushCard(inAccount) {
+  if (!pushSupported()) return inAccount ? '<div class="card"><h2>&#128276; Delivery alerts</h2><div class="small muted">This phone or browser cannot show delivery alerts. Use the installed PasuyoBuddy app or Chrome.</div></div>' : "";
+  if (S.pushOn) return inAccount ? '<div class="card"><h2>&#128276; Delivery alerts are on</h2><div class="small muted">You get a notification when a rider is found, arrives at the pickup, picks up the parcel, arrives at the drop-off, and when it is received.</div><button class="btn sm" style="margin-top:8px" data-act="pushoff">Turn off on this phone</button></div>' : "";
+  return '<div class="card" style="border-color:var(--accent)"><h2>&#128276; Get delivery alerts</h2><div class="small muted">Know right away when the rider arrives at the pickup, is on the way, arrives at the drop-off, and when your parcel is received. Works even when the app is closed.</div><button class="btn pri" style="margin-top:10px" data-act="pushon">Turn on alerts</button></div>';
 }
 
 // ---------------- Orders ----------------
@@ -1191,7 +1326,7 @@ async function cancelOrder() {
   if (!S.cancelAsk) { S.cancelAsk = true; render(); return; }
   await run(async function () { await rpc("cancel_order", { p_order: S.order.id, p_reason: "Cancelled in the app" }); S.cancelAsk = false; S.busy = false; await openOrder(S.order.id); toast("Booking cancelled"); });
 }
-async function tipNow(v) { await run(async function () { await rpc("add_tip", { p_order: S.order.id, p_amount: v * 100, p_stage: S.order.status === "searching" ? "searching" : "booking" }); S.busy = false; await openOrder(S.order.id); toast("Tip added. Thank you!"); }); }
+async function tipNow(v) { await run(async function () { await rpc("add_tip", { p_order: S.order.id, p_amount: v * 100, p_stage: S.order.status === "searching" ? "searching" : "booking" }); S.busy = false; await openOrder(S.order.id); toast(S.order.payment_method === "cash" ? "Tip added. Thank you!" : "Tip added and paid from your wallet. Thank you!"); if (S.order.payment_method !== "cash") loadWallet(); }); }
 async function sendRating() { if (!S.rateStars) { toast("Tap a star first", true); return; }
   await run(async function () { await rpc("customer_rate", { p_order: S.order.id, p_stars: S.rateStars, p_comment: val("rate_note") || null }); S.busy = false; await openOrder(S.order.id); toast("Thanks for the rating!"); }); }
 async function showOrders() { go("orders"); try { S.orders = await rpc("customer_orders", { p_limit: 30 }); if (S.view === "orders") render(); } catch (e) { toast(e.message, true); } }
@@ -1317,7 +1452,7 @@ function repLeave() { stopPoll(); stopChat(); }
 
 // ---------------- Screens ----------------
 function topBar(title, back) { return '<div class="top">' + (back ? '<button class="back" data-act="' + back + '" aria-label="Back">←</button>' : '<span class="mark" role="img" aria-label="PasuyoBuddy"></span>') + "<h1>" + h(title) + "</h1></div>"; }
-function nav(on) { return '<div class="nav"><button data-act="home" class="' + (on === "home" ? "on" : "") + '">Book</button><button data-act="orders" class="' + (on === "orders" ? "on" : "") + '">My orders</button><button data-act="account" class="' + (on === "account" ? "on" : "") + '">Account</button></div>'; }
+function nav(on) { return '<div class="nav"><button data-act="home" class="' + (on === "home" ? "on" : "") + '">Book</button><button data-act="orders" class="' + (on === "orders" ? "on" : "") + '">My orders</button><button data-act="wallet" class="' + (on === "wallet" ? "on" : "") + '">Wallet</button><button data-act="account" class="' + (on === "account" ? "on" : "") + '">Account</button></div>'; }
 
 function vAuth() {
   if (S.authMode === "verify") return vEmailCode();
@@ -1343,7 +1478,7 @@ function vProfile(first) {
     + '<div class="field"><label for="p_phone">Mobile number</label><input class="in" id="p_phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="tel" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(S.me.phone)) + '"></div>'
     + '<button class="btn pri" data-act="saveprofile">Save</button></div>'
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
-    + (first ? "" : vVerify())
+    + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
     + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
 }
 function vVerify() {
@@ -1428,30 +1563,30 @@ function vReview() {
       + '<label class="bagopt' + (b.needsBag ? " on" : "") + '"><input type="checkbox" id="r_bag" data-act="bagtoggle"' + (b.needsBag ? " checked" : "") + '><span><b>&#127890; Ask the rider to bring a delivery bag</b><br><span class="small muted">For food, groceries or many small items. Riders see this before they accept.</span></span></label></div>'
     + '<div class="card"><h2>Tip for the rider</h2><div class="small muted" style="margin-bottom:8px">100% goes to the rider.</div><div class="chips">' + tipChips + '</div><div class="row" style="margin-top:10px"><input class="in sp" id="r_tip" type="number" inputmode="decimal" placeholder="Other amount (₱)" value="' + h(b.customTip) + '"><button class="btn sm" data-act="customtip">Apply</button></div></div>'
     + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee?</h2><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
-    + '<div class="card"><h2>Payment</h2><div class="line"><span>Cash</span><span class="pill p-good">Selected</span></div><div class="small muted">GCash, Maya, QR Ph and card are coming soon.</div>'
-    + '<div class="line tot"><span>You pay the rider</span><span>' + peso(q.sender_pays) + "</span></div>" + (q.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(q.receiver_pays) + "</span></div>" : "") + "</div>"
-    + '</div><div class="foot"><button class="btn pri" data-act="book">Book now · ' + peso(q.sender_pays + q.receiver_pays) + " total</button></div>";
+    + payChoice(q)
+    + '</div><div class="foot"><button class="btn pri" data-act="book">' + bookLabel(q) + "</button></div>";
 }
 function vTrack() {
   var o = S.order, ended = ENDED.indexOf(o.status) >= 0, order = ["searching", "accepted", "at_pickup", "picked_up", "in_transit", "completed"];
-  var labels = { searching: "Finding a rider", accepted: "Rider is heading to the pickup", at_pickup: "Rider arrived at the pickup", picked_up: "Parcel picked up", in_transit: "On the way to drop-off", completed: "Delivered" };
+  var labels = { searching: "Finding a rider", accepted: "Rider is heading to the pickup", at_pickup: "Rider arrived at the pickup", picked_up: "Parcel picked up", in_transit: o.stops.some(function (x) { return x.kind === "dropoff" && x.status === "arrived"; }) ? "Rider at the drop-off" : "On the way to drop-off", completed: "Delivered" };
   var idx = order.indexOf(o.status), steps = "";
   if (idx >= 0) steps = '<div class="steps">' + order.map(function (s, i) { return '<div class="step ' + (i < idx || o.status === "completed" ? "done" : i === idx ? "now" : "todo") + '"><span class="mk"></span><span>' + labels[s] + "</span></div>"; }).join("") + "</div>";
   var canCancel = ["searching", "accepted", "at_pickup"].indexOf(o.status) >= 0, canTip = ["searching", "accepted"].indexOf(o.status) >= 0;
   var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div></div>" : "";
   if (o.needs_bag) rider += '<div class="note n-info">&#127890; You asked the rider to bring a delivery bag.</div>';
-  var msg = o.status === "searching" ? '<div class="note n-warn">We are offering your booking to nearby riders. This page updates by itself.</div>'
-    : o.status === "no_rider_found" ? '<div class="note n-bad">No rider was available. You were not charged. Please try booking again.</div>'
+  var arr = o.status === "in_transit" ? o.stops.filter(function (x) { return x.kind === "dropoff" && x.status === "arrived"; })[0] : null;
+  var msg = arr ? '<div class="note n-good"><b>Your rider has arrived at ' + (o.stops.length > 2 ? "drop-off " + arr.seq : "the drop-off") + ".</b> Please let " + h(arr.contact_name || "the receiver") + " know.</div>" : o.status === "searching" ? '<div class="note n-warn">We are offering your booking to nearby riders. This page updates by itself.</div>'
+    : o.status === "no_rider_found" ? '<div class="note n-bad">No rider was available. ' + (o.wallet_refunded ? peso(o.wallet_refunded) + " went back to your PasuyoBuddy Wallet." : "You were not charged.") + ' Please try booking again.</div>'
     : o.status === "cancelled_by_rider" ? '<div class="note n-bad">The rider cancelled this booking.' + (o.cancel_reason ? " Reason: " + h(o.cancel_reason) : "") + "</div>"
-    : o.status === "cancelled_by_customer" ? '<div class="note n-info">This booking was cancelled.' + (o.cancel_reason ? " " + h(o.cancel_reason) : "") + "</div>" : "";
+    : o.status === "cancelled_by_customer" ? '<div class="note n-info">This booking was cancelled.' + (o.cancel_reason ? " " + h(o.cancel_reason).replace(/([^.!?])$/, "$1.") : "") + (o.wallet_refunded ? " " + peso(o.wallet_refunded) + " went back to your PasuyoBuddy Wallet." : "") + "</div>" : "";
   var rate = o.status === "completed" && o.rider ? '<div class="card"><h2>' + (o.my_rating ? "Your rating" : "Rate your rider") + '</h2><div class="stars">' + [1, 2, 3, 4, 5].map(function (n) { return '<button data-act="star" data-v="' + n + '" class="' + (n <= S.rateStars ? "on" : "") + '" aria-label="' + n + ' stars">★</button>'; }).join("") + "</div>"
     + '<div class="field" style="margin-top:10px"><label for="rate_note">Comment (optional)</label><input class="in" id="rate_note"></div><button class="btn pri" style="margin-top:10px" data-act="rate">' + (o.my_rating ? "Update rating" : "Send rating") + "</button></div>" : "";
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
-    + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg
+    + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg + (ended ? "" : pushCard(false))
     + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "")
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
-    + '<div class="card"><h2>Payment · Cash</h2>' + quoteLines(o) + '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>" + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
+    + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
     + (ended ? '<button class="btn pri" data-act="home">Book another delivery</button>' : "") + "</div>" + nav("orders");
 }
@@ -1464,7 +1599,7 @@ function vOrders() {
 
 function render() {
   killMap();
-  var v = S.view, html = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
+  var v = S.view, html = v === "wallet" ? vWallet() : v === "paywait" ? vPayWait() : v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
   $("app").innerHTML = html;
   if (v === "place") drawPlaceMap();
   if (v === "track") drawTrackMap();
@@ -1503,6 +1638,15 @@ document.addEventListener("click", function (ev) {
   else if (a === "home") { S.cancelAsk = false; go("home"); }
   else if (a === "account") { go("account"); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
   else if (a === "orders") showOrders();
+  else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
+  else if (a === "wamt") { S.topAmt = +d.v; render(); }
+  else if (a === "wtopup") topupWallet();
+  else if (a === "pushon") enablePush();
+  else if (a === "pushoff") disablePush();
+  else if (a === "paym") { readReview(); S.bk.pay = d.v; if (d.v === "wallet" && !S.wallet) loadWallet().then(render); requote(); }
+  else if (a === "paycheck") { PAYW.tries = 0; render(); payPoll(); }
+  else if (a === "paygo") { var pw = payWaitGet(); if (pw && pw.url) location.href = pw.url; }
+  else if (a === "paystop") { clearTimeout(PAYW.t); if (PAYW.booking) payBackToBooking(); else { go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); } }
   else if (a === "place") openPlace(+d.i);
   else if (a === "adddrop") addDrop();
   else if (a === "pick") pickSug(+d.i);
@@ -1513,7 +1657,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "tovehicle") toVehicle();
   else if (a === "veh") { S.bk.vehicle = +d.id; if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular"; render(); }
   else if (a === "level") { S.bk.level = d.v; render(); }
-  else if (a === "toreview") requote("review");
+  else if (a === "toreview") { loadWallet(); requote("review"); }
   else if (a === "vehicleback") { readReview(); go("vehicle"); }
   else if (a === "tip") setTip(+d.v);
   else if (a === "customtip") applyCustomTip();
@@ -1535,6 +1679,7 @@ document.addEventListener("change", function (ev) {
 document.addEventListener("input", function (ev) {
   var id = ev.target.id;
   if (id === "pl_q") onSearch(ev.target.value);
+  if (id === "w_amt") wAmtInput();
   if (id === "p_phone" || id === "pl_contact_phone") ev.target.value = phoneFmt(ev.target.value);   // numbers only, auto-spaced
 });
 document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.target.id === "a_pw" || ev.target.id === "a_email")) doAuth(); else if (ev.key === "Enter" && ev.target.id === "v_code") doVerify(); else if (ev.key === "Enter" && ev.target.id === "f_email") forgotSend(false); else if (ev.key === "Enter" && ev.target.id === "f_pw2") forgotSave(); });

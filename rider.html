@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.51" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.53" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -1251,7 +1251,8 @@ async function cancelJob() {
   if (S.ask !== "cancel") { S.ask = "cancel"; render(); return; }
   await run(async function () { await rpc("update_order_status", { p_order: S.order.id, p_status: "cancelled_by_rider" }); await reloadMe(); S.busy = false; await goHome(); toast("Job returned to other riders"); });
 }
-function nextStop() { return S.order.stops.filter(function (s) { return s.kind === "dropoff" && s.status === "pending"; })[0]; }
+function nextStop() { return S.order.stops.filter(function (s) { return s.kind === "dropoff" && (s.status === "pending" || s.status === "arrived"); })[0]; }
+async function arrivedStop() { var st = nextStop(); if (!st) return; await run(async function () { await rpc("rider_arrived_stop", { p_stop: st.id }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); toast("The customer was told you arrived"); }); }
 async function finishStop(failed) {
   var st = nextStop(), f = S.stopForm, name = val("st_name");
   if (!failed && !name) { toast("Type the name of the person who received it", true); return; }
@@ -1587,11 +1588,12 @@ function cashPlan(o) {
     if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (COD " + peso(x.cod_amount) + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
     else rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect nothing here' + (cash && x.fare_payer === "sender" ? " (fare share " + peso(x.fare_share) + " is already paid by the sender)" : "") + '</span></span><span class="muted">' + peso(0) + "</span></div>"; });
   var promo = o.promo_discount ? '<div class="note n-good" style="margin-top:8px">&#127873; <b>Customer promo ' + peso(o.promo_discount) + ':</b> the customer pays ' + peso(o.promo_discount) + " less. PasuyoBuddy adds " + peso(o.promo_discount) + " to your wallet (earnings) when the delivery is completed.</div>" : "";
+  if (!cash && o.sender_pays > 0) promo = '<div class="note n-good" style="margin-top:8px">&#128179; <b>Paid online by the customer (' + (o.payment_method === "wallet" ? "PasuyoBuddy Wallet" : "GCash") + '): ' + peso(o.sender_pays) + '.</b> Do not collect this. It goes to your wallet earnings when the delivery is completed, minus the commission.</div>' + promo;
   if (!rows) return promo ? '<div class="card">' + promo + "</div>" : "";
   return '<div class="card" style="border-color:var(--accent)"><h2 style="margin:0 0 4px">Cash you collect</h2>' + rows + '<div class="line"><span class="b">Total cash to collect</span><span class="b" style="font-size:18px">' + peso(total) + "</span></div>" + promo + "</div>";
 }
 function stopBlock(s, active) {
-  return '<div class="card"' + (active ? ' style="border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)"' : "") + '><div class="row" style="align-items:flex-start"><span class="dot ' + (s.kind === "pickup" ? "pk" : "dr") + '">' + (s.kind === "pickup" ? "P" : s.seq) + '</span><div class="sp"><div class="b">' + (s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq) + " " + (s.status === "done" ? pill("Done", "good") : s.status === "failed" ? pill("Not delivered", "bad") : "") + '</div><div class="small">' + h(s.address) + '</div><div class="small muted">' + h(s.contact_name || "") + (s.contact_phone ? " · " + h(s.contact_phone) : "") + "</div>"
+  return '<div class="card"' + (active ? ' style="border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)"' : "") + '><div class="row" style="align-items:flex-start"><span class="dot ' + (s.kind === "pickup" ? "pk" : "dr") + '">' + (s.kind === "pickup" ? "P" : s.seq) + '</span><div class="sp"><div class="b">' + (s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq) + " " + (s.status === "done" ? pill("Done", "good") : s.status === "failed" ? pill("Not delivered", "bad") : s.status === "arrived" ? pill("Arrived", "blue") : "") + '</div><div class="small">' + h(s.address) + '</div><div class="small muted">' + h(s.contact_name || "") + (s.contact_phone ? " · " + h(s.contact_phone) : "") + "</div>"
     + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (COD " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : (s.fare_payer === "sender" && s.fare_share > 0 ? "Collect nothing here. Fare share " + peso(s.fare_share) + " was paid by the sender at pickup." : "Nothing to collect here")) + "</div>" : "") + "</div></div>"
     + (active && s.status === "pending" ? '<div class="row" style="margin-top:10px">' + (s.contact_phone ? '<a class="btn sm" style="flex:1" href="tel:' + h(phoneDigits(s.contact_phone)) + '">Call</a>' : "") + '<a class="btn sm" style="flex:1;background:#33CCFF;border-color:#33CCFF;color:#0B1F33;font-weight:800" target="_blank" rel="noopener" href="' + wazeLink(s) + '">Waze</a><a class="btn sm" style="flex:1" target="_blank" rel="noopener" href="' + navLink(s) + '">Maps</a></div>' : "") + "</div>";
 }
@@ -1601,7 +1603,7 @@ function vJob() {
   if (st === "accepted") foot = '<button class="btn pri" data-act="step" data-s="at_pickup">I have arrived at the pickup</button>';
   else if (st === "at_pickup") {
     extra = '<div class="card"><h2>At the pickup</h2>' + (o.cod_amount > 0 ? '<div class="line"><span>Pay the seller for the COD item</span><span class="b">' + peso(o.cod_amount) + "</span></div>" : "")
-      + '<div class="line"><span>Collect from the sender (cash)</span><span class="b">' + peso(o.sender_pays) + '</span></div><div class="small muted">Check the parcel before you leave.</div></div>';
+      + (o.payment_method === "cash" ? '<div class="line"><span>Collect from the sender (cash)</span><span class="b">' + peso(o.sender_pays) + "</span></div>" : '<div class="line"><span>Sender already paid online</span><span class="b">Collect ' + peso(0) + "</span></div>") + '<div class="small muted">Check the parcel before you leave.</div></div>';
     foot = '<button class="btn pri" data-act="step" data-s="picked_up,in_transit">Parcel picked up, start delivery</button>';
   } else if (st === "in_transit") {
     if (next) {
@@ -1609,6 +1611,7 @@ function vJob() {
         + '<div class="field"><label for="st_name">Received by (name)</label><input class="in" id="st_name" value="' + h(S.stopForm.name || next.contact_name || "") + '"></div>'
         + '<div class="field"><label>Photo proof (recommended)</label><label class="btn sm" style="cursor:pointer;width:100%">' + (S.stopForm.file ? "Photo added. Tap to change" : "Take a photo") + '<input type="file" accept="image/*" capture="environment" data-pod="1" hidden></label></div>'
         + '<button class="btn pri" data-act="delivered">Confirm delivered</button><button class="btn" data-act="stopcancel">Back</button></div>';
+      else if (next.status === "pending") foot = '<button class="btn pri" data-act="arrivedrop">I have arrived at drop-off ' + next.seq + "</button>";
       else foot = '<div class="row"><button class="btn bad" style="flex:1" data-act="failask">Receiver not available</button><button class="btn pri" style="flex:2" data-act="stopform">Delivered</button></div>';
       if (S.ask === "fail") extra = '<div class="card"><div class="b" style="margin-bottom:6px">Mark drop-off ' + next.seq + ' as not delivered?</div><div class="small muted" style="margin-bottom:10px">Use this only if you called and the receiver cannot take the parcel. Nothing is collected at this stop.</div><div class="row"><button class="btn" data-act="asknone">Go back</button><button class="btn bad" data-act="failed">Yes, not delivered</button></div></div>', foot = "";
     } else foot = '<button class="btn pri" data-act="finish">Finish job</button>';
@@ -1728,6 +1731,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "step") step(d.s.split(","));
   else if (a === "canceljob") cancelJob();
   else if (a === "asknone") { S.ask = ""; render(); }
+  else if (a === "arrivedrop") arrivedStop();
   else if (a === "stopform") { S.stopForm = { file: null, name: "" }; S.ask = ""; render(); }
   else if (a === "stopcancel") { S.stopForm = null; render(); }
   else if (a === "delivered") finishStop(false);

@@ -1,8 +1,8 @@
 // PasuyoBuddy service worker: makes the apps installable, shows a friendly page when offline,
-// and shows job alerts on the rider's phone even when the app is closed.
+// and shows job alerts (riders) and delivery alerts (customers) even when the app is closed.
 // Pages are always fetched fresh from the network first, so updates appear right away.
 // If the website host is down or returns an error, the last good copy saved on the phone is used.
-const CACHE = "pasuyobuddy-shell-v1";
+const CACHE = "pasuyobuddy-shell-v1";   // v2: customer delivery alerts
 self.addEventListener("install", (e) => { self.skipWaiting(); });
 self.addEventListener("activate", (e) => { e.waitUntil(self.clients.claim()); });
 self.addEventListener("fetch", (e) => {
@@ -26,9 +26,9 @@ self.addEventListener("push", (e) => {
   try { d = e.data ? e.data.json() : {}; } catch (x) { d = { title: "PasuyoBuddy", body: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(d.title || "PasuyoBuddy: new job", {
     body: d.body || "Open the app to see the job.",
-    tag: d.tag || "pasuyobuddy", renotify: true, requireInteraction: true,
+    tag: d.tag || "pasuyobuddy", renotify: true, requireInteraction: d.sticky !== false,
     vibrate: [300, 150, 300, 150, 300],
-    icon: "rider-icon-192.png", badge: "rider-icon-192.png",
+    icon: d.icon || "rider-icon-192.png", badge: d.icon || "rider-icon-192.png",
     data: { url: d.url || "/rider.html" }
   }));
 });
