@@ -8,6 +8,14 @@
     <div style="margin:0 0 20px;text-align:center">
       <span style="display:inline-block;background:#FFF6D6;border:2px dashed #E5A700;border-radius:12px;padding:14px 22px;font-size:32px;font-weight:bold;letter-spacing:8px;color:#15171C">{{ .Token }}</span>
     </div>
+    {{ if .Data.app }}
+    <div style="margin:0 0 18px;padding:14px 16px;background:#FFF6D6;border:1px solid #F1D98A;border-radius:12px">
+      <p style="margin:0 0 8px;font-size:15px;font-weight:bold">Rider applicants: your Letter of Intent</p>
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.5">To be approved as a PasuyoBuddy rider, print the Letter of Intent, fill it in, <b>sign it with your name and signature</b>, then upload a clear photo of it in the Rider app under <b>Documents &rarr; Letter of intent</b>.</p>
+      <a href="https://pasuyobuddy.github.io/letter-of-intent.html" style="display:inline-block;background:#D7141A;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:10px 18px;border-radius:999px">Open the Letter of Intent</a>
+      <p style="margin:10px 0 0;font-size:12px;color:#5B6070;line-height:1.5">No printer? Copy the letter by hand on clean paper and sign it.</p>
+    </div>
+    {{ end }}
     <p style="margin:0 0 10px;font-size:13px;color:#5B6070;line-height:1.5">The code expires in 1 hour. Never share this code with anyone. PasuyoBuddy staff will never ask for it.</p>
     <p style="margin:0;font-size:13px;color:#5B6070;line-height:1.5">If you did not create a PasuyoBuddy account, you can ignore this email.</p>
   </div>
