@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.53" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.55" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -999,6 +999,13 @@ async function copyRef() {
   var txt = "Join PasuyoBuddy as a rider! Use my invite code " + c + " when you apply: " + location.origin + location.pathname;
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
 }
+function cancelWarn() {
+  var c = S.cancelSt; if (!c) return '<div class="small muted">Checking your record…</div>';
+  var next = c.count + 1, lim = Number(c.limit) || 0; if (!lim) return "";
+  if (next >= lim) return '<div class="note n-bad"><b>&#9888;&#65039; This will be give-up ' + next + " of " + lim + " in " + c.days + " days.</b> You will be <b>suspended for " + c.hours + " hours</b> right away (no jobs, can't go online).</div>";
+  return '<div class="note n-warn">This will be give-up <b>' + next + " of " + lim + "</b> in " + c.days + " days. At " + lim + ", you are suspended for " + c.hours + " hours.</div>";
+}
+async function loadSuspend() { try { S.cancelSt = await rpc("rider_cancel_status"); } catch (e) {} if (S.view === "home") render(); }
 async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; if (NATIVE) nativeSync(); }
 async function afterLogin() {
   try { await reloadMe(); } catch (e) { S.session = null; S.authMsg = e.message; S.view = "auth"; if (/deactivated/i.test(e.message)) { try { await sb.auth.signOut(); } catch (x) {} } render(); return; }
@@ -1018,7 +1025,7 @@ function showNotice() {
   var n = NOTE.list[0]; if (!n) return;
   var d = document.createElement("div"); d.id = "notice";
   d.style.cssText = "position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px";
-  d.innerHTML = '<div class="card" role="dialog" aria-modal="true" style="max-width:360px;width:100%;text-align:center;padding:24px 20px"><div style="font-size:56px;line-height:1">' + (n.kind === "signup" ? "&#127881;" : "&#127873;") + '</div>'
+  d.innerHTML = '<div class="card" role="dialog" aria-modal="true" style="max-width:360px;width:100%;text-align:center;padding:24px 20px"><div style="font-size:56px;line-height:1">' + (n.kind === "signup" ? "&#127881;" : n.kind === "suspended" ? "&#9940;" : n.kind === "cancel_warning" ? "&#9888;&#65039;" : n.kind === "unsuspended" ? "&#9989;" : "&#127873;") + '</div>'
     + '<h2 style="margin:12px 0 8px;font-size:21px">' + h(n.title) + '</h2><div style="font-size:15px;line-height:1.55;margin-bottom:18px">' + h(n.body) + '</div>'
     + '<button class="btn pri" data-act="noticeok" data-v="' + n.id + '">OK</button></div>';
   document.body.appendChild(d);
@@ -1212,7 +1219,7 @@ async function loadJobs() {
   } catch (e) { S.jobsErr = /stale/i.test(e.message) ? "Waiting for your location. Keep this page open with location on." : e.message; S.jobs = null; if (S.view === "home") render(); }
 }
 async function goHome() {
-  checkNotices();
+  checkNotices(); loadSuspend();
   stopTimers(); S.view = "home"; S.order = null; S.done = null; S.ask = ""; render(); window.scrollTo(0, 0);
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
@@ -1248,8 +1255,8 @@ async function step(statuses) {
   await run(async function () { for (var i = 0; i < statuses.length; i++) await rpc("update_order_status", { p_order: S.order.id, p_status: statuses[i] }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); window.scrollTo(0, 0); });
 }
 async function cancelJob() {
-  if (S.ask !== "cancel") { S.ask = "cancel"; render(); return; }
-  await run(async function () { await rpc("update_order_status", { p_order: S.order.id, p_status: "cancelled_by_rider" }); await reloadMe(); S.busy = false; await goHome(); toast("Job returned to other riders"); });
+  if (S.ask !== "cancel") { S.ask = "cancel"; S.cancelSt = null; render(); try { S.cancelSt = await rpc("rider_cancel_status"); } catch (e) {} if (S.ask === "cancel") render(); return; }
+  await run(async function () { await rpc("update_order_status", { p_order: S.order.id, p_status: "cancelled_by_rider" }); await reloadMe(); S.busy = false; await goHome(); toast("Job returned to other riders"); checkNotices(true); loadSuspend(); });
 }
 function nextStop() { return S.order.stops.filter(function (s) { return s.kind === "dropoff" && (s.status === "pending" || s.status === "arrived"); })[0]; }
 async function arrivedStop() { var st = nextStop(); if (!st) return; await run(async function () { await rpc("rider_arrived_stop", { p_stop: st.id }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); toast("The customer was told you arrived"); }); }
@@ -1555,6 +1562,7 @@ function saveHidden() { try { var now = Date.now(); Object.keys(HIDDEN).forEach(
 function jobCard(j) {
   var tags = [pill(j.payment_method === "cash" ? "Cash" : "Paid online", j.payment_method === "cash" ? "warn" : "blue")];
   if (j.receivers_pay) tags.push(pill("Receiver pays", "soft")); if (j.advance > 0) tags.push(pill("COD: advance " + peso(j.advance), "bad"));
+  if (j.abono > 0) tags.push(pill("Abono +" + peso(j.abono) + " (yours)", "good"));
   if (j.needs_bag) tags.unshift(pill("🎒 Bring a delivery bag", "bad"));
   if (j.service_level === "priority") tags.push(pill("Priority", "blue")); if (j.service_level === "pooling") tags.push(pill("Saver", "soft"));
   return '<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><div class="b">' + h(j.pickup_area || "Pickup") + ' <span class="muted" style="font-weight:400">→</span> ' + h((j.drop_areas || []).join(" → ")) + '</div><div class="small muted">' + km(j.pickup_distance_m) + " to pickup · " + j.total_km + " km trip · " + j.drops + (j.drops > 1 ? " drop-offs" : " drop-off") + "</div></div>"
@@ -1566,7 +1574,8 @@ function jobCard(j) {
 }
 function vHome() {
   var r = rider(), on = r.is_online, loadAmt = r.load != null ? r.load : r.wallet, low = loadAmt < S.me.settings.rider_min_load * 100;
-  var list = !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because the app was closed for a long time. Tap <b>Go online</b> when you are ready for jobs again.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
+  var sus = S.cancelSt && S.cancelSt.suspended_until && new Date(S.cancelSt.suspended_until) > new Date() ? '<div class="note n-bad"><b>&#9940; You are suspended until ' + h(new Date(S.cancelSt.suspended_until).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + ".</b> " + h(S.cancelSt.reason ? "Reason: " + S.cancelSt.reason + "." : "") + " You can go online again after that.</div>" : "";
+  var list = sus ? sus : !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because the app was closed for a long time. Tap <b>Go online</b> when you are ready for jobs again.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
     : S.jobsErr ? '<div class="note n-warn">' + h(S.jobsErr) + "</div>"
     : !S.jobs ? '<div class="spin">Looking for jobs…</div>'
     : !S.jobs.length ? '<div class="card muted">No jobs ' + (r.region_id ? "in " + h(r.region_name) : "within " + (r.radius_m / 1000) + " km") + " right now. This list refreshes by itself.</div>" : (function () {
@@ -1585,9 +1594,10 @@ function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
   if (cash && o.sender_pays > 0) { rows += '<div class="line"><span><span class="b">At pickup</span><br><span class="small muted">collect from the customer (sender)</span></span><span class="b">' + peso(o.sender_pays) + "</span></div>"; total += o.sender_pays; }
   o.stops.forEach(function (x) { if (x.kind !== "dropoff") return;
-    if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (COD " + peso(x.cod_amount) + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
+    if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (COD " + peso(x.cod_amount) + (x.abono_fee > 0 && o.abono_payer === "buyer" ? " + abono " + peso(x.abono_fee) : "") + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
     else rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect nothing here' + (cash && x.fare_payer === "sender" ? " (fare share " + peso(x.fare_share) + " is already paid by the sender)" : "") + '</span></span><span class="muted">' + peso(0) + "</span></div>"; });
   var promo = o.promo_discount ? '<div class="note n-good" style="margin-top:8px">&#127873; <b>Customer promo ' + peso(o.promo_discount) + ':</b> the customer pays ' + peso(o.promo_discount) + " less. PasuyoBuddy adds " + peso(o.promo_discount) + " to your wallet (earnings) when the delivery is completed.</div>" : "";
+  if (cash && o.wallet_applied > 0) promo = '<div class="note n-good" style="margin-top:8px">&#128179; <b>The customer paid ' + peso(o.wallet_applied) + ' from their PasuyoBuddy Wallet.</b> Collect only the cash shown above. The ' + peso(o.wallet_applied) + " goes to your wallet earnings when the delivery is completed.</div>" + promo;
   if (!cash && o.sender_pays > 0) promo = '<div class="note n-good" style="margin-top:8px">&#128179; <b>Paid online by the customer (' + (o.payment_method === "wallet" ? "PasuyoBuddy Wallet" : "GCash") + '): ' + peso(o.sender_pays) + '.</b> Do not collect this. It goes to your wallet earnings when the delivery is completed, minus the commission.</div>' + promo;
   if (!rows) return promo ? '<div class="card">' + promo + "</div>" : "";
   return '<div class="card" style="border-color:var(--accent)"><h2 style="margin:0 0 4px">Cash you collect</h2>' + rows + '<div class="line"><span class="b">Total cash to collect</span><span class="b" style="font-size:18px">' + peso(total) + "</span></div>" + promo + "</div>";
@@ -1628,7 +1638,7 @@ function vJob() {
     + '<div class="card">'
     + (o.note ? '<div class="note n-info" style="margin-top:10px">Note: ' + h(o.note) + "</div>" : "") + '<div class="small muted" style="margin-top:8px">Customer: ' + h(o.customer.name || "") + " · " + h(o.item_type) + " " + (o.customer.verified ? pill("Verified customer", "good") : pill("ID not verified", "soft")) + "</div></div>"
     + extra + '<div class="map" style="height:260px"><div id="jmap" style="height:100%"></div><div class="mapbtns"><button data-act="mapme">&#128205; Me</button><button data-act="mapall">&#127937; Route</button></div></div>' + (NATIVE ? "" : '<div class="note n-warn">Tip: tracking pauses while another app (like Google Maps) is on the full screen. After navigating, come back to this page so the customer sees you again.</div>') + '' + stops
-    + (canCancel ? (S.ask === "cancel" ? '<div class="card"><div class="b" style="margin-bottom:10px">Give up this job? It goes back to other riders and counts against your record.</div><div class="row"><button class="btn" data-act="asknone">Keep the job</button><button class="btn bad" data-act="canceljob">Yes, give up</button></div></div>' : '<button class="btn bad" data-act="canceljob">I cannot do this job</button>') : "")
+    + (canCancel ? (S.ask === "cancel" ? '<div class="card"><div class="b" style="margin-bottom:8px">Give up this job? It goes back to other riders and counts against your record.</div>' + cancelWarn() + '<div style="margin-bottom:10px"></div><div class="row"><button class="btn" data-act="asknone">Keep the job</button><button class="btn bad" data-act="canceljob">Yes, give up</button></div></div>' : '<button class="btn bad" data-act="canceljob">I cannot do this job</button>') : "")
     + "</div>" + (foot ? '<div class="foot">' + foot + "</div>" : "");
 }
 function vDone() {

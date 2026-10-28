@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.38" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.40" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1109,11 +1109,12 @@ async function toVehicle() {
     go("vehicle");
   });
 }
+function abonoFee() { return S.me && S.me.settings && S.me.settings.abono_fee != null ? Number(S.me.settings.abono_fee) : 50; }
 function hasCod() { return S.bk.stops.some(function (s) { return s.kind === "dropoff" && Number(s.cod) > 0; }); }
 function poolOk() { return S.bk.vehicle === 1 && S.bk.stops.length === 2 && !hasCod(); }
 function payload() {
   var b = S.bk;
-  return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: b.pay === "wallet" ? "wallet" : "cash", abono_payer: b.abonoPayer,
+  return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: b.pay === "wallet" ? "wallet" : "cash", use_wallet: b.pay === "cash" && b.useWallet !== false && !!(S.wallet && S.wallet.balance > 0), abono_payer: b.abonoPayer,
     tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag,
     stops: b.stops.map(function (s, i) {
       var o = { kind: s.kind, address: (s.detail ? s.detail + ", " : "") + s.address, area: s.area, lat: s.lat, lng: s.lng, contact_name: s.contact_name, contact_phone: s.contact_phone };
@@ -1127,9 +1128,10 @@ async function applyCustomTip() { readReview(); var v = Number(val("r_tip")); va
   if (!(v >= mn && v <= mx)) { toast("Tip can be from " + peso(mn * 100) + " to " + peso(mx * 100), true); return; } S.bk.tip = v; S.bk.customTip = String(v); await requote(); }
 async function book() {
   readReview();
+  if (S.wallet && S.bk.quote.sender_pays > 0 && S.wallet.balance >= S.bk.quote.sender_pays && (S.bk.pay === "gcash" || (S.bk.pay === "cash" && S.bk.useWallet !== false))) S.bk.pay = "wallet";   // wallet already covers it
   if (S.bk.pay === "gcash") { await payGcash(); return; }
   if (S.bk.pay === "wallet" && S.wallet && S.wallet.balance < S.bk.quote.sender_pays) { toast("Not enough money in your wallet. Top up first, or choose Cash or GCash.", true); return; }
-  await run(async function () { var id = await rpc("customer_book", { p: payload() }); var wasWallet = S.bk.pay === "wallet"; S.bk = freshBooking(); loadPromo(); if (wasWallet) loadWallet(); toast(wasWallet ? "Paid from your wallet. Finding a rider…" : "Booked! Finding a rider…"); S.busy = false; await openOrder(id); });
+  await run(async function () { var id = await rpc("customer_book", { p: payload() }); var wasWallet = S.bk.pay === "wallet", usedW = S.bk.pay === "cash" && payParts(S.bk.quote).fromW > 0; S.bk = freshBooking(); loadPromo(); if (wasWallet || usedW) loadWallet(); toast(wasWallet ? "Paid from your wallet. Finding a rider…" : usedW ? "Booked! Wallet balance used, pay the rest in cash. Finding a rider…" : "Booked! Finding a rider…"); S.busy = false; await openOrder(id); });
 }
 
 // ---------------- PasuyoBuddy Wallet and GCash ----------------
@@ -1212,20 +1214,42 @@ function vWallet() {
     + '<div class="card"><h2>History</h2>' + hist + "</div></div>" + nav("wallet");
 }
 function wAmtInput() { var v = Number(val("w_amt")) || 0, c = Math.round(v * 100), f = $("w_fee"), t = $("w_tot"); S.topAmt = v; if (f) f.textContent = peso(gcashFee(c)); if (t) t.textContent = peso(c + gcashFee(c)); }
+function payParts(q) {   // how the sender's part is paid: wallet part + rest (GCash or cash)
+  var b = S.bk, need = q.sender_pays, bal = S.wallet ? S.wallet.balance : 0, fromW = 0, rest = need, gc = 0;
+  if (b.pay === "wallet") { fromW = need; rest = 0; }
+  else if (b.pay === "gcash") { fromW = Math.min(bal, need); rest = need - fromW; gc = rest > 0 ? Math.max(rest, 2000) : 0; }
+  else if (b.useWallet !== false && bal > 0) { fromW = Math.min(bal, need); rest = need - fromW; }
+  return { need: need, bal: bal, fromW: fromW, rest: rest, gc: gc, fee: gc ? gcashFee(gc) : 0 };
+}
 function payChoice(q) {
-  var b = S.bk, w = S.wallet, need = q.sender_pays, bal = w ? w.balance : 0, fee = gcashFee(Math.max(need, 2000));
-  var chip = function (v, label) { return '<button class="chip ' + (b.pay === v ? "on" : "") + '" data-act="paym" data-v="' + v + '"' + (v !== "cash" && need <= 0 ? " disabled" : "") + ">" + label + "</button>"; };
-  var info = b.pay === "wallet" ? (bal >= need ? '<div class="small muted">' + peso(need) + " will be taken from your wallet. Balance: " + peso(bal) + ".</div>" : '<div class="note n-warn">Your wallet has ' + peso(bal) + ". Top up first, or choose Cash or GCash.</div>" + '<button class="btn sm yel" data-act="wallet">Top up wallet</button>')
-    : b.pay === "gcash" ? '<div class="small muted">You pay ' + peso(Math.max(need, 2000)) + " + " + peso(fee) + " GCash fee. Your booking starts as soon as GCash confirms. If it is cancelled, the money goes to your PasuyoBuddy Wallet.</div>"
-    : '<div class="small muted">Pay the rider in cash at the pickup.</div>';
-  var tot = b.pay === "cash" ? '<div class="line tot"><span>You pay the rider</span><span>' + peso(need) + "</span></div>" : '<div class="line tot"><span>' + (b.pay === "gcash" ? "You pay in GCash" : "Paid from wallet") + "</span><span>" + peso(b.pay === "gcash" ? Math.max(need, 2000) + fee : need) + "</span></div>";
-  return '<div class="card"><h2>Payment</h2><div class="chips">' + chip("cash", "Cash") + chip("wallet", "Wallet" + (w ? " · " + peso(bal) : "")) + chip("gcash", "GCash") + "</div>" + '<div style="margin-top:8px">' + info + "</div>" + tot
+  var b = S.bk, w = S.wallet, x = payParts(q);
+  var chip = function (v, label) { return '<button class="chip ' + (b.pay === v ? "on" : "") + '" data-act="paym" data-v="' + v + '"' + (v !== "cash" && x.need <= 0 ? " disabled" : "") + ">" + label + "</button>"; };
+  var info, lines = "";
+  if (b.pay === "wallet") {
+    if (x.bal >= x.need) { info = '<div class="small muted">' + peso(x.need) + " will be taken from your wallet. Balance: " + peso(x.bal) + ".</div>"; lines = '<div class="line tot"><span>Paid from wallet</span><span>' + peso(x.need) + "</span></div>"; }
+    else info = '<div class="note n-warn">Your wallet has ' + peso(x.bal) + ". " + (x.bal > 0 ? "Use it and pay the other " + peso(x.need - x.bal) + " with:" : "Top up first, or choose Cash or GCash.") + "</div>"
+      + (x.bal > 0 ? '<div class="row" style="gap:8px"><button class="btn sm yel" style="flex:1" data-act="paym" data-v="gcash">GCash</button><button class="btn sm" style="flex:1" data-act="paycashw">Cash to the rider</button></div>' : '<button class="btn sm yel" data-act="wallet">Top up wallet</button>');
+  } else if (b.pay === "gcash") {
+    if (x.rest <= 0) info = '<div class="note n-info">Your wallet already has enough. Choose <b>Wallet</b> to pay without GCash.</div>';
+    else { info = '<div class="small muted">' + (x.fromW > 0 ? "Your wallet balance pays " + peso(x.fromW) + ", and GCash pays the rest. " : "") + "Your booking starts as soon as GCash confirms. If it is cancelled, the money goes to your PasuyoBuddy Wallet.</div>";
+      lines = (x.fromW > 0 ? '<div class="line"><span class="muted">From your wallet</span><span>' + peso(x.fromW) + "</span></div>" : "") + '<div class="line"><span class="muted">GCash fee</span><span>' + peso(x.fee) + '</span></div><div class="line tot"><span>You pay in GCash</span><span>' + peso(x.gc + x.fee) + "</span></div>"; }
+  } else {
+    info = (x.bal > 0 && x.need > 0 ? '<label class="bagopt' + (b.useWallet !== false ? " on" : "") + '" style="margin:0 0 6px"><input type="checkbox" data-act="usewallet"' + (b.useWallet !== false ? " checked" : "") + '><span><b>Use my wallet balance (' + peso(x.bal) + ") first</b><br><span class=\"small muted\">You pay the rest to the rider in cash.</span></span></label>" : "") + '<div class="small muted">Pay the rider in cash at the pickup.</div>';
+    lines = (x.fromW > 0 ? '<div class="line"><span class="muted">From your wallet</span><span>' + peso(x.fromW) + "</span></div>" : "") + '<div class="line tot"><span>You pay the rider (cash)</span><span>' + peso(x.rest) + "</span></div>";
+  }
+  return '<div class="card"><h2>Payment</h2><div class="chips">' + chip("cash", "Cash") + chip("wallet", "Wallet" + (w ? " · " + peso(x.bal) : "")) + chip("gcash", "GCash") + "</div>" + '<div style="margin-top:8px">' + info + "</div>" + lines
     + (q.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(q.receiver_pays) + "</span></div>" : "") + "</div>";
 }
-function bookLabel(q) { var b = S.bk, need = q.sender_pays; return b.pay === "gcash" ? "Pay with GCash · " + peso(Math.max(need, 2000) + gcashFee(Math.max(need, 2000))) : b.pay === "wallet" ? "Book and pay from wallet · " + peso(need) : "Book now · " + peso(q.sender_pays + q.receiver_pays) + " total"; }
-function payTitle(o) { return o.payment_method === "wallet" ? "Wallet" : o.payment_method === "gcash" ? "GCash" : "Cash"; }
+function bookLabel(q) { var b = S.bk, x = payParts(q);
+  if (b.pay === "gcash") return x.rest <= 0 ? "Book and pay from wallet · " + peso(x.need) : "Pay with GCash · " + peso(x.gc + x.fee);
+  if (b.pay === "wallet") return "Book and pay from wallet · " + peso(x.need);
+  if (x.fromW > 0 && x.rest <= 0) return "Book and pay from wallet · " + peso(x.need);
+  return x.fromW > 0 ? "Book now · " + peso(x.rest) + " cash to the rider" : "Book now · " + peso(q.sender_pays + q.receiver_pays) + " total"; }
+function payTitle(o) { return o.payment_method === "wallet" ? "Wallet" : o.payment_method === "gcash" ? "GCash" : o.wallet_applied ? "Wallet + Cash" : "Cash"; }
 function payLines(o) {
-  if (o.payment_method === "cash") return '<div class="line tot"><span>You pay the rider</span><span>' + peso(o.sender_pays) + "</span></div>";
+  if (o.payment_method === "cash") return (o.wallet_applied ? '<div class="line"><span class="muted">Paid from your wallet</span><span>' + peso(o.wallet_applied) + "</span></div>" : "")
+    + '<div class="line tot"><span>You pay the rider (cash)</span><span>' + peso(o.sender_pays) + "</span></div>"
+    + (o.wallet_refunded ? '<div class="line" style="color:var(--good)"><span>Returned to your wallet</span><span class="b">' + peso(o.wallet_refunded) + "</span></div>" : "");
   return '<div class="line tot"><span>Paid online (' + payTitle(o) + ')</span><span>' + peso(o.wallet_paid || o.sender_pays) + "</span></div>"
     + (o.wallet_refunded ? '<div class="line" style="color:var(--good)"><span>Returned to your wallet</span><span class="b">' + peso(o.wallet_refunded) + "</span></div>" : "")
     + '<div class="small muted">Nothing to pay the rider for your part.</div>';
@@ -1497,7 +1521,7 @@ function vHome() {
   var st = S.bk.stops, drops = st.length - 1;
   var rows = st.map(function (s, i) {
     var title = s.lat != null ? h((s.detail ? s.detail + ", " : "") + s.address) : (i === 0 ? "Where to pick up?" : "Where to deliver?");
-    var sub = s.lat != null ? h(s.contact_name + " · " + s.contact_phone) + (i > 0 ? " · " + (s.payer === "receiver" ? "Receiver pays fare" : "You pay fare") + (Number(s.cod) > 0 ? " · COD " + peso(Number(s.cod) * 100) : "") : "") : '<span class="muted">Tap to set</span>';
+    var sub = s.lat != null ? h(s.contact_name + " · " + s.contact_phone) + (i > 0 ? " · " + (s.payer === "receiver" ? "Receiver pays fare" : "You pay fare") + (Number(s.cod) > 0 ? " · COD " + peso(Number(s.cod) * 100) + " + abono " + peso(abonoFee() * 100) : "") : "") : '<span class="muted">Tap to set</span>';
     return '<button class="stop" data-act="place" data-i="' + i + '"><span class="dot ' + (i === 0 ? "pk" : "dr") + '">' + (i === 0 ? "P" : i) + '</span><span class="sp"><span class="b" style="display:block">' + (s.lat != null ? title : '<span class="muted">' + title + "</span>") + '</span><span class="small muted">' + sub + "</span></span>"
       + (i > 0 && st.length > 2 ? '<span class="chip" style="min-height:30px;padding:0 10px;display:inline-flex;align-items:center" data-act="rmdrop" data-i="' + i + '">Remove</span>' : "") + "</button>";
   }).join("");
@@ -1522,7 +1546,7 @@ function vPlace() {
     + '<div class="field"><label for="pl_contact_phone">Mobile number</label><input class="in" id="pl_contact_phone" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(p.contact_phone) + '"></div>'
     + (i === 0 ? '<button class="btn sm yel" data-act="mecontact">Use my name and number</button>' : "")
     + (drop ? '<div class="field"><label>Who pays this drop-off\'s share of the fare?</label><div class="chips"><button class="chip ' + (p.payer === "sender" ? "on" : "") + '" data-act="payer" data-v="sender">I pay</button><button class="chip ' + (p.payer === "receiver" ? "on" : "") + '" data-act="payer" data-v="receiver">Receiver pays cash</button></div></div>'
-      + '<div class="field"><label for="pl_cod">COD: item price to collect from the receiver (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">The rider pays the seller at pickup, then collects this from the receiver. An abono fee applies.' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
+      + '<div class="field"><label for="pl_cod">COD: item price to collect from the receiver (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">The rider pays the seller at pickup, then collects this from the receiver.</span><span class="small" style="display:block;margin-top:4px;font-weight:700;color:var(--warn)">&#9888;&#65039; Abono fee: ' + peso(abonoFee() * 100) + ' when there is a COD amount (the rider advances the money). You choose on the next screen who pays it: the receiver or you.</span><span class="small muted">' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
     + '</div></div><div class="foot"><button class="btn pri" data-act="saveplace">Save this stop</button></div>';
 }
 function vVehicle() {
@@ -1562,7 +1586,7 @@ function vReview() {
     + '<div class="card"><h2>What are you sending?</h2><div class="chips">' + items + '</div><div class="field" style="margin-top:12px"><label for="r_note">Note to rider (optional)</label><textarea class="in" id="r_note" placeholder="e.g. Call when outside">' + h(b.note) + "</textarea></div>"
       + '<label class="bagopt' + (b.needsBag ? " on" : "") + '"><input type="checkbox" id="r_bag" data-act="bagtoggle"' + (b.needsBag ? " checked" : "") + '><span><b>&#127890; Ask the rider to bring a delivery bag</b><br><span class="small muted">For food, groceries or many small items. Riders see this before they accept.</span></span></label></div>'
     + '<div class="card"><h2>Tip for the rider</h2><div class="small muted" style="margin-bottom:8px">100% goes to the rider.</div><div class="chips">' + tipChips + '</div><div class="row" style="margin-top:10px"><input class="in sp" id="r_tip" type="number" inputmode="decimal" placeholder="Other amount (₱)" value="' + h(b.customTip) + '"><button class="btn sm" data-act="customtip">Apply</button></div></div>'
-    + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee?</h2><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
+    + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee (' + peso(q.abono_fee) + ')?</h2><div class="small muted" style="margin-bottom:8px">Abono is the fee for the rider advancing the COD item money to the seller.</div><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
     + payChoice(q)
     + '</div><div class="foot"><button class="btn pri" data-act="book">' + bookLabel(q) + "</button></div>";
 }
@@ -1642,6 +1666,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
   else if (a === "pushon") enablePush();
+  else if (a === "paycashw") { readReview(); S.bk.pay = "cash"; S.bk.useWallet = true; requote(); }
+  else if (a === "usewallet") { readReview(); S.bk.useWallet = !!t.checked; render(); }
   else if (a === "pushoff") disablePush();
   else if (a === "paym") { readReview(); S.bk.pay = d.v; if (d.v === "wallet" && !S.wallet) loadWallet().then(render); requote(); }
   else if (a === "paycheck") { PAYW.tries = 0; render(); payPoll(); }
