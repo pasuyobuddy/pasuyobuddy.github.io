@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.55" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.56" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -1130,7 +1130,7 @@ async function doAuth() {
       var ref = (val("a_ref") || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); S.refCode = ref;
       if (ref && !REF_RE.test(ref)) throw new Error("The invite code looks wrong. Check it, or leave it empty.");
       refSave(ref);
-      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: Object.assign({ terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() }, ref ? { ref_code: ref } : {}) }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
+      var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: Object.assign({ app: "rider", terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() }, ref ? { ref_code: ref } : {}) }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
       if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
@@ -1553,7 +1553,7 @@ function vDocs() {
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
     + '<div class="card"><h2>Documents</h2>' + rows + "</div>"
-    + '<div class="card"><h2>About the letter of intent</h2><div class="small muted">Write a short letter on paper, sign it, and upload a clear photo of it. It should say:</div><ul class="small" style="margin:8px 0 0;padding-left:18px"><li>Your full name and address</li><li>That you want to join PasuyoBuddy as a delivery rider</li><li>The vehicle you will use and its plate number</li><li>That the documents you uploaded are true and yours</li><li>The date and your signature</li></ul></div>'
+    + '<div class="card"><h2>About the letter of intent</h2><div class="small muted">Print our letter, fill it in, <b>sign it</b> and upload a clear photo of the whole page. We also sent the link to your email.</div><a class="btn yel" style="margin-top:10px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a><div class="small muted" style="margin-top:8px">No printer? Copy the letter by hand on clean paper, with your details, the date and your signature. Your signature should match your driver\'s license.</div></div>'
     + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 // Jobs this rider chose to hide (kept on this phone only; the booking stays open for other riders)
