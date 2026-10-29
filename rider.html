@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.56" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.59" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -1261,8 +1261,7 @@ async function cancelJob() {
 function nextStop() { return S.order.stops.filter(function (s) { return s.kind === "dropoff" && (s.status === "pending" || s.status === "arrived"); })[0]; }
 async function arrivedStop() { var st = nextStop(); if (!st) return; await run(async function () { await rpc("rider_arrived_stop", { p_stop: st.id }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); toast("The customer was told you arrived"); }); }
 async function finishStop(failed) {
-  var st = nextStop(), f = S.stopForm, name = val("st_name");
-  if (!failed && !name) { toast("Type the name of the person who received it", true); return; }
+  var st = nextStop(), f = S.stopForm, name = st ? st.contact_name : "";
   await run(async function () {
     var path = null; if (f && f.file && !failed) { toast("Uploading photo…"); path = await upload("pod-photos", "pod_" + S.order.order_no + "_" + st.seq, f.file); }
     await rpc("complete_stop", { p_stop: st.id, p_photo: path, p_receiver: failed ? null : name, p_failed: !!failed });
@@ -1534,7 +1533,7 @@ function vApply() {
   var opts = S.me.vehicles.map(function (v) { return '<option value="' + v.id + '">' + h(v.name) + " (up to " + v.max_kg + " kg)</option>"; }).join("");
   return topBar("Become a rider") + '<div class="body"><div class="note n-info">Step 1 of 2. Tell us about you and your vehicle.</div>'
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px">'
-    + '<div class="field"><label for="ap_name">Full name (as on your license)</label><input class="in" id="ap_name" autocomplete="name" value="' + h(S.me.name) + '"></div>'
+    + '<div class="field"><label for="ap_name">Full name (as on your license)</label><input class="in" id="ap_name" autocomplete="name" value="' + h(S.me.name) + '"></div>' + '<div class="small" style="color:var(--warn);font-weight:700">&#128274; Use your real name and your own number. After you apply, they cannot be changed later.</div>'
     + '<div class="field"><label for="ap_phone">Mobile number</label><input class="in" id="ap_phone" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(S.me.phone)) + '"></div>'
     + '<div class="field"><label for="ap_vehicle">Vehicle</label><select class="in" id="ap_vehicle">' + opts + "</select></div>"
     + '<div class="field"><label for="ap_plate">Plate number</label><input class="in" id="ap_plate" autocapitalize="characters" placeholder="e.g. NFX 1234"></div>'
@@ -1618,7 +1617,7 @@ function vJob() {
   } else if (st === "in_transit") {
     if (next) {
       if (S.stopForm) extra = '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Drop-off ' + next.seq + ": hand over</h2>" + (next.collect_amount > 0 ? '<div class="note n-warn">Collect ' + peso(next.collect_amount) + " cash before handing over.</div>" : "")
-        + '<div class="field"><label for="st_name">Received by (name)</label><input class="in" id="st_name" value="' + h(S.stopForm.name || next.contact_name || "") + '"></div>'
+        + '<div class="field"><label>Hand it to (set by the customer)</label><div class="in" style="display:flex;align-items:center;background:#F3F2EE">&#128274; ' + h(next.contact_name || "the receiver") + (next.contact_phone ? ' <span class="small muted" style="margin-left:6px">· ' + h(phoneFmt(next.contact_phone)) + "</span>" : "") + '</div><span class="small muted">Give the parcel only to this person. If someone else will receive it, call the customer first.</span></div>'
         + '<div class="field"><label>Photo proof (recommended)</label><label class="btn sm" style="cursor:pointer;width:100%">' + (S.stopForm.file ? "Photo added. Tap to change" : "Take a photo") + '<input type="file" accept="image/*" capture="environment" data-pod="1" hidden></label></div>'
         + '<button class="btn pri" data-act="delivered">Confirm delivered</button><button class="btn" data-act="stopcancel">Back</button></div>';
       else if (next.status === "pending") foot = '<button class="btn pri" data-act="arrivedrop">I have arrived at drop-off ' + next.seq + "</button>";
@@ -1679,9 +1678,19 @@ function photoCard() {
     + '<label class="btn sm' + (p ? "" : " pri") + '" style="cursor:pointer;width:auto">' + (p ? "Retake selfie" : "Take selfie") + '<input type="file" accept="image/*" capture="user" data-photo="1" hidden></label></div></div>';
 }
 async function uploadPhoto(file) { await run(async function () { toast("Uploading…"); var path = await upload("avatars", "photo", file); await rpc("rider_set_photo", { p_path: path }); await reloadMe(); render(); toast("Profile photo saved"); }); }
+// Name and number are locked after sign-up; changes go through a request that staff review
+function chgBox() {
+  return '<div class="small muted" style="margin:6px 0">&#128274; Your name and mobile number are locked to your account and must match your driver\'s license. If there is a mistake, contact the PasuyoBuddy office with your license.</div>';
+}
+async function loadChg() { try { S.chg = await rpc("my_profile_change"); } catch (e) { S.chg = null; } if (S.view === "account") render(); }
+async function sendChg() {
+  var n = val("c_name"), ph = val("c_phone"), r = val("c_reason");
+  if (!phoneOk(ph)) { toast(PHONE_MSG, true); return; }
+  await run(async function () { await rpc("request_profile_change", { p_name: n, p_phone: phoneDigits(ph), p_reason: r }); S.chgOpen = false; await loadChg(); toast("Request sent. The office will review it."); });
+}
 function vAccount() {
   var r = rider();
-  return topBar("Account") + '<div class="body">' + photoCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>' + h(phoneFmt(S.me.phone)) + '</span></div><div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+  return topBar("Account") + '<div class="body">' + photoCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
     + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
@@ -1734,7 +1743,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "home") run(async function () { await reloadMe(); S.busy = false; if (S.me.active_order) await openJob(S.me.active_order); else await goHome(); });
   else if (a === "wallet") showWallet();
   else if (a === "history") showHistory();
-  else if (a === "account") { stopTimers(); S.view = "account"; render(); loadPromos().then(function () { if (S.view === "account") render(); }); }
+  else if (a === "account") { stopTimers(); S.view = "account"; S.chgOpen = false; render(); loadChg(); loadPromos().then(function () { if (S.view === "account") render(); }); }
   else if (a === "refset") setReferral();
   else if (a === "refcopy") copyRef();
   else if (a === "accept") accept(d.id);
@@ -1742,6 +1751,9 @@ document.addEventListener("click", function (ev) {
   else if (a === "canceljob") cancelJob();
   else if (a === "asknone") { S.ask = ""; render(); }
   else if (a === "arrivedrop") arrivedStop();
+  else if (a === "chgopen") { S.chgOpen = true; render(); }
+  else if (a === "chgcancel") { S.chgOpen = false; render(); }
+  else if (a === "chgsend") sendChg();
   else if (a === "stopform") { S.stopForm = { file: null, name: "" }; S.ask = ""; render(); }
   else if (a === "stopcancel") { S.stopForm = null; render(); }
   else if (a === "delivered") finishStop(false);
@@ -1760,7 +1772,7 @@ document.addEventListener("change", function (ev) {
   else if (t.dataset.photo) uploadPhoto(t.files[0]);
   else if (t.dataset.pod && S.stopForm) { S.stopForm.name = val("st_name"); S.stopForm.file = t.files[0]; render(); }
 });
-document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash") ev.target.value = phoneFmt(ev.target.value); });
+document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash" || id === "c_phone") ev.target.value = phoneFmt(ev.target.value); });
 document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.target.id === "a_pw" || ev.target.id === "a_email")) doAuth(); else if (ev.key === "Enter" && ev.target.id === "v_code") doVerify(); else if (ev.key === "Enter" && ev.target.id === "f_email") forgotSend(false); else if (ev.key === "Enter" && ev.target.id === "f_pw2") forgotSave(); });
 // Installable app: register the service worker when served from the website (not from a local file)
 if ("serviceWorker" in navigator && location.protocol === "https:") { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); }); }

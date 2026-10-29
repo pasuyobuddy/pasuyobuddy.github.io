@@ -783,7 +783,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.40" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.42" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1496,14 +1496,28 @@ function vAuth() {
     + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div></div>";
 }
 function vProfile(first) {
+  var nameBox = first
+    ? '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="field"><label for="p_name">Your full name</label><input class="in" id="p_name" autocomplete="name" value="' + h(S.me.name) + '"></div>'
+      + '<div class="field"><label for="p_phone">Mobile number</label><input class="in" id="p_phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="tel" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(S.me.phone)) + '"></div>'
+      + '<div class="note n-warn" style="margin:0">&#128274; Use your <b>real full name</b> (as on your ID) and your own number. After you save, they cannot be changed.</div>'
+      + '<button class="btn pri" data-act="saveprofile">Save</button></div>'
+    : '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + "</span></div>" + chgBox() + "</div>";
   return topBar(first ? "One more step" : "Account", first ? "" : "home") + '<div class="body">'
     + (first ? '<div class="note n-info">Riders need your name and mobile number to reach you about a delivery.</div>' : "")
-    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="field"><label for="p_name">Your name</label><input class="in" id="p_name" autocomplete="name" value="' + h(S.me.name) + '"></div>'
-    + '<div class="field"><label for="p_phone">Mobile number</label><input class="in" id="p_phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="tel" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(S.me.phone)) + '"></div>'
-    + '<button class="btn pri" data-act="saveprofile">Save</button></div>'
+    + nameBox
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
     + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
     + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
+}
+// Name and number are locked after sign-up; changes go through a request that staff review
+function chgBox() {
+  return '<div class="small muted" style="margin-top:6px">&#128274; Your name and mobile number are locked to your account and cannot be changed in the app. If there is a mistake, email PasuyoBuddy support with a photo of your ID.</div>';
+}
+async function loadChg() { try { S.chg = await rpc("my_profile_change"); } catch (e) { S.chg = null; } if (S.view === "account") render(); }
+async function sendChg() {
+  var n = val("c_name"), ph = val("c_phone"), r = val("c_reason");
+  if (!phoneOk(ph)) { toast(PHONE_MSG, true); return; }
+  await run(async function () { await rpc("request_profile_change", { p_name: n, p_phone: phoneDigits(ph), p_reason: r }); S.chgOpen = false; await loadChg(); toast("Request sent. We will review it soon."); });
 }
 function vVerify() {
   var st = S.me.id_status, f = S.idForm;
@@ -1660,12 +1674,15 @@ document.addEventListener("click", function (ev) {
   else if (a === "confirmedgo") { if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
   else if (a === "submitid") submitId();
   else if (a === "home") { S.cancelAsk = false; go("home"); }
-  else if (a === "account") { go("account"); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
+  else if (a === "account") { S.chgOpen = false; go("account"); loadChg(); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
   else if (a === "orders") showOrders();
   else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
   else if (a === "pushon") enablePush();
+  else if (a === "chgopen") { S.chgOpen = true; render(); }
+  else if (a === "chgcancel") { S.chgOpen = false; render(); }
+  else if (a === "chgsend") sendChg();
   else if (a === "paycashw") { readReview(); S.bk.pay = "cash"; S.bk.useWallet = true; requote(); }
   else if (a === "usewallet") { readReview(); S.bk.useWallet = !!t.checked; render(); }
   else if (a === "pushoff") disablePush();
@@ -1706,7 +1723,7 @@ document.addEventListener("input", function (ev) {
   var id = ev.target.id;
   if (id === "pl_q") onSearch(ev.target.value);
   if (id === "w_amt") wAmtInput();
-  if (id === "p_phone" || id === "pl_contact_phone") ev.target.value = phoneFmt(ev.target.value);   // numbers only, auto-spaced
+  if (id === "p_phone" || id === "pl_contact_phone" || id === "c_phone") ev.target.value = phoneFmt(ev.target.value);   // numbers only, auto-spaced
 });
 document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.target.id === "a_pw" || ev.target.id === "a_email")) doAuth(); else if (ev.key === "Enter" && ev.target.id === "v_code") doVerify(); else if (ev.key === "Enter" && ev.target.id === "f_email") forgotSend(false); else if (ev.key === "Enter" && ev.target.id === "f_pw2") forgotSave(); });
 // Installable app: register the service worker when served from the website (not from a local file)
