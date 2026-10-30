@@ -10,6 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
 <style>
+@media print{.top,.nav,.foot,.noprint,#toast{display:none!important}body{background:#fff!important}.body{padding:0!important}.card{box-shadow:none!important;break-inside:avoid}}
 /* required styles */
 
 .leaflet-pane,
@@ -783,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.42" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.44" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1287,6 +1288,52 @@ function pushCard(inAccount) {
   return '<div class="card" style="border-color:var(--accent)"><h2>&#128276; Get delivery alerts</h2><div class="small muted">Know right away when the rider arrives at the pickup, is on the way, arrives at the drop-off, and when your parcel is received. Works even when the app is closed.</div><button class="btn pri" style="margin-top:10px" data-act="pushon">Turn on alerts</button></div>';
 }
 
+// ---------------- E-receipt and BIR invoice request ----------------
+function vReceipt() {
+  var o = S.order, inv = S.inv;
+  var stops = o.stops.map(function (x) { return '<div class="line"><span class="sp"><span class="b">' + (x.kind === "pickup" ? "Pickup" : "Drop-off " + x.seq) + '</span><br><span class="small muted">' + h(x.address) + (x.kind === "dropoff" && x.receiver_name ? " · received by " + h(x.receiver_name) : "") + "</span></span></div>"; }).join("");
+  var invBox = !inv ? (S.invOpen
+      ? '<div class="card noprint" style="display:flex;flex-direction:column;gap:10px"><h2>Request a BIR invoice</h2><div class="small muted">For business expenses. PasuyoBuddy will send the invoice to your email.</div>'
+        + '<div class="field"><label for="iv_name">Registered name (person or business)</label><input class="in" id="iv_name" value="' + h(S.me.name) + '"></div>'
+        + '<div class="field"><label for="iv_tin">TIN (optional)</label><input class="in" id="iv_tin" placeholder="000-000-000-000"></div>'
+        + '<div class="field"><label for="iv_addr">Registered address</label><input class="in" id="iv_addr"></div>'
+        + '<div class="row"><button class="btn" data-act="invcancel">Cancel</button><button class="btn pri" data-act="invsend">Send request</button></div></div>'
+      : '<button class="btn noprint" data-act="invopen">Request a BIR invoice</button>')
+    : '<div class="note ' + (inv.status === "issued" ? "n-good" : inv.status === "rejected" ? "n-bad" : "n-info") + ' noprint">' + (inv.status === "issued" ? "Invoice issued: " + h(inv.invoice_no || "") + ". Check your email." : inv.status === "rejected" ? "Invoice request not approved." + (inv.staff_note ? " " + h(inv.staff_note) : "") : "Invoice requested. We will email it to you.") + "</div>";
+  return topBar("Receipt", "track") + '<div class="body">'
+    + '<div class="card"><div class="row" style="align-items:center;gap:12px"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2228%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M60%2016c-19%200-34%2015-34%2033%200%2024%2034%2055%2034%2055s34-31%2034-55c0-18-15-33-34-33z%22%20fill%3D%22%23D7141A%22/%3E%3Cpath%20d%3D%22M60%2030l19%209v20l-19%209-19-9V39z%22%20fill%3D%22%23FFC629%22/%3E%3Cpath%20d%3D%22M41%2039l19%209%2019-9M60%2048v20%22%20fill%3D%22none%22%20stroke%3D%22%23D7141A%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22/%3E%3C/svg%3E" alt="" style="width:46px;height:46px;border-radius:10px"><div class="sp"><div class="b" style="font-size:17px">PasuyoBuddy · E-receipt</div><div class="small muted">Booking ' + h(o.order_no) + " · " + h(when(o.completed_at || o.created_at)) + "</div></div></div>"
+    + '<div class="line" style="margin-top:10px"><span class="muted">Customer</span><span>' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Service</span><span>Pasuyo Delivery · ' + h(o.vehicle) + "</span></div>"
+    + (o.rider ? '<div class="line"><span class="muted">Rider</span><span>' + h(o.rider.name || "") + " · " + h(o.rider.plate || "") + "</span></div>" : "") + '<div class="line"><span class="muted">Distance</span><span>' + h(o.total_km) + " km</span></div></div>"
+    + '<div class="card"><h2>Route</h2>' + stops + "</div>"
+    + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Paid by receivers in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>"
+    + '<div class="small muted" style="text-align:center">This e-receipt is proof of your booking and payment. It is not a BIR official invoice. Questions: pasuyolabs@gmail.com</div>'
+    + '<button class="btn pri noprint" data-act="print">Save as PDF / Print</button>' + invBox + "</div>";
+}
+async function openReceipt() { S.inv = null; S.invOpen = false; go("receipt"); try { S.inv = await rpc("my_invoice_request", { p_order: S.order.id }); } catch (e) { S.inv = null; } if (S.view === "receipt") render(); }
+async function sendInvoice() {
+  var n = val("iv_name"), t = val("iv_tin"), a = val("iv_addr");
+  await run(async function () { await rpc("request_invoice", { p_order: S.order.id, p_name: n, p_tin: t, p_address: a }); S.invOpen = false; S.inv = await rpc("my_invoice_request", { p_order: S.order.id }); render(); toast("Invoice requested"); });
+}
+
+// ---------------- Delete my account (Google Play requirement) ----------------
+function vDelete() {
+  var w = S.wallet ? S.wallet.balance : 0;
+  return topBar("Delete my account", "account") + '<div class="body"><div class="card"><h2>Before you delete</h2><ul class="small" style="margin:6px 0 0;padding-left:18px;line-height:1.6">'
+    + "<li>Your account is switched off right away and you will be signed out.</li><li>Within 30 days we erase your name, mobile number, email, photos and ID.</li>"
+    + "<li>Booking and payment records are kept <b>without your personal details</b>, because the law requires them (see Privacy Policy).</li>"
+    + (w > 0 ? '<li style="color:var(--bad)"><b>Your PasuyoBuddy Wallet has ' + peso(w) + ". This money will be lost.</b> Use it for a booking first if you want.</li>" : "")
+    + "<li>You cannot delete while a booking is in progress.</li></ul></div>"
+    + '<div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="field"><label for="del_reason">Why are you leaving? (optional)</label><input class="in" id="del_reason"></div>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px"><input type="checkbox" id="del_ok" style="width:20px;height:20px;flex:none"><span>I understand that my account will be deleted' + (w > 0 ? " and my wallet balance of " + peso(w) + " will be lost" : "") + ".</span></label>"
+    + '<button class="btn bad" data-act="delconfirm">Delete my account</button><button class="btn" data-act="account">Keep my account</button></div>'
+    + '<div class="small muted" style="text-align:center">You can also email pasuyolabs@gmail.com from your account email with the subject "Delete my account".</div></div>';
+}
+async function deleteAccount() {
+  if (!$("del_ok") || !$("del_ok").checked) { toast("Tick the box to confirm", true); return; }
+  var reason = val("del_reason");
+  await run(async function () { await rpc("request_account_deletion", { p_reason: reason, p_accept_loss: true }); S.busy = false; await signOut(); S.authMsg = "Your account deletion request was received. Your account is switched off and your details will be erased within 30 days."; render(); });
+}
+
 // ---------------- Orders ----------------
 var pollT = null;
 function stopPoll() { if (pollT) { clearInterval(pollT); pollT = null; } }
@@ -1499,7 +1546,7 @@ function vProfile(first) {
   var nameBox = first
     ? '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="field"><label for="p_name">Your full name</label><input class="in" id="p_name" autocomplete="name" value="' + h(S.me.name) + '"></div>'
       + '<div class="field"><label for="p_phone">Mobile number</label><input class="in" id="p_phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="tel" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(S.me.phone)) + '"></div>'
-      + '<div class="note n-warn" style="margin:0">&#128274; Use your <b>real full name</b> (as on your ID) and your own number. After you save, they cannot be changed.</div>'
+      + '<div class="note n-warn" style="margin:0">&#128274; Use your <b>real full name</b> (as on your ID) and your own number. After you save, only spelling mistakes can be corrected, with your ID.</div>'
       + '<button class="btn pri" data-act="saveprofile">Save</button></div>'
     : '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + "</span></div>" + chgBox() + "</div>";
   return topBar(first ? "One more step" : "Account", first ? "" : "home") + '<div class="body">'
@@ -1507,17 +1554,32 @@ function vProfile(first) {
     + nameBox
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
     + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
-    + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<button class="link" data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>') + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
 }
 // Name and number are locked after sign-up; changes go through a request that staff review
 function chgBox() {
-  return '<div class="small muted" style="margin-top:6px">&#128274; Your name and mobile number are locked to your account and cannot be changed in the app. If there is a mistake, email PasuyoBuddy support with a photo of your ID.</div>';
+  var c = S.chg, st = c && c.status;
+  var last = !c ? "" : st === "pending" ? '<div class="note n-warn" style="margin:8px 0 0">Correction waiting for review: ' + h(c.new_name) + " · " + h(phoneFmt(c.new_phone)) + "</div>"
+    : st === "rejected" ? '<div class="note n-bad" style="margin:8px 0 0">Your last correction was not approved.' + (c.staff_note ? " Reason: " + h(c.staff_note) : "") + "</div>"
+    : '<div class="note n-good" style="margin:8px 0 0">Your last correction was approved.</div>';
+  var lock = '<div class="small muted" style="margin-top:6px">&#128274; Your name and number are locked. Only <b>spelling mistakes</b> can be corrected, with a photo of your ID. A different name is not allowed.</div>';
+  if (st === "pending") return lock + last;
+  if (!S.chgOpen) return lock + last + '<button class="btn sm" style="margin-top:8px" data-act="chgopen">Fix a spelling mistake / new number</button>';
+  return lock + last + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px"><div class="field"><label for="c_name">Correct spelling of your full name (as on your ID)</label><input class="in" id="c_name" value="' + h(S.chgName != null ? S.chgName : S.me.name) + '"></div>'
+    + '<div class="field"><label for="c_phone">Mobile number</label><input class="in" id="c_phone" type="tel" inputmode="numeric" maxlength="13" value="' + h(phoneFmt(S.chgPhone != null ? S.chgPhone : S.me.phone)) + '"></div>'
+    + '<div class="field"><label for="c_reason">Reason</label><input class="in" id="c_reason" placeholder="e.g. typo in my surname, lost SIM" value="' + h(S.chgReason || "") + '"></div>'
+    + '<div class="field"><label>Photo of your valid ID (proof)</label><label class="btn sm" style="cursor:pointer;width:100%">' + (S.chgFile ? "ID photo added. Tap to change" : "Take / choose a photo of your ID") + '<input type="file" accept="image/*" data-chgfile="1" hidden></label></div>'
+    + '<div class="row"><button class="btn" data-act="chgcancel">Cancel</button><button class="btn pri" data-act="chgsend">Send for review</button></div></div>';
 }
+function chgKeep() { S.chgName = val("c_name"); S.chgPhone = val("c_phone"); S.chgReason = val("c_reason"); }
 async function loadChg() { try { S.chg = await rpc("my_profile_change"); } catch (e) { S.chg = null; } if (S.view === "account") render(); }
 async function sendChg() {
-  var n = val("c_name"), ph = val("c_phone"), r = val("c_reason");
+  chgKeep(); var n = S.chgName, ph = S.chgPhone, r = S.chgReason;
   if (!phoneOk(ph)) { toast(PHONE_MSG, true); return; }
-  await run(async function () { await rpc("request_profile_change", { p_name: n, p_phone: phoneDigits(ph), p_reason: r }); S.chgOpen = false; await loadChg(); toast("Request sent. We will review it soon."); });
+  if (!S.chgFile) { toast("Add a photo of your ID as proof", true); return; }
+  await run(async function () { toast("Uploading…"); var path = await uploadId("chg", S.chgFile);
+    await rpc("request_profile_change", { p_name: n, p_phone: phoneDigits(ph), p_reason: r, p_evidence: path });
+    S.chgOpen = false; S.chgFile = null; S.chgName = S.chgPhone = S.chgReason = null; await loadChg(); toast("Sent. We will check your ID and reply soon."); });
 }
 function vVerify() {
   var st = S.me.id_status, f = S.idForm;
@@ -1626,6 +1688,7 @@ function vTrack() {
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
+    + (o.status === "completed" ? '<button class="btn" data-act="receipt">&#129534; View receipt / request invoice</button>' : "")
     + (ended ? '<button class="btn pri" data-act="home">Book another delivery</button>' : "") + "</div>" + nav("orders");
 }
 function vOrders() {
@@ -1637,7 +1700,7 @@ function vOrders() {
 
 function render() {
   killMap();
-  var v = S.view, html = v === "wallet" ? vWallet() : v === "paywait" ? vPayWait() : v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
+  var v = S.view, html = v === "receipt" ? vReceipt() : v === "deleteacct" ? vDelete() : v === "wallet" ? vWallet() : v === "paywait" ? vPayWait() : v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
   $("app").innerHTML = html;
   if (v === "place") drawPlaceMap();
   if (v === "track") drawTrackMap();
@@ -1680,8 +1743,16 @@ document.addEventListener("click", function (ev) {
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
   else if (a === "pushon") enablePush();
+  else if (a === "receipt") openReceipt();
+  else if (a === "track") { if (S.order) run(async function () { S.busy = false; await openOrder(S.order.id); }); }
+  else if (a === "print") window.print();
+  else if (a === "invopen") { S.invOpen = true; render(); }
+  else if (a === "invcancel") { S.invOpen = false; render(); }
+  else if (a === "invsend") sendInvoice();
+  else if (a === "delopen") { go("deleteacct"); loadWallet().then(function () { if (S.view === "deleteacct") render(); }); }
+  else if (a === "delconfirm") deleteAccount();
   else if (a === "chgopen") { S.chgOpen = true; render(); }
-  else if (a === "chgcancel") { S.chgOpen = false; render(); }
+  else if (a === "chgcancel") { S.chgOpen = false; S.chgFile = null; S.chgName = S.chgPhone = S.chgReason = null; render(); }
   else if (a === "chgsend") sendChg();
   else if (a === "paycashw") { readReview(); S.bk.pay = "cash"; S.bk.useWallet = true; requote(); }
   else if (a === "usewallet") { readReview(); S.bk.useWallet = !!t.checked; render(); }
@@ -1715,7 +1786,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "rate") sendRating();
 });
 document.addEventListener("change", function (ev) {
-  var t = ev.target; if (t.type !== "file" || !t.files || !t.files[0] || !t.dataset.idphoto) return;
+  var t = ev.target; if (t.type === "file" && t.files && t.files[0] && t.dataset.chgfile) { chgKeep(); S.chgFile = t.files[0]; render(); return; }
+  if (t.type !== "file" || !t.files || !t.files[0] || !t.dataset.idphoto) return;
   var n = val("p_name"), ph = val("p_phone"); S.idForm[t.dataset.idphoto] = t.files[0]; render();
   if ($("p_name")) { $("p_name").value = n; $("p_phone").value = ph; }
 });
