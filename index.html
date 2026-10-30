@@ -714,6 +714,15 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .dot.pk{background:var(--ink)} .dot.dr{background:var(--accent)}
 .veh{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left}
 .veh.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.vc{position:relative;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:6px 10px 10px;font:inherit;color:inherit;cursor:pointer;width:100%}
+.vc.on{border-color:var(--accent);background:#FFF7F7;box-shadow:0 0 0 2px var(--accent-s)}
+.vc svg{width:100%;height:auto;display:block}
+.vc .vn{font-weight:800;font-size:14px;line-height:1.25}.vc .vk{font-size:12px;color:var(--muted)}.vc .vp{font-size:15px;font-weight:800;color:var(--accent);margin-top:2px}
+.vc .vm{display:none;font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.4}.vc.on .vm{display:block}
+.vtag{position:absolute;top:6px;right:6px;background:var(--yellow);color:var(--ink);font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 7px}
+.vhelp{width:100%;border-collapse:collapse;font-size:12.5px}.vhelp td,.vhelp th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.vhelp th{background:#FFF4D6}
+.linkbtn{background:none;border:none;color:var(--accent);font-weight:800;font-size:13px;cursor:pointer;padding:4px 0}
 .line{display:flex;justify-content:space-between;gap:12px;padding:5px 0}
 .line.tot{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;font-weight:800;font-size:16px}
 .note{padding:10px 12px;border-radius:10px;font-size:13px}
@@ -784,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.44" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.47" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1095,6 +1104,12 @@ function useMyLocation() {
     { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
 }
 function stopsReady() { return S.bk.stops.every(function (s) { return s.lat != null; }); }
+// Swap pick-up and drop-off (only the place and contact; COD and who-pays stay with the drop-off)
+function swapStops() {
+  var st = S.bk.stops; if (st.length !== 2) return;
+  ["address", "area", "lat", "lng", "detail", "contact_name", "contact_phone"].forEach(function (f) { var t = st[0][f]; st[0][f] = st[1][f]; st[1][f] = t; });
+  S.bk.legs = []; S.bk.km = 0; S.bk.prices = null; S.bk.quote = null; render(); toast("Pick-up and drop-off swapped");
+}
 async function toVehicle() {
   if (!stopsReady()) { toast("Set the pickup and every drop-off first", true); return; }
   await run(async function () {
@@ -1334,6 +1349,50 @@ async function deleteAccount() {
   await run(async function () { await rpc("request_account_deletion", { p_reason: reason, p_accept_loss: true }); S.busy = false; await signOut(); S.authMsg = "Your account deletion request was received. Your account is switched off and your details will be erased within 30 days."; render(); });
 }
 
+function supBar(t) { return topBar(t, "account"); }
+// ---------------- Help & Support (chat with PasuyoBuddy staff) ----------------
+var SUP_TOPICS = [["question", "Question"], ["booking", "Booking / delivery problem"], ["payment", "Payment / wallet"], ["account", "Account"], ["appeal", "Appeal (suspension / rejection)"], ["other", "Other"]];
+function supTopic(t) { for (var i = 0; i < SUP_TOPICS.length; i++) if (SUP_TOPICS[i][0] === t) return SUP_TOPICS[i][1]; return t; }
+function supCard() {
+  var n = S.supUnread || 0;
+  return '<div class="card"><h2>&#128172; Help &amp; Support</h2><div class="small muted">Questions, problems or appeals? Chat with the PasuyoBuddy team. We usually reply within the day.</div>'
+    + '<button class="btn" style="margin-top:10px" data-act="supopen">Open Help &amp; Support' + (n ? ' <span style="background:var(--accent);color:#fff;border-radius:999px;padding:0 8px;margin-left:6px">' + n + " new</span>" : "") + "</button>"
+    + '<div class="small muted" style="margin-top:8px">Email: <a href="mailto:pasuyolabs@gmail.com" style="color:var(--accent)">pasuyolabs@gmail.com</a></div></div>';
+}
+async function supLoadUnread() { try { S.supUnread = await rpc("support_unread"); } catch (e) { S.supUnread = 0; } }
+async function supList() { S.supNew = false; S.supTicket = null; S.view = "support"; render(); window.scrollTo(0, 0); try { S.supItems = await rpc("support_my_tickets"); } catch (e) { S.supItems = []; toast(e.message, true); } if (S.view === "support") render(); }
+function vSupport() {
+  var items = S.supItems;
+  var list = !items ? '<div class="spin">Loading…</div>' : !items.length ? '<div class="card muted">No conversations yet.</div>'
+    : items.map(function (t) { return '<button class="veh" data-act="supview" data-id="' + t.id + '" style="text-align:left"><span class="sp"><span class="b" style="display:block">' + h(supTopic(t.topic)) + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + (t.user_unread ? ' <span style="background:var(--accent);color:#fff;border-radius:999px;padding:0 8px;font-size:12px">New reply</span>' : "") + '</span><span class="small muted">' + h(t.last || "") + '</span><br><span class="small muted">' + h(when(t.updated_at)) + " · " + (t.status === "open" ? "Waiting for reply" : t.status === "answered" ? "Answered" : "Closed") + "</span></span></button>"; }).join("");
+  var form = S.supNew ? '<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2>New message</h2><div class="field"><label for="sp_topic">Topic</label><select class="in" id="sp_topic">'
+      + SUP_TOPICS.map(function (x) { return '<option value="' + x[0] + '"' + (S.supTopic === x[0] ? " selected" : "") + ">" + x[1] + "</option>"; }).join("") + "</select></div>"
+      + '<div class="field"><label for="sp_order">Booking number (optional)</label><input class="in" id="sp_order" placeholder="PB-XXXXXX" value="' + h(S.supOrder || "") + '"></div>'
+      + '<div class="field"><label for="sp_body">Your message</label><textarea class="in" id="sp_body" rows="5" placeholder="Tell us what happened. For an appeal, explain why you think the decision should change."></textarea></div>'
+      + '<div class="row"><button class="btn" data-act="supcancel">Cancel</button><button class="btn pri" data-act="supsend">Send</button></div></div>'
+    : '<button class="btn pri" data-act="supnew">+ New message</button>';
+  return supBar("Help & Support") + '<div class="body">' + form + list + '<div class="small muted" style="text-align:center">You can also email <a href="mailto:pasuyolabs@gmail.com" style="color:var(--accent)">pasuyolabs@gmail.com</a></div></div>' + nav("account");
+}
+async function supSend() {
+  var topic = val("sp_topic"), ord = val("sp_order"), body = $("sp_body") ? $("sp_body").value.trim() : "";
+  if (!body) { toast("Write your message", true); return; }
+  await run(async function () { var id = await rpc("support_open", { p_topic: topic, p_order_no: ord, p_body: body }); S.supNew = false; S.supTopic = S.supOrder = null; S.busy = false; toast("Sent. We will reply soon."); await supView(id); });
+}
+async function supView(id) { await run(async function () { S.supTicket = await rpc("support_ticket", { p_id: Number(id) }); S.view = "supticket"; render(); window.scrollTo(0, document.body.scrollHeight); supLoadUnread(); }); }
+function vSupTicket() {
+  var t = S.supTicket;
+  var msgs = t.messages.map(function (m) { return '<div style="display:flex;justify-content:' + (m.from_staff ? "flex-start" : "flex-end") + ';margin:0 0 8px"><div style="max-width:85%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;background:' + (m.from_staff ? "#FFF6D6" : "var(--accent)") + ";color:" + (m.from_staff ? "#15171C" : "#fff") + '">' + (m.from_staff ? '<div class="small" style="font-weight:800;margin-bottom:2px">PasuyoBuddy Support</div>' : "") + h(m.body) + '<div class="small" style="opacity:.7;margin-top:3px">' + h(when(m.at)) + "</div></div></div>"; }).join("");
+  return supBar(supTopic(t.topic)) + '<div class="body">' + (t.order_no ? '<div class="small muted">Booking ' + h(t.order_no) + "</div>" : "")
+    + '<div class="card">' + msgs + "</div>"
+    + (t.status === "closed" ? '<div class="note n-info">This conversation is closed. Write below to open it again.</div>' : t.status === "open" ? '<div class="small muted">Waiting for our reply. We will let you know.</div>' : "")
+    + '<div class="card" style="display:flex;flex-direction:column;gap:8px"><textarea class="in" id="sp_reply" rows="3" placeholder="Write a reply"></textarea><button class="btn pri" data-act="supreply">Send</button></div>'
+    + '<button class="btn" data-act="supopen">Back to all conversations</button></div>' + nav("account");
+}
+async function supReply() {
+  var body = $("sp_reply") ? $("sp_reply").value.trim() : ""; if (!body) { toast("Write your message", true); return; }
+  await run(async function () { await rpc("support_reply", { p_id: S.supTicket.id, p_body: body }); S.supTicket = await rpc("support_ticket", { p_id: S.supTicket.id }); render(); window.scrollTo(0, document.body.scrollHeight); });
+}
+
 // ---------------- Orders ----------------
 var pollT = null;
 function stopPoll() { if (pollT) { clearInterval(pollT); pollT = null; } }
@@ -1553,7 +1612,7 @@ function vProfile(first) {
     + (first ? '<div class="note n-info">Riders need your name and mobile number to reach you about a delivery.</div>' : "")
     + nameBox
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
-    + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
+    + (first ? "" : supCard()) + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
     + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<button class="link" data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>') + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
 }
 // Name and number are locked after sign-up; changes go through a request that staff review
@@ -1604,7 +1663,8 @@ function vHome() {
   var pr = S.promo && S.promo.reason === "ok" && S.promo.amount > 0 ? S.promo : null;
   return topBar("Hi, " + (S.me.name || "").split(" ")[0]) + '<div class="body">'
     + (pr ? '<div class="note" style="background:#FFF6D6;border:1px dashed #E5A700;color:#15171C"><b>&#127873; ' + peso(pr.amount) + " off your first Pasuyo Delivery!</b><br><span class=\"small\">For a delivery fare of " + peso(pr.min_fare) + " and up. Use it by " + h(new Date(pr.until).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })) + ". The discount shows on your price.</span></div>" : "")
-    + '<div class="card"><h2>Pasuyo Delivery</h2><div class="muted small" style="margin-bottom:6px">Send a parcel from one place to up to ' + MAX_DROPS + " drop-offs.</div>" + rows + "</div>"
+    + '<div class="card"><h2>Pasuyo Delivery</h2><div class="muted small" style="margin-bottom:6px">Send a parcel from one place to up to ' + MAX_DROPS + " drop-offs.</div>" + rows
+    + (st.length === 2 && (st[0].lat != null || st[1].lat != null) ? '<button class="chip" data-act="swap" style="margin-top:8px">&#8645; Swap pick-up and drop-off</button>' : "") + "</div>"
     + (drops < MAX_DROPS ? '<button class="btn" data-act="adddrop">+ Add another drop-off</button>' : '<div class="muted small">Maximum of ' + MAX_DROPS + " drop-offs reached.</div>")
     + '<div class="note n-info">Pabili (we buy it for you) is coming in the next version.</div>'
     + '</div><div class="foot" style="bottom:58px"><button class="btn pri" data-act="tovehicle"' + (stopsReady() ? "" : " disabled") + ">Choose vehicle</button></div>" + nav("home");
@@ -1625,22 +1685,39 @@ function vPlace() {
       + '<div class="field"><label for="pl_cod">COD: item price to collect from the receiver (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">The rider pays the seller at pickup, then collects this from the receiver.</span><span class="small" style="display:block;margin-top:4px;font-weight:700;color:var(--warn)">&#9888;&#65039; Abono fee: ' + peso(abonoFee() * 100) + ' when there is a COD amount (the rider advances the money). You choose on the next screen who pays it: the receiver or you.</span><span class="small muted">' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
     + '</div></div><div class="foot"><button class="btn pri" data-act="saveplace">Save this stop</button></div>';
 }
+// ---------------- Vehicle pictures (original PasuyoBuddy drawings) ----------------
+var VEH_ART = {"motorcycle":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/>\n<path d=\"M30 64 Q40 54 52 60\" fill=\"none\" stroke=\"#2A2D35\" stroke-width=\"5\" stroke-linecap=\"round\"/>\n<circle cx=\"38\" cy=\"74\" r=\"11\" fill=\"#2A2D35\"/><circle cx=\"38\" cy=\"74\" r=\"5.5\" fill=\"#C9CCD3\"/><circle cx=\"38\" cy=\"74\" r=\"2.0\" fill=\"#2A2D35\"/><circle cx=\"120\" cy=\"74\" r=\"11\" fill=\"#2A2D35\"/><circle cx=\"120\" cy=\"74\" r=\"5.5\" fill=\"#C9CCD3\"/><circle cx=\"120\" cy=\"74\" r=\"2.0\" fill=\"#2A2D35\"/>\n<path d=\"M38 74 L60 60 L96 60 L120 74\" fill=\"none\" stroke=\"#15171C\" stroke-width=\"4\" stroke-linejoin=\"round\"/>\n<path d=\"M56 62 Q66 46 92 50 L102 62 Z\" fill=\"#D7141A\"/>\n<path d=\"M64 56 L98 56\" stroke=\"#FFC629\" stroke-width=\"3\"/>\n<rect x=\"50\" y=\"46\" width=\"28\" height=\"7\" rx=\"3.5\" fill=\"#15171C\"/>\n<rect x=\"24\" y=\"22\" width=\"36\" height=\"28\" rx=\"5\" fill=\"#D7141A\"/>\n<rect x=\"24\" y=\"22\" width=\"36\" height=\"7\" rx=\"3\" fill=\"#FFC629\"/>\n<g transform=\"translate(42 39) scale(0.9)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g>\n<path d=\"M100 60 L110 36\" stroke=\"#15171C\" stroke-width=\"4\" stroke-linecap=\"round\"/>\n<path d=\"M104 36 L118 33\" stroke=\"#15171C\" stroke-width=\"4\" stroke-linecap=\"round\"/>\n<path d=\"M108 64 Q120 56 132 66\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"4\" stroke-linecap=\"round\"/>\n<circle cx=\"114\" cy=\"44\" r=\"3.5\" fill=\"#FFC629\"/></svg>","sedan":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/><path d=\"M10 72 L10 58 Q12 51 28 49 L48 47 Q62 33 82 32 L102 32 Q116 33 128 47 L144 50 Q150 52 150 61 L150 72 Z\" fill=\"#D7141A\"/><path d=\"M56 47 Q66 37 80 36 L88 36 L88 47 Z\" fill=\"#BFE3F2\"/><path d=\"M92 36 L102 36 Q112 37 120 47 L92 47 Z\" fill=\"#BFE3F2\"/><rect x=\"146\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/><rect x=\"10\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#A80F14\"/><path d=\"M14 60 H146\" stroke=\"#FFC629\" stroke-width=\"3\"/><g transform=\"translate(82 60) scale(0.7)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g><circle cx=\"42\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"42\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"42\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"122\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","suv":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/><path d=\"M10 72 L10 52 Q11 45 22 44 L44 42 L56 28 Q58 26 62 26 L120 26 Q127 26 131 32 L140 44 Q150 46 150 56 L150 72 Z\" fill=\"#D7141A\"/><path d=\"M60 42 L68 31 L88 31 L88 42 Z\" fill=\"#BFE3F2\"/><path d=\"M92 31 L118 31 Q122 31 125 35 L131 42 L92 42 Z\" fill=\"#BFE3F2\"/><rect x=\"64\" y=\"21\" width=\"56\" height=\"3\" rx=\"1.5\" fill=\"#15171C\"/><rect x=\"146\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/><rect x=\"10\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#A80F14\"/><path d=\"M14 58 H146\" stroke=\"#FFC629\" stroke-width=\"3\"/><g transform=\"translate(90 58) scale(0.7)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g><circle cx=\"42\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"42\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"42\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"122\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","mpv":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/><path d=\"M10 72 L10 30 Q10 22 20 22 L118 22 Q128 22 133 30 L142 44 Q150 46 150 56 L150 72 Z\" fill=\"#D7141A\"/><path d=\"M16 28 H44 V42 H16 Z\" fill=\"#BFE3F2\"/><path d=\"M48 28 H80 V42 H48 Z\" fill=\"#BFE3F2\"/><path d=\"M84 28 H116 Q122 28 125 33 L131 42 H84 Z\" fill=\"#BFE3F2\"/><rect x=\"146\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/><rect x=\"10\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#A80F14\"/><path d=\"M14 56 H146\" stroke=\"#FFC629\" stroke-width=\"3\"/><g transform=\"translate(64 56) scale(0.7)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g><path d=\"M82 46 V70\" stroke=\"#A80F14\" stroke-width=\"1.2\"/><circle cx=\"42\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"42\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"42\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"122\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"122\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","pickup":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/>\n<rect x=\"8\" y=\"44\" width=\"76\" height=\"28\" rx=\"2\" fill=\"#A80F14\"/>\n<rect x=\"16\" y=\"30\" width=\"22\" height=\"16\" rx=\"1\" fill=\"#C98B4F\"/><path d=\"M27 30 V46\" stroke=\"#A86F3A\" stroke-width=\"2\"/>\n<rect x=\"40\" y=\"34\" width=\"18\" height=\"12\" rx=\"1\" fill=\"#D9A066\"/><path d=\"M40 39 H58\" stroke=\"#A86F3A\" stroke-width=\"2\"/>\n<path d=\"M82 72 L82 30 Q82 25 87 25 L112 25 Q119 25 123 31 L133 46 L144 48 Q150 50 150 58 L150 72 Z\" fill=\"#D7141A\"/>\n<path d=\"M90 30 H111 Q115 30 118 34 L125 44 H90 Z\" fill=\"#BFE3F2\"/>\n<path d=\"M8 56 H150\" stroke=\"#FFC629\" stroke-width=\"3\"/><g transform=\"translate(106 58) scale(0.7)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g>\n<rect x=\"146\" y=\"52\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/>\n<circle cx=\"36\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"36\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"36\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"124\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"124\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"124\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","cargovan":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/>\n<path d=\"M8 72 L8 22 Q8 16 14 16 L116 16 Q124 16 129 24 L144 46 Q150 48 150 57 L150 72 Z\" fill=\"#D7141A\"/>\n<path d=\"M118 22 L136 46 L118 46 Z\" fill=\"#BFE3F2\"/>\n<rect x=\"8\" y=\"50\" width=\"142\" height=\"8\" fill=\"#FFC629\"/>\n<g transform=\"translate(30 34) scale(1.3)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g><text x=\"43\" y=\"38\" font-family=\"Arial,Helvetica,sans-serif\" font-weight=\"bold\" font-size=\"10\" fill=\"#FFFFFF\">PasuyoBuddy</text>\n<path d=\"M112 20 V70\" stroke=\"#A80F14\" stroke-width=\"1.2\"/>\n<rect x=\"146\" y=\"58\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/>\n<circle cx=\"36\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"36\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"36\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"124\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"124\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"124\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","fbvan":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/>\n<rect x=\"4\" y=\"8\" width=\"108\" height=\"60\" rx=\"3\" fill=\"#D7141A\"/><rect x=\"4\" y=\"48\" width=\"108\" height=\"9\" fill=\"#FFC629\"/><g transform=\"translate(20 28) scale(1.4)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g><text x=\"33\" y=\"32\" font-family=\"Arial,Helvetica,sans-serif\" font-weight=\"bold\" font-size=\"10.5\" fill=\"#FFFFFF\">PasuyoBuddy</text>\n<rect x=\"4\" y=\"66\" width=\"146\" height=\"6\" fill=\"#2A2D35\"/>\n<path d=\"M114 70 L114 30 Q114 25 119 25 L134 25 Q140 25 143 32 L150 50 L150 70 Z\" fill=\"#D7141A\"/>\n<path d=\"M120 30 H133 Q137 30 139 34 L144 46 H120 Z\" fill=\"#BFE3F2\"/>\n<rect x=\"114\" y=\"54\" width=\"36\" height=\"5\" fill=\"#FFC629\"/>\n<rect x=\"146\" y=\"60\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/>\n<circle cx=\"26\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"26\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"26\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"52\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"52\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"52\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"130\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"130\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"130\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>","aluminumvan":"<svg viewBox=\"0 0 160 96\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"80\" cy=\"86\" rx=\"70\" ry=\"4\" fill=\"#000\" opacity=\".10\"/>\n<rect x=\"4\" y=\"8\" width=\"108\" height=\"60\" rx=\"3\" fill=\"#DADDE2\"/><path d=\"M16 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M28 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M40 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M52 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M64 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M76 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M88 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><path d=\"M100 10 V66\" stroke=\"#B9BEC6\" stroke-width=\"1.4\"/><rect x=\"4\" y=\"48\" width=\"108\" height=\"9\" fill=\"#D7141A\"/><rect x=\"4\" y=\"57\" width=\"108\" height=\"3\" fill=\"#FFC629\"/><g transform=\"translate(24 28) scale(1.4)\"><circle r=\"7\" fill=\"#FFC629\"/><path d=\"M-2.6 4.6V-4.6H1.2a2.9 2.9 0 0 1 0 5.8H-2.6\" fill=\"none\" stroke=\"#D7141A\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/></g>\n<rect x=\"4\" y=\"66\" width=\"146\" height=\"6\" fill=\"#2A2D35\"/>\n<path d=\"M114 70 L114 30 Q114 25 119 25 L134 25 Q140 25 143 32 L150 50 L150 70 Z\" fill=\"#D7141A\"/>\n<path d=\"M120 30 H133 Q137 30 139 34 L144 46 H120 Z\" fill=\"#BFE3F2\"/>\n<rect x=\"114\" y=\"54\" width=\"36\" height=\"5\" fill=\"#FFC629\"/>\n<rect x=\"146\" y=\"60\" width=\"4\" height=\"5\" rx=\"1.5\" fill=\"#FFC629\"/>\n<circle cx=\"26\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"26\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"26\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"52\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"52\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"52\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/><circle cx=\"130\" cy=\"72\" r=\"12\" fill=\"#2A2D35\"/><circle cx=\"130\" cy=\"72\" r=\"6.0\" fill=\"#C9CCD3\"/><circle cx=\"130\" cy=\"72\" r=\"2.2\" fill=\"#2A2D35\"/></svg>"};
+var VEH_INFO = {"motorcycle":["50 \u00d7 40 \u00d7 50 cm","Documents, food, small parcels","Most booked"],"sedan":["100 \u00d7 60 \u00d7 70 cm","Boxes, cakes, small appliances",""],"suv":["120 \u00d7 100 \u00d7 90 cm","Bigger boxes, appliances in boxes",""],"mpv":["210 \u00d7 120 \u00d7 110 cm","Small furniture, many boxes",""],"pickup":["150 \u00d7 140 \u00d7 50 cm, open bed","Construction supplies, plants, tall items",""],"cargovan":["210 \u00d7 150 \u00d7 120 cm","Store deliveries, small moving","Best for moving"],"fbvan":["300 \u00d7 170 \u00d7 170 cm","Full room moving, bulk stock",""],"aluminumvan":["300 \u00d7 170 \u00d7 170 cm, closed","House moving, big business loads",""]};
+function vehKey(v) {
+  var n = String(v.name || "").toLowerCase();
+  if (/motor/.test(n)) return "motorcycle"; if (/alum/.test(n)) return "aluminumvan"; if (/\bfb\b|fb[- ]/.test(n)) return "fbvan";
+  if (/l300|cargo/.test(n)) return "cargovan"; if (/pick/.test(n)) return "pickup"; if (/mpv|7-seat|minivan/.test(n)) return "mpv";
+  if (/suv|crossover/.test(n)) return "suv"; if (/sedan|car/.test(n)) return "sedan";
+  var kg = +v.max_kg || 0; return kg <= 20 ? "motorcycle" : kg <= 200 ? "sedan" : kg <= 300 ? "suv" : kg <= 600 ? "mpv" : kg <= 800 ? "pickup" : kg <= 1000 ? "cargovan" : "fbvan";
+}
 function vVehicle() {
   var b = S.bk, pr = b.prices, ok = poolOk();
-  var veh = pr.vehicles.map(function (v) { var price = v[b.level] != null ? v[b.level] : v.regular;
-    return '<button class="veh ' + (b.vehicle === v.id ? "on" : "") + '" data-act="veh" data-id="' + v.id + '"><span class="sp"><span class="b" style="display:block">' + h(v.name) + '</span><span class="small muted">Up to ' + h(v.max_kg) + ' kg</span></span><span class="b">' + peso(price) + "</span></button>"; }).join("");
+  var sel = null;
+  var veh = pr.vehicles.map(function (v) { var price = v[b.level] != null ? v[b.level] : v.regular, k = vehKey(v), inf = VEH_INFO[k] || ["", "", ""];
+    if (b.vehicle === v.id) sel = v;
+    return '<button class="vc ' + (b.vehicle === v.id ? "on" : "") + '" data-act="veh" data-id="' + v.id + '">' + (inf[2] ? '<span class="vtag">' + h(inf[2]) + "</span>" : "") + (VEH_ART[k] || "")
+      + '<div class="vn">' + h(v.name) + '</div><div class="vk">Up to ' + Number(v.max_kg).toLocaleString("en-PH") + ' kg</div><div class="vp">' + peso(price) + "</div>"
+      + '<div class="vm">' + (inf[0] ? "&#128230; Fits about " + h(inf[0]) + "<br>" : "") + (inf[1] ? "&#128077; " + h(inf[1]) : "") + "</div></button>"; }).join("");
+  var help = S.vehHelp ? '<div class="card" style="padding:8px 10px"><table class="vhelp"><tr><th>Vehicle</th><th>Max</th><th>Fits about</th><th>Good for</th></tr>' + pr.vehicles.map(function (v) { var inf = VEH_INFO[vehKey(v)] || ["", ""]; return "<tr><td><b>" + h(v.name) + "</b></td><td>" + Number(v.max_kg).toLocaleString("en-PH") + " kg</td><td>" + h(inf[0]) + "</td><td>" + h(inf[1]) + "</td></tr>"; }).join("") + '</table><div class="small muted" style="margin-top:6px">Not sure? Choose the bigger vehicle. Items must fit inside the vehicle and be within the weight limit, or the rider may refuse them.</div></div>' : "";
+  veh = '<div class="row" style="display:flex;justify-content:space-between;align-items:center;margin:2px 2px 0"><h2 style="margin:0">Choose vehicle</h2><button class="linkbtn" data-act="vehhelp">' + (S.vehHelp ? "Hide guide" : "How to decide?") + "</button></div>" + help + '<div class="vgrid">' + veh + "</div>";
   var hrs = S.me.settings.pooling_window_hours;
   return topBar("Choose vehicle", "home") + '<div class="body">'
     + '<div class="card"><div class="line"><span class="muted">Total distance</span><span class="b">' + b.km + " km" + (b.approx ? " (estimate)" : "") + '</span></div><div class="line"><span class="muted">Drop-offs</span><span class="b">' + (b.stops.length - 1) + "</span></div>"
-    + (pr.is_night ? '<div class="note n-warn" style="margin-top:6px">Night rate applies (10pm to 6am).</div>' : "") + "</div>"
+    + (pr.is_night ? '<div class="note n-warn" style="margin-top:6px">Night rate applies (10pm to 6am).</div>' : "")
+    + (pr.is_rush ? '<div class="note n-warn" style="margin-top:6px">&#128678; Rush-hour rate applies (+' + h(pr.rush_pct) + "%, " + h(pr.rush_hours) + "). Book outside rush hours to pay less.</div>" : "") + "</div>"
     + '<div class="card"><h2>Speed</h2><div class="chips"><button class="chip ' + (b.level === "regular" ? "on" : "") + '" data-act="level" data-v="regular">Regular</button><button class="chip ' + (b.level === "priority" ? "on" : "") + '" data-act="level" data-v="priority">Priority</button><button class="chip ' + (b.level === "pooling" ? "on" : "") + '" data-act="level" data-v="pooling"' + (ok ? "" : " disabled") + '>Saver</button></div>'
     + '<div class="small muted" style="margin-top:8px">' + (b.level === "priority" ? "Priority: your booking is offered to riders first." : b.level === "pooling" ? "Saver: cheaper, delivered within " + hrs + " hours, shared with other parcels." : ok ? "Saver is cheaper but takes up to " + hrs + " hours." : "Saver is for motorcycle, one drop-off, no COD.") + "</div></div>"
-    + veh + '</div><div class="foot"><button class="btn pri" data-act="toreview">Review booking</button></div>';
+    + veh + '</div><div class="foot"><button class="btn pri" data-act="toreview">Review booking' + (sel ? " · " + h(sel.name) : "") + "</button></div>";
 }
 function quoteLines(q) {
   var L1 = '<div class="line"><span class="muted">Base fare</span><span>' + peso(q.fare_base) + '</span></div><div class="line"><span class="muted">Distance (' + q.total_km + ' km)</span><span>' + peso(q.fare_distance) + "</span></div>";
   if (q.fare_stops) L1 += '<div class="line"><span class="muted">Extra stops</span><span>' + peso(q.fare_stops) + "</span></div>";
-  if (q.fare_surcharge) L1 += '<div class="line"><span class="muted">Night rate</span><span>' + peso(q.fare_surcharge) + "</span></div>";
+  if (q.fare_surcharge) L1 += '<div class="line"><span class="muted">' + (q.is_night ? "Night rate" : "Rush-hour rate") + '</span><span>' + peso(q.fare_surcharge) + "</span></div>";
   if (q.fare_speed_adj) L1 += '<div class="line"><span class="muted">' + (q.fare_speed_adj > 0 ? "Priority" : "Saver discount") + "</span><span>" + (q.fare_speed_adj < 0 ? "−" : "") + peso(Math.abs(q.fare_speed_adj)) + "</span></div>";
   L1 += '<div class="line b"><span>Delivery fare</span><span>' + peso(q.fare_total) + "</span></div>";
   if (q.promo_discount) L1 += '<div class="line" style="color:var(--good)"><span>&#127873; First delivery promo</span><span class="b">−' + peso(q.promo_discount) + "</span></div>";
@@ -1684,7 +1761,7 @@ function vTrack() {
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg + (ended ? "" : pushCard(false))
-    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "")
+    + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "") + '<button class="btn" data-act="suporder">&#128172; Ask PasuyoBuddy Support about this booking</button>'
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
@@ -1700,7 +1777,7 @@ function vOrders() {
 
 function render() {
   killMap();
-  var v = S.view, html = v === "receipt" ? vReceipt() : v === "deleteacct" ? vDelete() : v === "wallet" ? vWallet() : v === "paywait" ? vPayWait() : v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
+  var v = S.view, html = v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : v === "receipt" ? vReceipt() : v === "deleteacct" ? vDelete() : v === "wallet" ? vWallet() : v === "paywait" ? vPayWait() : v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "profile" ? vProfile(true) : v === "account" ? vProfile(false) : v === "place" ? vPlace() : v === "vehicle" ? vVehicle() : v === "review" ? vReview() : v === "track" ? vTrack() : v === "orders" ? vOrders() : vHome();
   $("app").innerHTML = html;
   if (v === "place") drawPlaceMap();
   if (v === "track") drawTrackMap();
@@ -1737,13 +1814,20 @@ document.addEventListener("click", function (ev) {
   else if (a === "confirmedgo") { if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
   else if (a === "submitid") submitId();
   else if (a === "home") { S.cancelAsk = false; go("home"); }
-  else if (a === "account") { S.chgOpen = false; go("account"); loadChg(); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
+  else if (a === "account") { S.chgOpen = false; go("account"); loadChg(); supLoadUnread().then(function () { if (S.view === "account") render(); }); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
   else if (a === "orders") showOrders();
   else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
   else if (a === "pushon") enablePush();
   else if (a === "receipt") openReceipt();
+  else if (a === "supopen") supList();
+  else if (a === "suporder") { S.supNew = true; S.supTopic = "booking"; S.supOrder = S.order ? S.order.order_no : ""; supList().then(function () { S.supNew = true; render(); }); }
+  else if (a === "supnew") { S.supNew = true; render(); }
+  else if (a === "supcancel") { S.supNew = false; render(); }
+  else if (a === "supsend") supSend();
+  else if (a === "supview") supView(d.id);
+  else if (a === "supreply") supReply();
   else if (a === "track") { if (S.order) run(async function () { S.busy = false; await openOrder(S.order.id); }); }
   else if (a === "print") window.print();
   else if (a === "invopen") { S.invOpen = true; render(); }
@@ -1769,6 +1853,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "payer") { readPlace(); S.place.payer = d.v; render(); }
   else if (a === "saveplace") savePlace();
   else if (a === "tovehicle") toVehicle();
+  else if (a === "swap") swapStops();
+  else if (a === "vehhelp") { S.vehHelp = !S.vehHelp; render(); }
   else if (a === "veh") { S.bk.vehicle = +d.id; if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular"; render(); }
   else if (a === "level") { S.bk.level = d.v; render(); }
   else if (a === "toreview") { loadWallet(); requote("review"); }

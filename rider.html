@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.61" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.63" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
@@ -1039,7 +1039,7 @@ async function route() {
   var r = rider();
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
-  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); return; }
+  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); rpc("rider_doc_reasons").then(function (x) { S.docWhy = x || {}; if (S.view === "docs") render(); }).catch(function () {}); supLoadUnread().then(function () { if (S.view === "docs") render(); }); return; }
   checkNotices(true); prefetchWallet();
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
@@ -1540,20 +1540,22 @@ function vApply() {
     + '<button class="btn pri" data-act="apply">Continue</button></div><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 function vDocs() {
-  var r = rider(), by = {}; S.me.docs.forEach(function (d) { by[d.doc_type] = d.status; });
+  var r = rider(), by = {}, why = S.docWhy || {}; S.me.docs.forEach(function (d) { by[d.doc_type] = d.status; });
   var rows = DOCS.map(function (d) { var st = by[d[0]];
-    return '<div class="line" style="align-items:center"><span class="sp"><span class="b">' + d[1] + "</span><br>" + (st === "approved" ? pill("Approved", "good") : st === "pending" ? pill("Waiting for review", "warn") : st === "rejected" ? pill("Rejected, upload again", "bad") : pill("Not uploaded", "soft")) + "</span>"
+    return '<div class="line" style="align-items:center"><span class="sp"><span class="b">' + d[1] + "</span><br>" + (st === "approved" ? pill("Approved", "good") : st === "pending" ? pill("Waiting for review", "warn") : st === "rejected" ? pill("Rejected, upload again", "bad") + (why[d[0]] ? '<br><span class="small" style="color:var(--bad);font-weight:700">Reason: ' + h(why[d[0]]) + "</span>" : "") : pill("Not uploaded", "soft")) + "</span>"
       + (st === "approved" ? "" : '<label class="btn sm" style="cursor:pointer">' + (st ? "Replace" : "Upload") + '<input type="file" accept="image/*" data-doc="' + d[0] + '" hidden></label>') + "</div>"; }).join("");
   var all = DOCS.every(function (d) { return by[d[0]] && by[d[0]] !== "rejected"; });
-  var msg = r.status === "suspended" ? '<div class="note n-bad">Your rider account is suspended. Please contact PasuyoBuddy.</div>'
-    : r.status === "rejected" ? '<div class="note n-bad">Your application was not approved. Please contact PasuyoBuddy.</div>'
+  var anyRej = DOCS.some(function (d) { return by[d[0]] === "rejected"; });
+  var msg = r.status === "suspended" ? '<div class="note n-bad">Your rider account is suspended. To ask why or to appeal, use Help &amp; Support below.</div>'
+    : r.status === "rejected" ? '<div class="note n-bad">Your application was not approved. If you think this is a mistake, send an appeal in Help &amp; Support below.</div>'
+    : anyRej ? '<div class="note n-warn"><b>Action needed:</b> some documents were not accepted. See the reason under each one and upload a new, clear photo. Your application is on hold until then.</div>'
     : all ? '<div class="note n-good">All documents are in. We are reviewing your application. Tap "Check status" later.</div>'
     : '<div class="note n-info">Step 2 of 2. Upload a clear photo of each document. You can go online once all five are approved.</div>';
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
     + '<div class="card"><h2>Documents</h2>' + rows + "</div>"
     + '<div class="card"><h2>About the letter of intent</h2><div class="small muted">Print our letter, fill it in, <b>sign it</b> and upload a clear photo of the whole page. We also sent the link to your email.</div><a class="btn yel" style="margin-top:10px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a><div class="small muted" style="margin-top:8px">No printer? Copy the letter by hand on clean paper, with your details, the date and your signature. Your signature should match your driver\'s license.</div></div>'
-    + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
+    + supCard() + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 // Jobs this rider chose to hide (kept on this phone only; the booking stays open for other riders)
 var HIDDEN = {}; try { HIDDEN = JSON.parse(localStorage.getItem("pb_hidden_jobs") || "{}") || {}; } catch (e) { HIDDEN = {}; }
@@ -1573,7 +1575,7 @@ function jobCard(j) {
 }
 function vHome() {
   var r = rider(), on = r.is_online, loadAmt = r.load != null ? r.load : r.wallet, low = loadAmt < S.me.settings.rider_min_load * 100;
-  var sus = S.cancelSt && S.cancelSt.suspended_until && new Date(S.cancelSt.suspended_until) > new Date() ? '<div class="note n-bad"><b>&#9940; You are suspended until ' + h(new Date(S.cancelSt.suspended_until).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + ".</b> " + h(S.cancelSt.reason ? "Reason: " + S.cancelSt.reason + "." : "") + " You can go online again after that.</div>" : "";
+  var sus = S.cancelSt && S.cancelSt.suspended_until && new Date(S.cancelSt.suspended_until) > new Date() ? '<div class="note n-bad"><b>&#9940; You are suspended until ' + h(new Date(S.cancelSt.suspended_until).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + ".</b> " + h(S.cancelSt.reason ? "Reason: " + S.cancelSt.reason + "." : "") + " You can go online again after that. <button class=\"link\" data-act=\"supappeal\" style=\"background:none;border:none;color:inherit;text-decoration:underline;font-weight:800;cursor:pointer;padding:0\">Appeal</button></div>" : "";
   var list = sus ? sus : !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because the app was closed for a long time. Tap <b>Go online</b> when you are ready for jobs again.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
     : S.jobsErr ? '<div class="note n-warn">' + h(S.jobsErr) + "</div>"
     : !S.jobs ? '<div class="spin">Looking for jobs…</div>'
@@ -1606,6 +1608,21 @@ function stopBlock(s, active) {
     + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (COD " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : (s.fare_payer === "sender" && s.fare_share > 0 ? "Collect nothing here. Fare share " + peso(s.fare_share) + " was paid by the sender at pickup." : "Nothing to collect here")) + "</div>" : "") + "</div></div>"
     + (active && s.status === "pending" ? '<div class="row" style="margin-top:10px">' + (s.contact_phone ? '<a class="btn sm" style="flex:1" href="tel:' + h(phoneDigits(s.contact_phone)) + '">Call</a>' : "") + '<a class="btn sm" style="flex:1;background:#33CCFF;border-color:#33CCFF;color:#0B1F33;font-weight:800" target="_blank" rel="noopener" href="' + wazeLink(s) + '">Waze</a><a class="btn sm" style="flex:1" target="_blank" rel="noopener" href="' + navLink(s) + '">Maps</a></div>' : "") + "</div>";
 }
+// Time limits: reach the pick-up in time, then deliver directly ("like normal")
+function dueNote(o) {
+  var t = function (x) { return new Date(x).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }); }, now = Date.now(), st = o.status;
+  if (st === "accepted" && o.pickup_due) {
+    var late = new Date(o.pickup_due).getTime() < now, rel = new Date(o.pickup_due).getTime() + (o.pickup_grace_mins || 15) * 60000;
+    return late ? '<div class="note n-bad" style="font-weight:700">&#9200; You are late for pick-up. Arrive by ' + t(rel) + ' or the booking goes to another rider and counts as a give-up.</div>'
+      : '<div class="note n-info">&#9200; Arrive at the pick-up by <b>' + t(o.pickup_due) + "</b>.</div>";
+  }
+  if ((st === "picked_up" || st === "in_transit" || st === "bought") && o.deliver_due) {
+    var dl = new Date(o.deliver_due).getTime() < now;
+    return '<div class="note ' + (dl ? "n-bad" : "n-info") + '"' + (dl ? ' style="font-weight:700"' : "") + ">&#9200; " + (dl ? "Delivery is late. It should have been delivered by " + t(o.deliver_due) + ". Deliver it directly now." : "Deliver by <b>" + t(o.deliver_due) + "</b>.")
+      + '<br><span class="small">Go directly to the drop-off. While you carry this parcel, do not take jobs from other apps or run errands.</span></div>';
+  }
+  return "";
+}
 function vJob() {
   var o = S.order, st = o.status, pick = o.stops[0], next = nextStop(), foot = "", extra = "";
   if (st === "cancelled_by_customer") return topBar(o.order_no) + '<div class="body"><div class="note n-bad">The customer cancelled this booking.' + (o.cancel_reason ? " " + h(o.cancel_reason) : "") + '</div><button class="btn pri" data-act="home">Back to jobs</button></div>';
@@ -1628,7 +1645,7 @@ function vJob() {
   var canCancel = st === "accepted" || st === "at_pickup";
   var stops = o.stops.map(function (s) { var active = (s.kind === "pickup" && (st === "accepted" || st === "at_pickup")) || (next && s.id === next.id && st === "in_transit"); return stopBlock(s, active); }).join("");
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
-    + locNote()
+    + locNote() + dueNote(o)
     + (o.needs_bag ? '<div class="note n-warn" style="font-weight:700">&#127890; The customer asked you to bring a delivery bag.</div>' : "")
     + chatBtn("Chat with customer", S.unread)
     + '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="job">&#9888;&#65039; Report a problem</button>'
@@ -1703,6 +1720,52 @@ async function sendChg() {
     await rpc("request_profile_change", { p_name: n, p_phone: phoneDigits(ph), p_reason: r, p_evidence: path });
     S.chgOpen = false; S.chgFile = null; S.chgName = S.chgPhone = S.chgReason = null; await loadChg(); toast("Sent. The office will check your license and reply."); });
 }
+
+function supBar(t) { return topBar(t); }
+function supNav() { return rider() && rider().status === "approved" ? nav("account") : '<div class="body" style="padding-top:0"><button class="btn" data-act="supback">Back to my application</button></div>'; }
+// ---------------- Help & Support (chat with PasuyoBuddy staff) ----------------
+var SUP_TOPICS = [["question", "Question"], ["booking", "Booking / delivery problem"], ["payment", "Payment / wallet"], ["account", "Account"], ["appeal", "Appeal (suspension / rejection)"], ["other", "Other"]];
+function supTopic(t) { for (var i = 0; i < SUP_TOPICS.length; i++) if (SUP_TOPICS[i][0] === t) return SUP_TOPICS[i][1]; return t; }
+function supCard() {
+  var n = S.supUnread || 0;
+  return '<div class="card"><h2>&#128172; Help &amp; Support</h2><div class="small muted">Questions, problems or appeals? Chat with the PasuyoBuddy team. We usually reply within the day.</div>'
+    + '<button class="btn" style="margin-top:10px" data-act="supopen">Open Help &amp; Support' + (n ? ' <span style="background:var(--accent);color:#fff;border-radius:999px;padding:0 8px;margin-left:6px">' + n + " new</span>" : "") + "</button>"
+    + '<div class="small muted" style="margin-top:8px">Email: <a href="mailto:pasuyolabs@gmail.com" style="color:var(--accent)">pasuyolabs@gmail.com</a></div></div>';
+}
+async function supLoadUnread() { try { S.supUnread = await rpc("support_unread"); } catch (e) { S.supUnread = 0; } }
+async function supList() { S.supNew = false; S.supTicket = null; S.view = "support"; render(); window.scrollTo(0, 0); try { S.supItems = await rpc("support_my_tickets"); } catch (e) { S.supItems = []; toast(e.message, true); } if (S.view === "support") render(); }
+function vSupport() {
+  var items = S.supItems;
+  var list = !items ? '<div class="spin">Loading…</div>' : !items.length ? '<div class="card muted">No conversations yet.</div>'
+    : items.map(function (t) { return '<button class="veh" data-act="supview" data-id="' + t.id + '" style="text-align:left"><span class="sp"><span class="b" style="display:block">' + h(supTopic(t.topic)) + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + (t.user_unread ? ' <span style="background:var(--accent);color:#fff;border-radius:999px;padding:0 8px;font-size:12px">New reply</span>' : "") + '</span><span class="small muted">' + h(t.last || "") + '</span><br><span class="small muted">' + h(when(t.updated_at)) + " · " + (t.status === "open" ? "Waiting for reply" : t.status === "answered" ? "Answered" : "Closed") + "</span></span></button>"; }).join("");
+  var form = S.supNew ? '<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2>New message</h2><div class="field"><label for="sp_topic">Topic</label><select class="in" id="sp_topic">'
+      + SUP_TOPICS.map(function (x) { return '<option value="' + x[0] + '"' + (S.supTopic === x[0] ? " selected" : "") + ">" + x[1] + "</option>"; }).join("") + "</select></div>"
+      + '<div class="field"><label for="sp_order">Booking number (optional)</label><input class="in" id="sp_order" placeholder="PB-XXXXXX" value="' + h(S.supOrder || "") + '"></div>'
+      + '<div class="field"><label for="sp_body">Your message</label><textarea class="in" id="sp_body" rows="5" placeholder="Tell us what happened. For an appeal, explain why you think the decision should change."></textarea></div>'
+      + '<div class="row"><button class="btn" data-act="supcancel">Cancel</button><button class="btn pri" data-act="supsend">Send</button></div></div>'
+    : '<button class="btn pri" data-act="supnew">+ New message</button>';
+  return supBar("Help & Support") + '<div class="body">' + form + list + '<div class="small muted" style="text-align:center">You can also email <a href="mailto:pasuyolabs@gmail.com" style="color:var(--accent)">pasuyolabs@gmail.com</a></div></div>' + supNav();
+}
+async function supSend() {
+  var topic = val("sp_topic"), ord = val("sp_order"), body = $("sp_body") ? $("sp_body").value.trim() : "";
+  if (!body) { toast("Write your message", true); return; }
+  await run(async function () { var id = await rpc("support_open", { p_topic: topic, p_order_no: ord, p_body: body }); S.supNew = false; S.supTopic = S.supOrder = null; S.busy = false; toast("Sent. We will reply soon."); await supView(id); });
+}
+async function supView(id) { await run(async function () { S.supTicket = await rpc("support_ticket", { p_id: Number(id) }); S.view = "supticket"; render(); window.scrollTo(0, document.body.scrollHeight); supLoadUnread(); }); }
+function vSupTicket() {
+  var t = S.supTicket;
+  var msgs = t.messages.map(function (m) { return '<div style="display:flex;justify-content:' + (m.from_staff ? "flex-start" : "flex-end") + ';margin:0 0 8px"><div style="max-width:85%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;background:' + (m.from_staff ? "#FFF6D6" : "var(--accent)") + ";color:" + (m.from_staff ? "#15171C" : "#fff") + '">' + (m.from_staff ? '<div class="small" style="font-weight:800;margin-bottom:2px">PasuyoBuddy Support</div>' : "") + h(m.body) + '<div class="small" style="opacity:.7;margin-top:3px">' + h(when(m.at)) + "</div></div></div>"; }).join("");
+  return supBar(supTopic(t.topic)) + '<div class="body">' + (t.order_no ? '<div class="small muted">Booking ' + h(t.order_no) + "</div>" : "")
+    + '<div class="card">' + msgs + "</div>"
+    + (t.status === "closed" ? '<div class="note n-info">This conversation is closed. Write below to open it again.</div>' : t.status === "open" ? '<div class="small muted">Waiting for our reply. We will let you know.</div>' : "")
+    + '<div class="card" style="display:flex;flex-direction:column;gap:8px"><textarea class="in" id="sp_reply" rows="3" placeholder="Write a reply"></textarea><button class="btn pri" data-act="supreply">Send</button></div>'
+    + '<button class="btn" data-act="supopen">Back to all conversations</button></div>' + supNav();
+}
+async function supReply() {
+  var body = $("sp_reply") ? $("sp_reply").value.trim() : ""; if (!body) { toast("Write your message", true); return; }
+  await run(async function () { await rpc("support_reply", { p_id: S.supTicket.id, p_body: body }); S.supTicket = await rpc("support_ticket", { p_id: S.supTicket.id }); render(); window.scrollTo(0, document.body.scrollHeight); });
+}
+
 // ---------------- Delete my account (Google Play requirement) ----------------
 function vDelete() {
   var w = S.wallet || {}, earn = w.withdrawable || 0, load = w.load || 0;
@@ -1726,7 +1789,7 @@ async function deleteAccount() {
 }
 function vAccount() {
   var r = rider();
-  return topBar("Account") + '<div class="body">' + photoCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+  return topBar("Account") + '<div class="body">' + photoCard() + supCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
     + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
@@ -1735,7 +1798,7 @@ function vAccount() {
 }
 function render() {
   killMap(); var v = S.view;
-  $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : vHome();
+  $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : vHome();
   if (v === "job") drawJobMap();
 }
 
@@ -1779,7 +1842,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "home") run(async function () { await reloadMe(); S.busy = false; if (S.me.active_order) await openJob(S.me.active_order); else await goHome(); });
   else if (a === "wallet") showWallet();
   else if (a === "history") showHistory();
-  else if (a === "account") { stopTimers(); S.view = "account"; S.chgOpen = false; render(); loadChg(); loadPromos().then(function () { if (S.view === "account") render(); }); }
+  else if (a === "account") { stopTimers(); S.view = "account"; S.chgOpen = false; render(); loadChg(); supLoadUnread().then(function () { if (S.view === "account") render(); }); loadPromos().then(function () { if (S.view === "account") render(); }); }
   else if (a === "refset") setReferral();
   else if (a === "refcopy") copyRef();
   else if (a === "accept") accept(d.id);
@@ -1787,6 +1850,14 @@ document.addEventListener("click", function (ev) {
   else if (a === "canceljob") cancelJob();
   else if (a === "asknone") { S.ask = ""; render(); }
   else if (a === "arrivedrop") arrivedStop();
+  else if (a === "supopen") { stopTimers(); supList(); }
+  else if (a === "supnew") { S.supNew = true; render(); }
+  else if (a === "supcancel") { S.supNew = false; render(); }
+  else if (a === "supsend") supSend();
+  else if (a === "supview") supView(d.id);
+  else if (a === "supreply") supReply();
+  else if (a === "supback") { S.view = rider() && rider().status === "approved" ? "account" : "docs"; render(); }
+  else if (a === "supappeal") { stopTimers(); S.supTopic = "appeal"; supList().then(function () { S.supNew = true; render(); }); }
   else if (a === "delopen") { stopTimers(); S.view = "deleteacct"; render(); window.scrollTo(0, 0); rpc("rider_wallet").then(function (w) { S.wallet = w; if (S.view === "deleteacct") render(); }).catch(function () {}); }
   else if (a === "delconfirm") deleteAccount();
   else if (a === "chgopen") { S.chgOpen = true; render(); }
