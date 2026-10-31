@@ -784,9 +784,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.63" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.64" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
+var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Valid ID of the vehicle owner"]];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
 
 // ---------------- State ----------------
@@ -944,7 +945,7 @@ async function boot() {
   if (th) { fromEmail = true; try { var v = await sb.auth.verifyOtp({ token_hash: th, type: ty }); if (v.error && ty !== "email") v = await sb.auth.verifyOtp({ token_hash: th, type: "email" }); if (v.error) S.confirmErr = v.error.message; } catch (e) { S.confirmErr = e.message; } }
   var r = await sb.auth.getSession(); S.session = r.data ? r.data.session : null;
   if (fromEmail) { try { history.replaceState(null, "", location.pathname); } catch (e) {} S.view = "confirmed"; render(); return; }
-  if (!S.session) { var pend = null; try { pend = localStorage.getItem("pb_verify_email"); } catch (e) {} if (pend) { S.authEmail = pend; S.authMode = "verify"; } }
+  if (!S.session) { var pend = null; try { pend = localStorage.getItem("pb_verify_email"); } catch (e) {} if (pend) { S.authEmail = pend; S.authMode = "verify"; } else if (refFromLink()) { S.authMode = "signup"; S.refCode = refFromLink(); } }
   if (S.session) await afterLogin(); else render();
 }
 function vConfirmed() {
@@ -987,7 +988,8 @@ function inviteCard() {
     return '<div class="line small"><span class="sp">' + h(x.name) + "</span>" + st + "</div>"; }).join("");
   return '<div class="card" style="display:flex;flex-direction:column;gap:8px;border-color:#E5A700"><h2 style="margin:0">&#129309; Invite riders, get free load</h2>'
     + '<div class="small muted">Give your code to a new rider. When they are approved and finish <b>' + p.referral_jobs + " jobs</b>, you get <b>" + peso(p.referral_load) + " free load</b>.</div>"
-    + '<div class="row" style="gap:8px;align-items:center"><div class="b" style="flex:1;font-size:24px;letter-spacing:2px;text-align:center;border:2px dashed #E5A700;border-radius:12px;padding:8px">' + h(p.ref_code) + '</div><button class="btn sm" style="width:auto" data-act="refcopy">Copy</button></div>'
+    + '<div class="row" style="gap:8px;align-items:center"><div class="b" style="flex:1;font-size:24px;letter-spacing:2px;text-align:center;border:2px dashed #E5A700;border-radius:12px;padding:8px">' + h(p.ref_code) + '</div><button class="btn sm" style="width:auto" data-act="refcode">Copy code</button></div>'
+    + '<button class="btn yel" style="margin-top:8px" data-act="refcopy">&#128228; Share invite link</button><div class="small muted" style="margin-top:4px">The link already has your code, so the new rider does not need to type it.</div>'
     + (list ? '<div class="small b" style="margin-top:4px">Riders you invited</div>' + list : "") + "</div>";
 }
 async function setReferral() {
@@ -996,8 +998,14 @@ async function setReferral() {
 }
 async function copyRef() {
   var c = S.promos && S.promos.ref_code; if (!c) return;
-  var txt = "Join PasuyoBuddy as a rider! Use my invite code " + c + " when you apply: " + location.origin + location.pathname;
+  var link = "https://pasuyobuddy.github.io/rider.html?ref=" + encodeURIComponent(c);
+  var txt = "Join PasuyoBuddy as a rider! Sign up here (my invite code " + c + " is already filled in): " + link;
+  if (navigator.share) { try { await navigator.share({ title: "PasuyoBuddy Rider", text: txt }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
+}
+async function copyRefCode() {
+  var c = S.promos && S.promos.ref_code; if (!c) return;
+  try { await navigator.clipboard.writeText(c); toast("Code " + c + " copied"); } catch (e) { window.prompt("Copy your code:", c); }
 }
 function cancelWarn() {
   var c = S.cancelSt; if (!c) return '<div class="small muted">Checking your record…</div>';
@@ -1039,7 +1047,7 @@ async function route() {
   var r = rider();
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
-  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); rpc("rider_doc_reasons").then(function (x) { S.docWhy = x || {}; if (S.view === "docs") render(); }).catch(function () {}); supLoadUnread().then(function () { if (S.view === "docs") render(); }); return; }
+  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); rpc("rider_doc_reasons").then(function (x) { S.docWhy = x || {}; if (S.view === "docs") render(); }).catch(function () {}); rpc("rider_owner_info").then(function (x) { S.owner = x || {}; if (S.view === "docs") render(); }).catch(function () {}); supLoadUnread().then(function () { if (S.view === "docs") render(); }); return; }
   checkNotices(true); prefetchWallet();
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
@@ -1539,21 +1547,39 @@ function vApply() {
     + '<div class="field"><label for="ap_plate">Plate number</label><input class="in" id="ap_plate" autocapitalize="characters" placeholder="e.g. NFX 1234"></div>'
     + '<button class="btn pri" data-act="apply">Continue</button></div><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
+// Vehicle owner: riders who use a vehicle not registered in their name upload the owner's authorization + ID
+function ownerCard(r) {
+  if (r.status === "approved") return "";
+  var ow = S.owner || {}, no = ow.self === false || S.ownerAsk === "no";
+  return '<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2>Vehicle owner</h2><div class="b">Is this vehicle registered (OR/CR) in your name?</div>'
+    + '<div class="chips"><button class="chip' + (ow.self === true && S.ownerAsk !== "no" ? " on" : "") + '" data-act="ownerself" data-v="1">Yes, it\'s mine</button><button class="chip' + (no ? " on" : "") + '" data-act="ownerself" data-v="0">No, someone else owns it</button></div>'
+    + (no ? '<div class="field"><label for="own_name">Full name of the registered owner (as on the OR/CR)</label><input class="in" id="own_name" maxlength="120" autocomplete="off" value="' + h(ow.owner_name || "") + '"></div>'
+      + '<button class="btn pri" data-act="ownersave">' + (ow.self === false ? "Update owner name" : "Save") + "</button>"
+      + '<div class="note n-info small">Ask the owner to fill in and <b>sign</b> our authorization letter, then upload a photo of it and a photo of the <b>owner\'s valid ID</b> in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
+      + '<a class="btn yel" style="display:block;text-align:center" href="https://pasuyobuddy.github.io/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the owner\'s authorization letter</a>' : "")
+    + (ow.self == null && !no ? '<div class="small" style="color:var(--warn);font-weight:700">Please answer this question.</div>' : "") + "</div>";
+}
+async function ownerSet(self) {
+  var name = self ? null : (val("own_name") || "").trim();
+  if (!self && name.length < 5) { toast("Type the full name of the registered owner", true); return; }
+  await run(async function () { await rpc("rider_set_vehicle_owner", { p_self: self, p_owner_name: name }); S.owner = await rpc("rider_owner_info"); S.ownerAsk = null; S.busy = false; render(); toast(self ? "Saved: the vehicle is yours" : "Saved. Upload the owner's letter and ID above."); });
+}
 function vDocs() {
   var r = rider(), by = {}, why = S.docWhy || {}; S.me.docs.forEach(function (d) { by[d.doc_type] = d.status; });
-  var rows = DOCS.map(function (d) { var st = by[d[0]];
+  var ow = S.owner || {}, LIST = DOCS.concat(ow.self === false ? OWNER_DOCS : []);
+  var rows = LIST.map(function (d) { var st = by[d[0]];
     return '<div class="line" style="align-items:center"><span class="sp"><span class="b">' + d[1] + "</span><br>" + (st === "approved" ? pill("Approved", "good") : st === "pending" ? pill("Waiting for review", "warn") : st === "rejected" ? pill("Rejected, upload again", "bad") + (why[d[0]] ? '<br><span class="small" style="color:var(--bad);font-weight:700">Reason: ' + h(why[d[0]]) + "</span>" : "") : pill("Not uploaded", "soft")) + "</span>"
       + (st === "approved" ? "" : '<label class="btn sm" style="cursor:pointer">' + (st ? "Replace" : "Upload") + '<input type="file" accept="image/*" data-doc="' + d[0] + '" hidden></label>') + "</div>"; }).join("");
-  var all = DOCS.every(function (d) { return by[d[0]] && by[d[0]] !== "rejected"; });
-  var anyRej = DOCS.some(function (d) { return by[d[0]] === "rejected"; });
+  var all = LIST.every(function (d) { return by[d[0]] && by[d[0]] !== "rejected"; }) && ow.self != null;
+  var anyRej = LIST.some(function (d) { return by[d[0]] === "rejected"; });
   var msg = r.status === "suspended" ? '<div class="note n-bad">Your rider account is suspended. To ask why or to appeal, use Help &amp; Support below.</div>'
     : r.status === "rejected" ? '<div class="note n-bad">Your application was not approved. If you think this is a mistake, send an appeal in Help &amp; Support below.</div>'
     : anyRej ? '<div class="note n-warn"><b>Action needed:</b> some documents were not accepted. See the reason under each one and upload a new, clear photo. Your application is on hold until then.</div>'
     : all ? '<div class="note n-good">All documents are in. We are reviewing your application. Tap "Check status" later.</div>'
-    : '<div class="note n-info">Step 2 of 2. Upload a clear photo of each document. You can go online once all five are approved.</div>';
+    : '<div class="note n-info">Step 2 of 2. Upload a clear photo of each document. Also answer the vehicle owner question below. You can go online once everything is approved.</div>';
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
-    + '<div class="card"><h2>Documents</h2>' + rows + "</div>"
+    + '<div class="card"><h2>Documents</h2>' + rows + "</div>" + ownerCard(r)
     + '<div class="card"><h2>About the letter of intent</h2><div class="small muted">Print our letter, fill it in, <b>sign it</b> and upload a clear photo of the whole page. We also sent the link to your email.</div><a class="btn yel" style="margin-top:10px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a><div class="small muted" style="margin-top:8px">No printer? Copy the letter by hand on clean paper, with your details, the date and your signature. Your signature should match your driver\'s license.</div></div>'
     + supCard() + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
@@ -1845,6 +1871,9 @@ document.addEventListener("click", function (ev) {
   else if (a === "account") { stopTimers(); S.view = "account"; S.chgOpen = false; render(); loadChg(); supLoadUnread().then(function () { if (S.view === "account") render(); }); loadPromos().then(function () { if (S.view === "account") render(); }); }
   else if (a === "refset") setReferral();
   else if (a === "refcopy") copyRef();
+  else if (a === "refcode") copyRefCode();
+  else if (a === "ownerself") { if (d.v === "1") ownerSet(true); else { S.ownerAsk = "no"; render(); } }
+  else if (a === "ownersave") ownerSet(false);
   else if (a === "accept") accept(d.id);
   else if (a === "step") step(d.s.split(","));
   else if (a === "canceljob") cancelJob();

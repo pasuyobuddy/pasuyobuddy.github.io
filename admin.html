@@ -799,7 +799,7 @@ async function loadTab() {
   if (t === "overview" && S.me && S.me.areas.indexOf("money") >= 0) { try { S.totals = await rpc("admin_totals"); } catch (e) { S.totals = null; } }   // needs the v2.7 database update
   if (t === "overview" || t === "riders" || t === "customers") { try { S.people = await rpc("admin_people"); } catch (e) { S.people = null; } }   // needs the v1.6 database update
   if (t === "orders") { S.orders = await rpc("admin_orders", { p_filter: S.orderFilter, p_search: S.orderSearch || null, p_limit: 200 }); if (S.order) S.order = await rpc("admin_order_detail", { p_order: S.order.order.id }); }
-  if (t === "riders") { S.riders = await rpc("admin_riders"); try { S.susp = await rpc("admin_rider_suspensions"); } catch (e) { S.susp = null; } }   // suspensions need the v2.32 update
+  if (t === "riders") { S.riders = await rpc("admin_riders"); try { S.owners = await rpc("admin_rider_owner_info"); } catch (e) { S.owners = null; } try { S.susp = await rpc("admin_rider_suspensions"); } catch (e) { S.susp = null; } }   // suspensions need the v2.32 update
   if (t === "customers") { S.customers = await rpc("admin_customers", { p_search: S.custSearch || null, p_limit: 200 }); try { S.pchg = await rpc("admin_profile_changes"); } catch (e) { S.pchg = null; } try { S.dels = await rpc("admin_deletion_requests"); } catch (e) { S.dels = null; } }   // change requests need the v2.33 update
   if (t === "money") S.money = await rpc("admin_money", { p_days: S.moneyDays });
   if (t === "money") { try { S.gcash = await rpc("admin_gcash_status"); } catch (e) { S.gcash = null; } try { S.promos = await rpc("admin_promos"); } catch (e) { S.promos = null; } try { S.cpromos = await rpc("admin_customer_promos"); } catch (e) { S.cpromos = null; } try { S.cwallets = await rpc("admin_customer_wallets"); } catch (e) { S.cwallets = null; } try { S.invs = await rpc("admin_invoice_requests"); } catch (e) { S.invs = null; } }   // customer wallets need the v2.29 update   // needs the v2.13 database update
@@ -1013,9 +1013,11 @@ function drawRouteMap() {
 
 function viewRiders() {
   var r = S.riders; if (!r) return '<div class="empty">Loading…</div>';
-  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", other: "Other" };
+  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", owner_authorization: "Owner's authorization / Deed of Sale", owner_id: "Owner's valid ID", other: "Other" };
+  function needFor(id) { var o = S.owners && S.owners[id]; return o && o.self === false ? NEED.concat(["owner_authorization", "owner_id"]) : NEED; }
+  function ownerLine(id) { var o = S.owners && S.owners[id]; if (!o) return '<div class="small muted">Vehicle owner: not answered yet</div>'; return o.self ? '<div class="small muted">Vehicle owner: the rider (OR/CR in his/her name)</div>' : '<div class="small">' + pill("Not the owner", "warn") + " Owner on OR/CR: <b>" + h(o.owner_name || "—") + "</b> · check the name matches the OR/CR and the signature matches the owner's ID</div>"; }
   var apps = (r.applications || []).map(function (a) {
-    var docs = NEED.map(function (t) {
+    var docs = ownerLine(a.id) + needFor(a.id).map(function (t) {
       var d = (a.docs || []).filter(function (x) { return x.doc_type === t; })[0];
       if (!d) return '<div class="row small" style="justify-content:space-between">' + pill("✗ " + DN[t] + " — not uploaded", "bad") + "</div>";
       return '<div class="row small" style="justify-content:space-between">' + pill((d.review_status === "approved" ? "✓ " : d.review_status === "rejected" ? "✗ " : "• ") + DN[t] + " — " + d.review_status, d.review_status === "approved" ? "good" : d.review_status === "rejected" ? "bad" : "warn") +
@@ -1033,7 +1035,7 @@ function viewRiders() {
       (S.docsFor === x.id && x.docs ? '<tr><td colspan="9" style="background:var(--soft)"><div style="display:flex;flex-wrap:wrap;gap:18px"><div style="min-width:240px">' + (x.photo ? '<img src="' + h(CONFIG.url + "/storage/v1/object/public/avatars/" + x.photo) + '" alt="Rider photo" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid #FFC629;display:block;margin-bottom:6px">' : '<div class="small muted" style="margin-bottom:6px">No profile photo yet</div>') + '<b>Rider details</b>' +
         '<div class="kv"><span>Name</span><span>' + h(x.full_name || "—") + '</span></div><div class="kv"><span>Mobile</span><span>' + h(x.phone || "—") + '</span></div><div class="kv"><span>Email</span><span>' + h(x.email || "—") + '</span></div>' +
         '<div class="kv"><span>Vehicle · plate</span><span>' + h(x.vehicle) + " · " + h(x.plate_number || "—") + '</span></div><div class="kv"><span>Applied</span><span>' + (x.created_at ? when(x.created_at) : "—") + "</span></div></div>" +
-        '<div style="min-width:320px;flex:1"><b>Uploaded documents</b>' + NEED.map(function (t) { var d = (x.docs || []).filter(function (q) { return q.doc_type === t; })[0];
+        '<div style="min-width:320px;flex:1"><b>Uploaded documents</b>' + ownerLine(x.id) + needFor(x.id).map(function (t) { var d = (x.docs || []).filter(function (q) { return q.doc_type === t; })[0];
           if (!d) return '<div class="row small" style="justify-content:space-between;margin-top:6px">' + pill("✗ " + DN[t] + " — not uploaded", "bad") + "</div>";
           return '<div class="row small" style="justify-content:space-between;margin-top:6px">' + pill((d.review_status === "approved" ? "✓ " : d.review_status === "rejected" ? "✗ " : "• ") + DN[t] + " — " + d.review_status, d.review_status === "approved" ? "good" : d.review_status === "rejected" ? "bad" : "warn") +
             '<span class="row" style="gap:8px">' + (d.reviewed_at ? '<span class="muted">reviewed ' + when(d.reviewed_at) + "</span>" : "") + '<button class="link" data-act="view-doc" data-path="' + h(d.file_path) + '">View</button></span></div>'; }).join("") +
