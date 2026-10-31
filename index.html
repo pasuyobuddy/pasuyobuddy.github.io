@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.48" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.49" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -851,7 +851,63 @@ function stationMatches(q, base) {
   list.sort(function (a, b) { return dd(a) - dd(b); });
   return list.slice(0, 6).map(function (s) { return { label: s[0] + " " + s[1] + " Station, " + s[2] + ", Philippines", lat: s[3], lng: s[4] }; });
 }
-var GEO = window.__TEST_GEO__ || {
+// ---------------- Google Maps (address search, pin-to-address, road distance) ----------------
+// The key only works on PasuyoBuddy websites and only for 4 map services (locked in Google Cloud).
+var GKEY = "AIzaSyCcdZibTK5mbdkWjHfI1KahAsNRcGzr4KI", gmP = null, gTok = null;
+function gm() {
+  if (gmP) return gmP;
+  gmP = new Promise(function (ok, bad) {
+    if (window.google && google.maps && google.maps.importLibrary) return ok();
+    var t = setTimeout(function () { gmP = null; bad(new Error("Google Maps did not load")); }, 9000);
+    window.__gmReady = function () { clearTimeout(t); ok(); };
+    var sc = document.createElement("script");
+    sc.src = "https://maps.googleapis.com/maps/api/js?key=" + GKEY + "&v=weekly&loading=async&language=en&region=PH&callback=__gmReady";
+    sc.async = true; sc.onerror = function () { clearTimeout(t); gmP = null; bad(new Error("Google Maps did not load")); };
+    document.head.appendChild(sc);
+  });
+  return gmP;
+}
+var GEO_G = {
+  search: async function (q, near) {
+    await gm();
+    var lib = await google.maps.importLibrary("places");
+    if (!gTok) gTok = new lib.AutocompleteSessionToken();
+    var base = near || { lat: MANILA[0], lng: MANILA[1] };
+    var r = await lib.AutocompleteSuggestion.fetchAutocompleteSuggestions({ input: q, includedRegionCodes: ["ph"], language: "en", region: "ph",
+      locationBias: { center: { lat: base.lat, lng: base.lng }, radius: 50000 }, origin: { lat: base.lat, lng: base.lng }, sessionToken: gTok });
+    var out = (r.suggestions || []).map(function (s) { var p = s.placePrediction; if (!p) return null;
+      var main = p.mainText ? p.mainText.toString() : "", sec = p.secondaryText ? p.secondaryText.toString() : "";
+      return { label: main && sec ? main + ", " + sec : p.text.toString(), lat: null, lng: null, pp: p }; }).filter(Boolean);
+    var local = stationMatches(q, base);
+    return local.concat(out).slice(0, 8);
+  },
+  // A suggestion only has its exact pin after it is picked (this keeps Google costs low)
+  resolve: async function (f) {
+    var place = f.pp.toPlace();
+    await place.fetchFields({ fields: ["location", "formattedAddress", "displayName"], sessionToken: gTok });
+    gTok = null;   // the search session ends when a place is picked
+    var name = place.displayName || "", addr = place.formattedAddress || f.label;
+    return { label: name && addr.indexOf(name) !== 0 ? name + ", " + addr : addr, lat: place.location.lat(), lng: place.location.lng() };
+  },
+  reverse: async function (lat, lng) {
+    await gm();
+    var lib = await google.maps.importLibrary("geocoding");
+    var r = await new lib.Geocoder().geocode({ location: { lat: lat, lng: lng }, language: "en", region: "ph" });
+    var best = (r.results || []).filter(function (x) { return (x.types || []).indexOf("plus_code") < 0; })[0] || (r.results || [])[0];
+    return best ? best.formatted_address : "";
+  },
+  route: async function (a, b) {
+    await gm();
+    var lib = await google.maps.importLibrary("routes");
+    var r = await lib.Route.computeRoutes({ origin: { lat: a.lat, lng: a.lng }, destination: { lat: b.lat, lng: b.lng }, travelMode: "DRIVING",
+      computeAlternativeRoutes: true, fields: ["distanceMeters"] });
+    var d = (r.routes || []).map(function (x) { return x.distanceMeters; }).filter(function (x) { return x > 0; });
+    if (!d.length) throw new Error("no route");
+    return Math.min.apply(null, d) / 1000;
+  }
+};
+// Use Google first; if Google is not reachable, use the free services as before
+var GEO_FREE = {
   search: async function (q, near) {
     var base = near || { lat: MANILA[0], lng: MANILA[1] };
     function one(text) {
@@ -879,6 +935,11 @@ var GEO = window.__TEST_GEO__ || {
     try { var j = await (await fetch(u, { signal: ctl.signal })).json(); var best = pickShortest(j); return best ? best.distance / 1000 : null; }
     catch (e) { return null; } finally { clearTimeout(t); }
   }
+};
+var GEO = window.__TEST_GEO__ || {
+  search: async function (q, near) { try { var r = await GEO_G.search(q, near); if (r.length) return r; } catch (e) { console.warn("Google search:", e && e.message); } return GEO_FREE.search(q, near); },
+  reverse: async function (lat, lng) { try { var a = await GEO_G.reverse(lat, lng); if (a) return a; } catch (e) { console.warn("Google reverse:", e && e.message); } return GEO_FREE.reverse(lat, lng); },
+  route: async function (a, b) { try { return await GEO_G.route(a, b); } catch (e) { console.warn("Google route:", e && e.message); } return GEO_FREE.route(a, b); }
 };
 function straightKm(a, b) { var R = 6371, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
   var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
@@ -1081,7 +1142,9 @@ function onSearch(q) { clearTimeout(sugT); if (q.trim().length < 3) { drawSug([]
   sugT = setTimeout(async function () { try { var near = S.place && S.place.lat != null ? { lat: S.place.lat, lng: S.place.lng } : null; drawSug(await GEO.search(q.trim(), near)); } catch (e) { drawSug([]); } }, 350); }
 function drawSug(list) { if (!S.place) return; S.place.sug = list; var box = $("sug"); if (!box) return;
   box.hidden = !list.length; box.innerHTML = list.map(function (f, i) { return '<button data-act="pick" data-i="' + i + '">' + h(f.label) + "</button>"; }).join(""); }
-function pickSug(i) { var f = S.place.sug[i]; if (!f) return; readPlace(); S.place.address = f.label; S.place.area = areaOf(f.label); S.place.hwOk = false; S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
+async function pickSug(i) { var f = S.place.sug[i]; if (!f) return;
+  if (f.lat == null && f.pp) { try { f = await GEO_G.resolve(f); } catch (e) { toast("Could not get that place. Try again or move the map pin.", true); return; } if (!S.place) return; }
+  readPlace(); S.place.address = f.label; S.place.area = areaOf(f.label); S.place.hwOk = false; S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
 function drawPlaceMap() {
   var el = $("pmap"); if (!el || typeof L === "undefined") return; killMap(); var p = S.place;
   mapObj = L.map(el, { zoomControl: true, minZoom: 9 }).setView(p.lat != null ? [p.lat, p.lng] : MANILA, p.lat != null ? 17 : 12); tiles(mapObj);
