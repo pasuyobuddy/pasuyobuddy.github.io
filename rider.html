@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.67" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.68" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"]];
@@ -974,7 +974,7 @@ function promoWalletCard() {
 }
 function referralApplyCard() {
   var p = S.promos, r = rider(); if (!p || r.status !== "pending") return "";
-  var welcome = p.signup_load > 0 ? '<div class="note n-good">&#127873; When you are approved you get <b>' + peso(p.signup_load) + " free load</b> for your first commissions.</div>" : "";
+  var welcome = p.signup_load > 0 ? '<div class="note n-good">&#127873; When you are approved you get <b>' + peso(p.signup_load) + " free load</b>" + (p.vehicle ? " for your " + h(p.vehicle) : "") + " to pay your first commissions.</div>" : "";
   if (p.referred_by) return welcome + '<div class="card"><div class="line"><span class="muted">Invited by</span><span class="b">' + h(p.referred_by) + " &#10004;</span></div></div>";
   if (!(p.referral_load > 0)) return welcome;   // invite rewards switched off: no invite-code box
   return welcome + '<div class="card" style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0">Invited by another rider?</h2><div class="small muted">Enter their invite code. You can only do this before you are approved.</div>'
