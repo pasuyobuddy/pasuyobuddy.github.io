@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.49" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.51" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -997,14 +997,14 @@ function vEmailCode() {
   return '<div class="body"><div style="text-align:center;font-size:56px;line-height:1;margin-top:18px">&#9993;&#65039;</div><h1 style="text-align:center;margin:0;font-size:22px">Check your email</h1>'
     + (S.authMsg ? '<div class="note n-info">' + h(S.authMsg) + "</div>" : "")
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Code sent to <b>' + h(S.authEmail) + "</b>. It can take a minute. Check your Spam folder too.</div>"
-    + '<div class="field"><label for="v_code">6-digit code</label><input class="in" id="v_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" style="font-size:26px;letter-spacing:8px;text-align:center"></div>'
+    + '<div class="field"><label for="v_code">8-digit code</label><input class="in" id="v_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••••" style="font-size:24px;letter-spacing:6px;text-align:center"></div>'
     + '<button class="btn pri" data-act="verify">Confirm</button>'
     + '<button class="btn" data-act="resendcode" id="resendbtn"' + (wait ? " disabled" : "") + ">" + (wait ? "Send a new code in " + wait + "s" : "Send a new code") + "</button></div>"
     + '<button class="btn" data-act="verifyback">Use a different email</button></div>';
 }
 setInterval(function () { var b = $("resendbtn"); if (!b || S.authMode !== "verify") return; var wait = Math.max(0, 60 - Math.floor((Date.now() - VERIFY.sentAt) / 1000)); b.disabled = wait > 0; b.textContent = wait ? "Send a new code in " + wait + "s" : "Send a new code"; }, 1000);
 async function doVerify() {
-  var code = (val("v_code") || "").replace(/\D/g, ""); if (code.length < 6) { toast("Enter the code from the email", true); return; }
+  var code = (val("v_code") || "").replace(/\D/g, ""); if (code.length < 8) { toast("Enter the 8-digit code from the email", true); return; }
   await run(async function () {
     var r = await sb.auth.verifyOtp({ email: S.authEmail, token: code, type: "email" });
     if (r.error) r = await sb.auth.verifyOtp({ email: S.authEmail, token: code, type: "signup" });
@@ -1022,11 +1022,11 @@ var RESET = { step: "email", sentAt: 0 };
 function vForgot() {
   var wait = Math.max(0, 60 - Math.floor((Date.now() - RESET.sentAt) / 1000));
   var head = '<div class="body"><div style="text-align:center;font-size:52px;line-height:1;margin-top:18px">&#128273;</div><h1 style="text-align:center;margin:0;font-size:22px">Reset your password</h1>' + (S.authMsg ? '<div class="note n-info">' + h(S.authMsg) + "</div>" : "");
-  if (RESET.step === "email") return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Enter the email of your account. We will send you a 6-digit code.</div>'
+  if (RESET.step === "email") return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Enter the email of your account. We will send you a 8-digit code.</div>'
     + '<div class="field"><label for="f_email">Email</label><input class="in" id="f_email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<button class="btn pri" data-act="forgotsend">Send code</button></div><button class="btn" data-act="forgotback">Back to log in</button></div>';
   return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Code sent to <b>' + h(S.authEmail) + "</b>. It can take a minute. Check your Spam folder too.</div>"
-    + '<div class="field"><label for="f_code">6-digit code</label><input class="in" id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" style="font-size:26px;letter-spacing:8px;text-align:center"></div>'
+    + '<div class="field"><label for="f_code">8-digit code</label><input class="in" id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••••" style="font-size:24px;letter-spacing:6px;text-align:center"></div>'
     + '<div class="field"><label for="f_pw">New password (at least 8 characters)</label><input class="in" id="f_pw" type="password" autocomplete="new-password"></div>'
     + '<div class="field"><label for="f_pw2">Type the new password again</label><input class="in" id="f_pw2" type="password" autocomplete="new-password"></div>'
     + '<button class="btn pri" data-act="forgotsave">Save new password</button>'
@@ -1047,7 +1047,7 @@ async function forgotSend(again) {
 }
 async function forgotSave() {
   var code = (val("f_code") || "").replace(/\D/g, ""), pw = $("f_pw") ? $("f_pw").value : "", pw2 = $("f_pw2") ? $("f_pw2").value : "";
-  if (code.length < 6) { toast("Enter the code from the email", true); return; }
+  if (code.length < 8) { toast("Enter the 8-digit code from the email", true); return; }
   if (pw.length < 8) { toast("The new password must be at least 8 characters", true); return; }
   if (pw !== pw2) { toast("The two passwords are not the same", true); return; }
   await run(async function () {
@@ -1070,11 +1070,11 @@ async function doAuth() {
       if (!S.termsOk && !($("a_terms") && $("a_terms").checked)) throw new Error("Please tick the box to agree to the Terms & Conditions and Privacy Policy.");
       var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { full_name: name, terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
-      if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
+      if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 8-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
     } else {
       var r2 = await sb.auth.signInWithPassword({ email: email, password: pw });
-      if (r2.error && /not confirmed/i.test(r2.error.message)) { try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} VERIFY.sentAt = Date.now(); startVerify(email, "Your email is not confirmed yet. We sent a new 6-digit code to " + email + "."); return; }
+      if (r2.error && /not confirmed/i.test(r2.error.message)) { try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} VERIFY.sentAt = Date.now(); startVerify(email, "Your email is not confirmed yet. We sent a new 8-digit code to " + email + "."); return; }
       if (r2.error) throw new Error(r2.error.message);
       S.session = r2.data.session;
     }
@@ -1639,7 +1639,7 @@ async function sendReport() {
   var note = val("rep_note");
   await run(async function () { await rpc("report_create", { p_order: REP.order, p_reason: REP.reason, p_note: note || null }); REP.reason = ""; REP.mine = await rpc("my_reports", { p_order: REP.order }); render(); window.scrollTo(0, 0); toast("Report sent. Our team will review it."); });
 }
-var REP_REASONS = ["Marked delivered but nothing arrived", "Rider did not show up", "Rider asked for more money", "Parcel damaged or incomplete", "Rider was rude or unsafe", "Something else"];
+var REP_REASONS = ["Rider is a different person (not the one in the app)", "Marked delivered but nothing arrived", "Rider did not show up", "Rider asked for more money", "Parcel damaged or incomplete", "Rider was rude or unsafe", "Something else"];
 function repTop(t) { return '<div class="top"><button class="back" data-act="repback" aria-label="Back">←</button><h1>' + h(t) + "</h1></div>"; }
 function repLeave() { stopPoll(); stopChat(); }
 
@@ -1812,7 +1812,8 @@ function vTrack() {
   var idx = order.indexOf(o.status), steps = "";
   if (idx >= 0) steps = '<div class="steps">' + order.map(function (s, i) { return '<div class="step ' + (i < idx || o.status === "completed" ? "done" : i === idx ? "now" : "todo") + '"><span class="mk"></span><span>' + labels[s] + "</span></div>"; }).join("") + "</div>";
   var canCancel = ["searching", "accepted", "at_pickup"].indexOf(o.status) >= 0, canTip = ["searching", "accepted"].indexOf(o.status) >= 0;
-  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div></div>" : "";
+  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div>"
+    + '<div class="note n-info small" style="margin-top:10px">&#128064; <b>Check your rider:</b> the face and plate number should match the photo above. <button class="linkbtn" style="font-size:13px" data-act="repdiff">Different person? Report it</button></div></div>' : "";
   if (o.needs_bag) rider += '<div class="note n-info">&#127890; You asked the rider to bring a delivery bag.</div>';
   var arr = o.status === "in_transit" ? o.stops.filter(function (x) { return x.kind === "dropoff" && x.status === "arrived"; })[0] : null;
   var msg = arr ? '<div class="note n-good"><b>Your rider has arrived at ' + (o.stops.length > 2 ? "drop-off " + arr.seq : "the drop-off") + ".</b> Please let " + h(arr.contact_name || "the receiver") + " know.</div>" : o.status === "searching" ? '<div class="note n-warn">We are offering your booking to nearby riders. This page updates by itself.</div>'
@@ -1865,6 +1866,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "bagtoggle") { readReview(); S.bk.needsBag = !!t.checked; var lb = t.closest(".bagopt"); if (lb) lb.classList.toggle("on", S.bk.needsBag); }
   else if (a === "chatopen") { if (S.order) openChat(S.order.id); }
   else if (a === "repopen") { if (S.order) openReport(S.order.id); }
+  else if (a === "repdiff") { if (S.order) openReport(S.order.id).then(function () { REP.reason = REP_REASONS[0]; if (S.view === "report") render(); }); }
   else if (a === "repback") openOrder(REP.order);
   else if (a === "repreason") { var nv = $("rep_note") ? $("rep_note").value : ""; REP.reason = REP_REASONS[+d.i]; render(); if ($("rep_note")) $("rep_note").value = nv; }
   else if (a === "repsend") sendReport();

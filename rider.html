@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.64" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.66" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Valid ID of the vehicle owner"]];
@@ -1047,7 +1047,7 @@ async function route() {
   var r = rider();
   if (!r) { S.view = "apply"; render(); return; }
   loadPromos().then(function () { if (["docs", "account", "wallet"].indexOf(S.view) >= 0) render(); });
-  if (r.status !== "approved") { S.view = "docs"; render(); applySavedRef(); rpc("rider_doc_reasons").then(function (x) { S.docWhy = x || {}; if (S.view === "docs") render(); }).catch(function () {}); rpc("rider_owner_info").then(function (x) { S.owner = x || {}; if (S.view === "docs") render(); }).catch(function () {}); supLoadUnread().then(function () { if (S.view === "docs") render(); }); return; }
+  if (r.status !== "approved") { S.view = "docs"; render(); pickLost(); applySavedRef(); rpc("rider_doc_reasons").then(function (x) { S.docWhy = x || {}; if (S.view === "docs") render(); }).catch(function () {}); rpc("rider_owner_info").then(function (x) { S.owner = x || {}; if (S.view === "docs") render(); }).catch(function () {}); supLoadUnread().then(function () { if (S.view === "docs") render(); }); return; }
   checkNotices(true); prefetchWallet();
   startGps();
   if (S.me.active_order) { await openJob(S.me.active_order); return; }
@@ -1065,14 +1065,14 @@ function vEmailCode() {
   return '<div class="body"><div style="text-align:center;font-size:56px;line-height:1;margin-top:18px">&#9993;&#65039;</div><h1 style="text-align:center;margin:0;font-size:22px">Check your email</h1>'
     + (S.authMsg ? '<div class="note n-info">' + h(S.authMsg) + "</div>" : "")
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Code sent to <b>' + h(S.authEmail) + "</b>. It can take a minute. Check your Spam folder too.</div>"
-    + '<div class="field"><label for="v_code">6-digit code</label><input class="in" id="v_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" style="font-size:26px;letter-spacing:8px;text-align:center"></div>'
+    + '<div class="field"><label for="v_code">8-digit code</label><input class="in" id="v_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••••" style="font-size:24px;letter-spacing:6px;text-align:center"></div>'
     + '<button class="btn pri" data-act="verify">Confirm</button>'
     + '<button class="btn" data-act="resendcode" id="resendbtn"' + (wait ? " disabled" : "") + ">" + (wait ? "Send a new code in " + wait + "s" : "Send a new code") + "</button></div>"
     + '<button class="btn" data-act="verifyback">Use a different email</button></div>';
 }
 setInterval(function () { var b = $("resendbtn"); if (!b || S.authMode !== "verify") return; var wait = Math.max(0, 60 - Math.floor((Date.now() - VERIFY.sentAt) / 1000)); b.disabled = wait > 0; b.textContent = wait ? "Send a new code in " + wait + "s" : "Send a new code"; }, 1000);
 async function doVerify() {
-  var code = (val("v_code") || "").replace(/\D/g, ""); if (code.length < 6) { toast("Enter the code from the email", true); return; }
+  var code = (val("v_code") || "").replace(/\D/g, ""); if (code.length < 8) { toast("Enter the 8-digit code from the email", true); return; }
   await run(async function () {
     var r = await sb.auth.verifyOtp({ email: S.authEmail, token: code, type: "email" });
     if (r.error) r = await sb.auth.verifyOtp({ email: S.authEmail, token: code, type: "signup" });
@@ -1090,11 +1090,11 @@ var RESET = { step: "email", sentAt: 0 };
 function vForgot() {
   var wait = Math.max(0, 60 - Math.floor((Date.now() - RESET.sentAt) / 1000));
   var head = '<div class="body"><div style="text-align:center;font-size:52px;line-height:1;margin-top:18px">&#128273;</div><h1 style="text-align:center;margin:0;font-size:22px">Reset your password</h1>' + (S.authMsg ? '<div class="note n-info">' + h(S.authMsg) + "</div>" : "");
-  if (RESET.step === "email") return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Enter the email of your account. We will send you a 6-digit code.</div>'
+  if (RESET.step === "email") return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Enter the email of your account. We will send you a 8-digit code.</div>'
     + '<div class="field"><label for="f_email">Email</label><input class="in" id="f_email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<button class="btn pri" data-act="forgotsend">Send code</button></div><button class="btn" data-act="forgotback">Back to log in</button></div>';
   return head + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Code sent to <b>' + h(S.authEmail) + "</b>. It can take a minute. Check your Spam folder too.</div>"
-    + '<div class="field"><label for="f_code">6-digit code</label><input class="in" id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" style="font-size:26px;letter-spacing:8px;text-align:center"></div>'
+    + '<div class="field"><label for="f_code">8-digit code</label><input class="in" id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••••" style="font-size:24px;letter-spacing:6px;text-align:center"></div>'
     + '<div class="field"><label for="f_pw">New password (at least 8 characters)</label><input class="in" id="f_pw" type="password" autocomplete="new-password"></div>'
     + '<div class="field"><label for="f_pw2">Type the new password again</label><input class="in" id="f_pw2" type="password" autocomplete="new-password"></div>'
     + '<button class="btn pri" data-act="forgotsave">Save new password</button>'
@@ -1115,7 +1115,7 @@ async function forgotSend(again) {
 }
 async function forgotSave() {
   var code = (val("f_code") || "").replace(/\D/g, ""), pw = $("f_pw") ? $("f_pw").value : "", pw2 = $("f_pw2") ? $("f_pw2").value : "";
-  if (code.length < 6) { toast("Enter the code from the email", true); return; }
+  if (code.length < 8) { toast("Enter the 8-digit code from the email", true); return; }
   if (pw.length < 8) { toast("The new password must be at least 8 characters", true); return; }
   if (pw !== pw2) { toast("The two passwords are not the same", true); return; }
   await run(async function () {
@@ -1140,11 +1140,11 @@ async function doAuth() {
       refSave(ref);
       var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: Object.assign({ app: "rider", terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() }, ref ? { ref_code: ref } : {}) }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
-      if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 6-digit code to " + email + ". Enter it below to finish."); return; }
+      if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 8-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
     } else {
       var r2 = await sb.auth.signInWithPassword({ email: email, password: pw });
-      if (r2.error && /not confirmed/i.test(r2.error.message)) { try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} VERIFY.sentAt = Date.now(); startVerify(email, "Your email is not confirmed yet. We sent a new 6-digit code to " + email + "."); return; }
+      if (r2.error && /not confirmed/i.test(r2.error.message)) { try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} VERIFY.sentAt = Date.now(); startVerify(email, "Your email is not confirmed yet. We sent a new 8-digit code to " + email + "."); return; }
       if (r2.error) throw new Error(r2.error.message);
       S.session = r2.data.session;
     }
@@ -1203,8 +1203,33 @@ async function upload(bucket, name, file) {
   if (r.error) throw new Error("Upload failed: " + r.error.message);
   return path;
 }
+// Document photos: one hidden file box that is never redrawn, so the chosen photo is not lost
+// when the screen refreshes while the phone's photo picker is open.
+var DOCPICK = null;
+function docPick(type) {
+  if (!DOCPICK) {
+    DOCPICK = document.createElement("input"); DOCPICK.type = "file"; DOCPICK.accept = "image/*"; DOCPICK.style.display = "none";
+    DOCPICK.addEventListener("change", function () { var f = DOCPICK.files && DOCPICK.files[0], t = DOCPICK.dataset.t;
+      try { sessionStorage.removeItem("pb_picking"); } catch (e) {} if (f && t) uploadDoc(t, f); DOCPICK.value = ""; });
+    document.body.appendChild(DOCPICK);
+  }
+  DOCPICK.dataset.t = type; DOCPICK.value = "";
+  try { sessionStorage.setItem("pb_picking", type + "|" + Date.now()); } catch (e) {}
+  DOCPICK.click();
+}
+// If the phone closed the app while the rider was choosing a photo, explain what happened
+function pickLost() {
+  var v = null; try { v = sessionStorage.getItem("pb_picking"); sessionStorage.removeItem("pb_picking"); } catch (e) {}
+  if (v && Date.now() - Number(v.split("|")[1] || 0) < 300000)
+    setTimeout(function () { toast("The photo did not arrive because your phone closed the app while choosing it. Please tap Upload again. Tip: close other apps first, or pick the photo from Gallery / Files.", true); }, 800);
+}
 async function uploadDoc(type, file) {
-  await run(async function () { toast("Uploading…"); var path = await upload("rider-docs", type, file); await rpc("rider_add_document", { p_type: type, p_path: path }); await reloadMe(); render(); toast("Uploaded. Waiting for review."); });
+  S.upl = type; render(); toast("Uploading…");
+  var t0 = Date.now(); while (S.busy && Date.now() - t0 < 8000) await new Promise(function (r) { setTimeout(r, 200); });
+  S.busy = true;
+  try { var path = await upload("rider-docs", type, file); await rpc("rider_add_document", { p_type: type, p_path: path }); await reloadMe(); toast("Uploaded. Waiting for review."); }
+  catch (e) { toast((e && e.message) || "Upload failed. Please try again.", true); }
+  finally { S.busy = false; S.upl = null; render(); }
 }
 async function checkStatus() { await run(async function () { await reloadMe(); S.busy = false; await route(); if (rider().status !== "approved") toast("Not approved yet"); }); }
 
@@ -1569,7 +1594,7 @@ function vDocs() {
   var ow = S.owner || {}, LIST = DOCS.concat(ow.self === false ? OWNER_DOCS : []);
   var rows = LIST.map(function (d) { var st = by[d[0]];
     return '<div class="line" style="align-items:center"><span class="sp"><span class="b">' + d[1] + "</span><br>" + (st === "approved" ? pill("Approved", "good") : st === "pending" ? pill("Waiting for review", "warn") : st === "rejected" ? pill("Rejected, upload again", "bad") + (why[d[0]] ? '<br><span class="small" style="color:var(--bad);font-weight:700">Reason: ' + h(why[d[0]]) + "</span>" : "") : pill("Not uploaded", "soft")) + "</span>"
-      + (st === "approved" ? "" : '<label class="btn sm" style="cursor:pointer">' + (st ? "Replace" : "Upload") + '<input type="file" accept="image/*" data-doc="' + d[0] + '" hidden></label>') + "</div>"; }).join("");
+      + (st === "approved" ? "" : S.upl === d[0] ? '<span class="btn sm" style="opacity:.7">Uploading…</span>' : '<button class="btn sm" data-act="docpick" data-t="' + d[0] + '">' + (st ? "Replace" : "Upload") + "</button>") + "</div>"; }).join("");
   var all = LIST.every(function (d) { return by[d[0]] && by[d[0]] !== "rejected"; }) && ow.self != null;
   var anyRej = LIST.some(function (d) { return by[d[0]] === "rejected"; });
   var msg = r.status === "suspended" ? '<div class="note n-bad">Your rider account is suspended. To ask why or to appeal, use Help &amp; Support below.</div>'
@@ -1872,6 +1897,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "refset") setReferral();
   else if (a === "refcopy") copyRef();
   else if (a === "refcode") copyRefCode();
+  else if (a === "docpick") docPick(d.t);
   else if (a === "ownerself") { if (d.v === "1") ownerSet(true); else { S.ownerAsk = "no"; render(); } }
   else if (a === "ownersave") ownerSet(false);
   else if (a === "accept") accept(d.id);
