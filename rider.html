@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.72" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.73" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -868,7 +868,7 @@ async function nativeJobAlerts() {
     var fresh = list.filter(function (j) { return !NAT.told[j.order_id] && !HIDDEN[j.order_id]; }); if (!fresh.length) return;
     fresh.forEach(function (j) { NAT.told[j.order_id] = 1; });
     var j = fresh[0], more = fresh.length - 1;
-    await NAT.ln.schedule({ notifications: [{ id: Math.floor(Date.now() / 1000) % 2000000000, channelId: "jobs",
+    await NAT.ln.schedule({ notifications: [{ id: Math.floor(Date.now() / 1000) % 2000000000, channelId: newApp() ? "jobs_tone" : "jobs",
       title: "New job · you earn " + peso(j.rider_earns) + (more ? "  (+" + more + " more)" : ""),
       body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + " · " + Number(j.total_km || 0).toFixed(1) + " km trip · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
   } catch (e) {}
@@ -879,6 +879,8 @@ function nativeInit() {
   if (!NATIVE) return;
   try { var br = natPlugin("Browser"); if (br && br.addListener) br.addListener("browserFinished", topupBack); } catch (e) {}
   try { NAT.ln.createChannel({ id: "jobs", name: "New job alerts", description: "New bookings while you are online", importance: 5, visibility: 1, vibration: true }); } catch (e) {}
+  // New Play Store app: job alerts with the PasuyoBuddy tone (the sound file is inside the new app)
+  if (newApp()) { try { NAT.ln.createChannel({ id: "jobs_tone", name: "New job alerts", description: "New bookings while you are online (PasuyoBuddy tone)", importance: 5, visibility: 1, vibration: true, sound: "pasuyo_job.ogg" }); } catch (e) {} }
   NAT.app.addListener("appStateChange", function (st) {
     NAT.active = !!st.isActive;
     if (!NAT.active) { (S.jobs || []).forEach(function (j) { NAT.told[j.order_id] = 1; }); return; }
@@ -998,7 +1000,7 @@ async function setReferral() {
 }
 async function copyRef() {
   var c = S.promos && S.promos.ref_code; if (!c) return;
-  var link = "https://pasuyobuddy.com/rider.html?ref=" + encodeURIComponent(c);
+  var link = "https://pasuyobuddy.github.io/rider.html?ref=" + encodeURIComponent(c);
   var txt = "Join PasuyoBuddy as a rider! Sign up here (my invite code " + c + " is already filled in): " + link;
   if (navigator.share) { try { await navigator.share({ title: "PasuyoBuddy Rider", text: txt }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
@@ -1015,8 +1017,114 @@ function cancelWarn() {
 }
 async function loadSuspend() { try { S.cancelSt = await rpc("rider_cancel_status"); } catch (e) {} if (S.view === "home") render(); }
 async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; if (NATIVE) nativeSync(); }
-async function afterLogin() {
+// ---------------- App lock (fingerprint / face or PIN) + one phone per account. Only in the new Play Store app (2.1+). ----------------
+var LOCK = { on: false, locked: false, bgAt: 0, bio: null, avail: false, setup: null, phone: "ok", bioOnly: 0, dev: null, ver: "", fails: 0, usePin: false, inited: false };
+function newApp() { try { return !!(NATIVE && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("NativeBiometric")); } catch (e) { return false; } }
+function lockKey(k) { return "pb_lock_" + k + "_" + (S.session && S.session.user ? S.session.user.id : "x"); }
+function lockGet(k) { try { return localStorage.getItem(lockKey(k)); } catch (e) { return null; } }
+function lockSet(k, v) { try { if (v == null) localStorage.removeItem(lockKey(k)); else localStorage.setItem(lockKey(k), v); } catch (e) {} }
+async function pinHash(pin) {
+  var d = new TextEncoder().encode("pb|" + S.session.user.id + "|" + pin), b = await crypto.subtle.digest("SHA-256", d);
+  return Array.from(new Uint8Array(b)).map(function (x) { return x.toString(16).padStart(2, "0"); }).join("");
+}
+async function lockInit() {
+  if (!newApp() || !S.session) return;
+  LOCK.on = true; LOCK.bio = natPlugin("NativeBiometric");
+  try { var a = await LOCK.bio.isAvailable({ useFallback: false }); LOCK.avail = !!(a && a.isAvailable); } catch (e) { LOCK.avail = false; }
+  try { var id = await natPlugin("Device").getId(); LOCK.dev = id && id.identifier ? "and:" + id.identifier : null; } catch (e) { LOCK.dev = null; }
+  try { var inf = await NAT.app.getInfo(); LOCK.ver = inf.version || ""; } catch (e) {}
+  if (!LOCK.inited) { LOCK.inited = true; NAT.app.addListener("appStateChange", function (st) {
+    if (!LOCK.on || !S.session) return;
+    if (!st.isActive) { LOCK.bgAt = Date.now(); return; }
+    if (lockGet("method") && LOCK.bgAt && Date.now() - LOCK.bgAt > 300000 && !(S.me && S.me.active_order) && !LOCK.locked && !LOCK.setup) { LOCK.locked = true; LOCK.usePin = false; lockShow(); lockBioTry(); }
+    LOCK.bgAt = 0;
+  }); }
+  await lockRegister();
+  if (!lockGet("method") || !lockGet("pin")) { LOCK.setup = { step: "choose" }; lockShow(); }
+  else { LOCK.locked = true; LOCK.usePin = false; lockShow(); lockBioTry(); }
+}
+async function lockRegister() {
+  if (!LOCK.on || !LOCK.dev) return;
+  try { var r = await rpc("rider_app_register", { p_device: LOCK.dev, p_lock: lockGet("method"), p_version: LOCK.ver }); if (r) { LOCK.phone = r.status || "ok"; LOCK.bioOnly = Number(r.bio_only) || 0; } } catch (e) {}
+}
+function lockHide() { var o = $("lockov"); if (o) o.remove(); }
+function lockShow() {
+  var o = $("lockov"); if (!o) { o = document.createElement("div"); o.id = "lockov"; document.body.appendChild(o); }
+  o.style.cssText = "position:fixed;inset:0;z-index:6000;background:#F6F5F1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px";
+  var st = LOCK.setup, m = lockGet("method"), body = "";
+  var pinBox = function (id, ph) { return '<input class="in" id="' + id + '" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="' + ph + '" style="text-align:center;font-size:24px;letter-spacing:10px">'; };
+  if (st && st.step === "choose") {
+    body = '<div style="font-size:52px">&#128274;</div><h2 style="margin:8px 0">Lock your PasuyoBuddy app</h2><div class="small muted" style="margin-bottom:14px">Only you may use your PasuyoBuddy account. Choose how to unlock this app:</div>'
+      + (LOCK.avail ? '<button class="btn pri" data-act="lock-choose" data-m="bio">&#9757;&#65039; Fingerprint / Face</button>' : '<div class="note n-warn small" style="text-align:left">This phone has no fingerprint or face unlock set up. To use it, add a fingerprint in your phone <b>Settings → Security</b>, then open this app again.</div>')
+      + (LOCK.avail && LOCK.bioOnly ? "" : '<button class="btn' + (LOCK.avail ? "" : " pri") + '" data-act="lock-choose" data-m="pin" style="margin-top:8px">&#128290; 6-digit PIN code</button>')
+      + (m ? '<button class="btn" data-act="lock-cancel" style="margin-top:8px">Cancel</button>' : "");
+  } else if (st && st.step === "pin") {
+    body = '<div style="font-size:52px">&#128290;</div><h2 style="margin:8px 0">' + (st.method === "bio" ? "Create a backup PIN" : "Create your PIN") + '</h2><div class="small muted" style="margin-bottom:14px">' + (st.method === "bio" ? "Used only if your fingerprint or face does not work. " : "") + "6 numbers. Do not share it with anyone.</div>"
+      + pinBox("lk_pin", "••••••") + '<div style="height:8px"></div>' + pinBox("lk_pin2", "repeat PIN") + '<button class="btn pri" data-act="lock-savepin" style="margin-top:12px">Save</button>'
+      + '<button class="btn" data-act="lock-back" style="margin-top:8px">Back</button>';
+  } else {
+    var bioMode = m === "bio" && LOCK.avail && !LOCK.usePin;
+    body = '<div style="font-size:52px">&#128274;</div><h2 style="margin:8px 0">PasuyoBuddy Rider is locked</h2><div class="small muted" style="margin-bottom:14px">' + h((S.me && S.me.name) || "") + "</div>"
+      + (bioMode ? '<button class="btn pri" data-act="lock-bio">&#9757;&#65039; Unlock with fingerprint / face</button><button class="btn" data-act="lock-usepin" style="margin-top:8px">Use PIN instead</button>'
+                 : pinBox("lk_pin", "enter PIN") + '<button class="btn pri" data-act="lock-unpin" style="margin-top:12px">Unlock</button>' + (m === "bio" && LOCK.avail ? '<button class="btn" data-act="lock-usebio" style="margin-top:8px">Use fingerprint / face</button>' : ""))
+      + '<button class="link" data-act="lock-forgot" style="margin-top:14px;background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer">Forgot PIN? Log in again</button>';
+  }
+  o.innerHTML = '<div class="card" style="max-width:360px;width:100%;text-align:center;display:flex;flex-direction:column;padding:24px 20px">' + body + "</div>";
+  var f = $("lk_pin"); if (f) setTimeout(function () { try { f.focus(); } catch (e) {} }, 50);
+}
+async function lockBioTry() {
+  if (!LOCK.locked || lockGet("method") !== "bio" || !LOCK.avail) return false;
+  try { await LOCK.bio.verifyIdentity({ title: "Unlock PasuyoBuddy Rider", subtitle: "Use your fingerprint or face", negativeButtonText: "Use PIN", maxAttempts: 5 }); lockOpen(); return true; }
+  catch (e) { return false; }
+}
+function lockOpen() { LOCK.locked = false; LOCK.setup = null; LOCK.fails = 0; LOCK.usePin = false; lockHide(); }
+async function lockForgot() {
+  lockSet("method", null); lockSet("pin", null); lockHide();
+  try { await sb.auth.signOut(); } catch (e) {}
+  location.reload();
+}
+async function lockAct(a, d) {
+  if (a === "lock-choose") {
+    if (d.m === "bio") { try { await LOCK.bio.verifyIdentity({ title: "Use fingerprint / face", subtitle: "Check that it works", negativeButtonText: "Cancel" }); } catch (e) { toast("Fingerprint / face was not confirmed. Try again, or choose PIN.", true); return; } }
+    LOCK.setup = { step: "pin", method: d.m }; lockShow(); return;
+  }
+  if (a === "lock-back") { LOCK.setup = { step: "choose" }; lockShow(); return; }
+  if (a === "lock-cancel") { LOCK.setup = null; lockHide(); return; }
+  if (a === "lock-savepin") {
+    var p1 = ($("lk_pin") || {}).value || "", p2 = ($("lk_pin2") || {}).value || "";
+    if (!/^\d{6}$/.test(p1)) { toast("The PIN must be exactly 6 numbers", true); return; }
+    if (/^(\d)\1{5}$/.test(p1) || p1 === "123456" || p1 === "654321") { toast("That PIN is too easy to guess. Choose another one.", true); return; }
+    if (p1 !== p2) { toast("The two PINs are not the same", true); return; }
+    lockSet("pin", await pinHash(p1)); lockSet("method", LOCK.setup.method);
+    LOCK.setup = null; LOCK.locked = false; lockHide(); lockRegister();
+    toast(lockGet("method") === "bio" ? "App lock on: fingerprint / face (backup PIN saved)" : "App lock on: PIN"); if (S.view === "account") render(); return;
+  }
+  if (a === "lock-bio") { if (!(await lockBioTry())) toast("Not recognized. Try again or use your PIN.", true); return; }
+  if (a === "lock-usepin") { LOCK.usePin = true; lockShow(); return; }
+  if (a === "lock-usebio") { LOCK.usePin = false; lockShow(); lockBioTry(); return; }
+  if (a === "lock-unpin") {
+    var p = ($("lk_pin") || {}).value || "";
+    if ((await pinHash(p)) === lockGet("pin")) { lockOpen(); return; }
+    LOCK.fails++; var left = 5 - LOCK.fails;
+    if (left <= 0) { toast("Too many wrong PINs. Please log in again.", true); setTimeout(lockForgot, 1500); return; }
+    toast("Wrong PIN. " + left + " tr" + (left > 1 ? "ies" : "y") + " left.", true); var f = $("lk_pin"); if (f) { f.value = ""; f.focus(); } return;
+  }
+  if (a === "lock-forgot") { if (confirm("Log out of PasuyoBuddy Rider? You will log in again with your email and password, then create a new lock.")) lockForgot(); return; }
+  if (a === "lock-change") { LOCK.setup = { step: "choose" }; lockShow(); return; }
+}
+function lockCard() {
+  if (!LOCK.on) return "";
+  var m = lockGet("method");
+  return '<div class="card"><h2>&#128274; App lock</h2><div class="line"><span class="muted">Unlock with</span><span class="b">' + (m === "bio" ? "Fingerprint / Face" : m === "pin" ? "PIN" : "Not set") + '</span></div>'
+    + '<div class="small muted">The app asks for it when you open it, and after 5 minutes away (not during a delivery).</div><button class="btn sm" data-act="lock-change" style="margin-top:8px">Change app lock</button></div>';
+}
+function phoneNote() {
+  return LOCK.on && LOCK.phone === "pending" ? '<div class="note n-bad">&#128241; <b>New phone detected.</b> Your account was opened on a different phone. For your safety, PasuyoBuddy must check it before you can go online. Contact <b>Help &amp; Support</b> in Account.</div>' : "";
+}
+async function afterLogin(fresh) {
   try { await reloadMe(); } catch (e) { S.session = null; S.authMsg = e.message; S.view = "auth"; if (/deactivated/i.test(e.message)) { try { await sb.auth.signOut(); } catch (x) {} } render(); return; }
+  if (fresh) LOCK.bgAt = 0;
+  lockInit().then(function () { if (fresh && LOCK.locked) lockOpen(); if (S.view === "home") render(); });   // just typed the password: no need to unlock again
   checkPush().then(function () { if (S.view === "home" || S.view === "account") render(); });
   topupReturn().then(function () { if (/[?&]topup=/.test(location.search) === false && S.view === "wallet") render(); });
   await route();
@@ -1079,7 +1187,7 @@ async function doVerify() {
     if (r.error || !r.data || !r.data.session) throw new Error("Wrong or expired code. Check the latest email, or tap \"Send a new code\".");
     try { localStorage.removeItem("pb_verify_email"); } catch (e) {}
     S.session = r.data.session; S.authMsg = ""; S.authMode = "login";
-    await afterLogin();
+    await afterLogin(true);
   });
 }
 async function resendCode() {
@@ -1125,7 +1233,7 @@ async function forgotSave() {
     if (u && u.error) throw new Error(/different|same/i.test(u.error.message) ? "Please choose a password different from your old one." : u.error.message);
     S.session = v.data.session; S.authMode = "login"; RESET.step = "email"; S.authMsg = "";
     toast("Password changed. You are logged in.");
-    await afterLogin();
+    await afterLogin(true);
   });
 }
 async function doAuth() {
@@ -1148,7 +1256,7 @@ async function doAuth() {
       if (r2.error) throw new Error(r2.error.message);
       S.session = r2.data.session;
     }
-    await afterLogin();
+    await afterLogin(true);
   });
 }
 async function signOut() {
@@ -1574,11 +1682,11 @@ function vAuth() {
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
     + (su ? '<div class="field"><label for="a_ref">Invite code <span class="muted" style="font-weight:400">(optional)</span></label><input class="in" id="a_ref" autocomplete="off" autocapitalize="characters" maxlength="12" placeholder="From the rider who invited you" style="text-transform:uppercase;letter-spacing:1px" value="' + h(S.refCode || refFromLink()) + '"><div class="small muted" style="margin-top:4px">Invited by a PasuyoBuddy rider? Type their code. They get a reward after you are approved and finish your first jobs.</div></div>' : "")
-    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
+    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
     + '<button class="btn" data-act="authmode">' + (su ? "I already have an account" : "New rider? Create an account") + "</button>"
-    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
+    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
     + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>";
 }
 function vApply() {
@@ -1602,7 +1710,7 @@ function ownerCard(r) {
       + (ow.self === false ? '<div class="note n-info small"><b>Easiest:</b> give your phone to the owner. The owner takes a photo of his/her ID, fills in the details and <b>signs with a finger</b>, then you sign too. No printer needed.</div>'
       + '<button class="btn pri" data-act="owa-open">&#9997;&#65039; Owner signs in the app (no printer)</button>' : "")
       + '<div class="small muted">Owner not with you? Print our authorization letter, have the owner sign it, then upload a photo of it and a photo of the <b>owner\'s ID that is NOT expired</b> in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
-      + '<a class="btn" style="display:block;text-align:center" href="https://pasuyobuddy.com/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>' : "")
+      + '<a class="btn" style="display:block;text-align:center" href="https://pasuyobuddy.github.io/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>' : "")
     + (ow.self == null && !no ? '<div class="small" style="color:var(--warn);font-weight:700">Please answer this question.</div>' : "") + "</div>";
 }
 async function ownerSet(self) {
@@ -1891,7 +1999,7 @@ function vDocs() {
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
     + '<div class="card"><h2>Documents</h2>' + rows + "</div>" + ownerCard(r)
-    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.com/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
+    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
     + supCard() + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 // Jobs this rider chose to hide (kept on this phone only; the booking stays open for other riders)
@@ -1926,7 +2034,7 @@ function vHome() {
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
     + (on ? '<div class="note n-info">' + (NATIVE ? "&#128994; You can minimize the app, lock the screen or use Waze. New jobs come as notifications and your location keeps sharing until you go offline." : "Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.") + '</div>' : "")
-    + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
+    + phoneNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
@@ -2126,12 +2234,12 @@ async function deleteAccount() {
 }
 function vAccount() {
   var r = rider();
-  return topBar("Account") + '<div class="body">' + photoCard() + supCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+  return topBar("Account") + '<div class="body">' + photoCard() + lockCard() + supCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you. It <b>follows your GPS</b>: if you travel to another region, it switches by itself (&#128205; = where you are now). Nearby only = just jobs close to you.</div><div class="chips">'
     + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + (S.here && S.here.id === g.id ? " &#128205;" : "") + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
     + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000, 20000, 30000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
-    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {
   killMap(); var v = S.view;
@@ -2186,6 +2294,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "refcopy") copyRef();
   else if (a === "refcode") copyRefCode();
   else if (a === "docpick") docPick(d.t);
+  else if (/^lock-/.test(a)) lockAct(a, d);
   else if (a === "loi-open") loiOpen();
   else if (a === "owa-open") owaOpen();
   else if (a === "owa-id") owaPickId("id");
