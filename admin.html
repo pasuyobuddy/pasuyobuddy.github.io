@@ -1019,9 +1019,11 @@ function remindBtns(a) {
 }
 function viewRiders() {
   var r = S.riders; if (!r) return '<div class="empty">Loading…</div>';
-  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", owner_authorization: "Owner's authorization / Deed of Sale", owner_id: "Owner's ID (check: NOT expired, name matches OR/CR)", other: "Other" };
-  function needFor(id) { var o = S.owners && S.owners[id]; return o && o.self === false ? NEED.concat(["owner_authorization", "owner_id"]) : NEED; }
-  function ownerLine(id) { var o = S.owners && S.owners[id]; if (!o) return '<div class="small muted">Vehicle owner: not answered yet</div>'; return o.self ? '<div class="small muted">Vehicle owner: the rider (OR/CR in his/her name)</div>' : '<div class="small">' + pill("Not the owner", "warn") + " Owner on OR/CR: <b>" + h(o.owner_name || "—") + "</b> · check the name matches the OR/CR and the signature matches the owner's ID</div>"; }
+  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", owner_authorization: "Owner's authorization / Deed of Sale", owner_id: "Owner's ID (check: NOT expired, name matches OR/CR)", owner_selfie: "Owner's selfie holding the ID (face matches the ID)", other: "Other" };
+  function needFor(id) { var o = S.owners && S.owners[id]; return o && o.self === false ? NEED.concat(["owner_authorization", "owner_id", "owner_selfie"]) : NEED; }
+  function ownerLine(id) { var o = S.owners && S.owners[id]; if (!o) return '<div class="small muted">Vehicle owner: not answered yet</div>'; return o.self ? '<div class="small muted">Vehicle owner: the rider (OR/CR in his/her name)</div>' : '<div class="small">' + pill("Not the owner", "warn") + " Owner on OR/CR: <b>" + h(o.owner_name || "—") + "</b> · check the name matches the OR/CR and the signature matches the owner's ID</div>"
+    + (o.confirmed_at ? '<div class="small row" style="gap:8px;align-items:center">' + pill("Owner confirmed by phone", "good") + '<span class="muted">' + when(o.confirmed_at) + (o.confirmed_by ? " by " + h(o.confirmed_by) : "") + (o.confirm_note ? " · “" + h(o.confirm_note) + "”" : "") + '</span><button class="btn sm" data-act="owner-confirm" data-id="' + id + '" data-ok="0">Undo</button></div>'
+      : '<div class="small row" style="gap:8px;align-items:center">' + pill("Owner not yet called", "warn") + '<span class="muted">Call the owner (mobile number is on the authorization letter) and ask if he/she allowed this rider to use the vehicle. Needed before approval.</span><button class="btn sm dark" data-act="owner-confirm" data-id="' + id + '" data-ok="1">&#128222; Owner confirmed by phone call</button></div>'); }
   var apps = (r.applications || []).map(function (a) {
     var docs = ownerLine(a.id) + needFor(a.id).map(function (t) {
       var d = (a.docs || []).filter(function (x) { return x.doc_type === t; })[0];
@@ -1497,6 +1499,10 @@ function csv(name, rows) {
 document.addEventListener("click", function (e) {
   var b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
   var a = b.dataset.act, d = b.dataset;
+  if (a === "owner-confirm") { var ok = d.ok === "1", note = null;
+    if (ok) { note = prompt("Did you call the owner and did he/she confirm? Write a short note (e.g. 'Called 0918…, father, confirmed'):", ""); if (note === null) return; }
+    else if (!confirm("Undo the owner confirmation?")) return;
+    return void run(async function () { await rpc("admin_owner_confirm", { p_rider: d.id, p_ok: ok, p_note: note }); try { S.owners = await rpc("admin_rider_owner_info"); } catch (e) {} render(); toast(ok ? "Owner confirmed" : "Confirmation removed"); }); }
   if (a === "rider-remind") { if (!confirm((d.k === "owner_papers" ? "Send the 'owner papers needed' email" : "Send the 'finish your documents' reminder") + " to " + d.email + " now?")) return; return void run(async function () { var msg = await rpc("admin_rider_email", { p_rider: d.id, p_kind: d.k }); try { S.remind = await rpc("admin_rider_reminders"); } catch (e) {} render(); toast(msg || "Email sent"); }); }
   if (a === "copy-email") { var em = d.email || ""; (navigator.clipboard ? navigator.clipboard.writeText(em) : Promise.reject()).then(function () { toast("Copied: " + em); }, function () { window.prompt("Copy this email:", em); }); return; }
   if (a === "go") { if (d.tab === "support") S.supT = null; return void go(d.tab); }

@@ -784,10 +784,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.70" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.72" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
-var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"]];
+var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
 
 // ---------------- State ----------------
@@ -998,7 +998,7 @@ async function setReferral() {
 }
 async function copyRef() {
   var c = S.promos && S.promos.ref_code; if (!c) return;
-  var link = "https://pasuyobuddy.github.io/rider.html?ref=" + encodeURIComponent(c);
+  var link = "https://pasuyobuddy.com/rider.html?ref=" + encodeURIComponent(c);
   var txt = "Join PasuyoBuddy as a rider! Sign up here (my invite code " + c + " is already filled in): " + link;
   if (navigator.share) { try { await navigator.share({ title: "PasuyoBuddy Rider", text: txt }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
@@ -1242,7 +1242,7 @@ async function loadJobs() {
   if (S.view !== "home" || !rider() || !rider().is_online) return;
   if (!S.pos) { S.jobs = null; S.jobsErr = S.posErr || "Finding your location…"; render(); return; }
   try {
-    await keepAlive();
+    await keepAlive(); regionCheck();
     if (++polls % 3 === 0) { var w0 = rider().wallet; await reloadMe(); if (rider().wallet !== w0 && S.view === "home") render(); }   // pick up wallet top-ups
     var list = await rpc("rider_jobs"), fresh = list.some(function (j) { return !S.seen[j.order_id] && !HIDDEN[j.order_id]; });
     list.forEach(function (j) { S.seen[j.order_id] = 1; });
@@ -1251,8 +1251,27 @@ async function loadJobs() {
     if (changed && S.view === "home") render();
   } catch (e) { S.jobsErr = /stale/i.test(e.message) ? "Waiting for your location. Keep this page open with location on." : e.message; S.jobs = null; if (S.view === "home") render(); }
 }
+// Which region the rider is in now (from the phone's location)
+var HERE = { at: 0, lat: null, lng: null };
+async function regionCheck() {
+  if (!S.pos || !rider() || rider().status !== "approved") return;
+  var moved = HERE.lat == null || Math.abs(S.pos.lat - HERE.lat) + Math.abs(S.pos.lng - HERE.lng) > 0.05;
+  if (!moved && Date.now() - HERE.at < 600000) return;
+  HERE.at = Date.now(); HERE.lat = S.pos.lat; HERE.lng = S.pos.lng;
+  try { var g = await rpc("rider_region_here", { p_lat: S.pos.lat, p_lng: S.pos.lng }); var ch = !S.hereOk || JSON.stringify(g || null) !== JSON.stringify(S.here || null); S.here = g || null; S.hereOk = true; if (ch && S.view === "home") render(); } catch (e) {}
+}
+function regionNote(r) {
+  if (!S.hereOk) return "";
+  var hn = S.here ? h(S.here.name) : "an area outside our service regions";
+  if (r.region_id && (!S.here || S.here.id !== r.region_id))
+    return '<div class="note n-warn">&#128205; You are in <b>' + hn + '</b>, but you chose <b>Whole ' + h(r.region_name) + "</b>. You will <b>not</b> get jobs where you are now.<div class=\"chips\" style=\"margin-top:8px\">"
+      + (S.here ? '<button class="chip on" data-act="region" data-v="' + S.here.id + '">Switch to Whole ' + h(S.here.name) + "</button>" : "")
+      + '<button class="chip" data-act="region" data-v="">Nearby only</button></div></div>';
+  if (!r.region_id && S.here) return '<div class="small muted" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">&#128205; You are in <b>' + hn + "</b> · jobs within " + (r.radius_m / 1000) + ' km <button class="chip" data-act="region" data-v="' + S.here.id + '">See all jobs in ' + h(S.here.name) + "</button></div>";
+  return "";
+}
 async function goHome() {
-  checkNotices(); loadSuspend();
+  checkNotices(); loadSuspend(); regionCheck();
   stopTimers(); S.view = "home"; S.order = null; S.done = null; S.ask = ""; render(); window.scrollTo(0, 0);
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
@@ -1316,7 +1335,7 @@ async function cashOut() {
   if (!(amt > 0)) { toast("Enter the amount to cash out", true); return; }
   await run(async function () { await rpc("rider_set_prefs", { p_radius_m: null, p_gcash: phoneDigits(g) }); await rpc("request_payout", { p_amount: Math.round(amt * 100) }); S.wallet = await rpc("rider_wallet"); await reloadMe(); render(); toast("Cash-out requested"); });
 }
-async function setRegion(id) { await run(async function () { await rpc("rider_set_region", { p_region: id }); await reloadMe(); S.jobs = null; render(); toast(id ? "Showing all jobs in your region" : "Showing nearby jobs only"); }); }
+async function setRegion(id) { await run(async function () { await rpc("rider_set_region", { p_region: id }); await reloadMe(); S.jobs = null; render(); HERE.at = 0; regionCheck(); toast(id ? "Showing all jobs in your region. It follows your GPS." : "Showing nearby jobs only"); }); }
 async function setRadius(m) { await run(async function () { await rpc("rider_set_prefs", { p_radius_m: m, p_gcash: null }); await reloadMe(); render(); toast("Pickup distance saved"); }); }
 
 var mapObj = null;
@@ -1555,11 +1574,11 @@ function vAuth() {
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
     + (su ? '<div class="field"><label for="a_ref">Invite code <span class="muted" style="font-weight:400">(optional)</span></label><input class="in" id="a_ref" autocomplete="off" autocapitalize="characters" maxlength="12" placeholder="From the rider who invited you" style="text-transform:uppercase;letter-spacing:1px" value="' + h(S.refCode || refFromLink()) + '"><div class="small muted" style="margin-top:4px">Invited by a PasuyoBuddy rider? Type their code. They get a reward after you are approved and finish your first jobs.</div></div>' : "")
-    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
+    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
     + '<button class="btn" data-act="authmode">' + (su ? "I already have an account" : "New rider? Create an account") + "</button>"
-    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
+    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
     + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>";
 }
 function vApply() {
@@ -1580,14 +1599,174 @@ function ownerCard(r) {
     + '<div class="chips"><button class="chip' + (ow.self === true && S.ownerAsk !== "no" ? " on" : "") + '" data-act="ownerself" data-v="1">Yes, it\'s mine</button><button class="chip' + (no ? " on" : "") + '" data-act="ownerself" data-v="0">No, someone else owns it</button></div>'
     + (no ? '<div class="field"><label for="own_name">Full name of the registered owner (as on the OR/CR)</label><input class="in" id="own_name" maxlength="120" autocomplete="off" value="' + h(ow.owner_name || "") + '"></div>'
       + '<button class="btn pri" data-act="ownersave">' + (ow.self === false ? "Update owner name" : "Save") + "</button>"
-      + '<div class="note n-info small">Ask the owner to fill in and <b>sign</b> our authorization letter, then upload a photo of it and a photo of the <b>owner\'s ID that is NOT expired</b> (driver\'s license or other government ID) in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
-      + '<a class="btn yel" style="display:block;text-align:center" href="https://pasuyobuddy.github.io/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the owner\'s authorization letter</a>' : "")
+      + (ow.self === false ? '<div class="note n-info small"><b>Easiest:</b> give your phone to the owner. The owner takes a photo of his/her ID, fills in the details and <b>signs with a finger</b>, then you sign too. No printer needed.</div>'
+      + '<button class="btn pri" data-act="owa-open">&#9997;&#65039; Owner signs in the app (no printer)</button>' : "")
+      + '<div class="small muted">Owner not with you? Print our authorization letter, have the owner sign it, then upload a photo of it and a photo of the <b>owner\'s ID that is NOT expired</b> in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
+      + '<a class="btn" style="display:block;text-align:center" href="https://pasuyobuddy.com/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>' : "")
     + (ow.self == null && !no ? '<div class="small" style="color:var(--warn);font-weight:700">Please answer this question.</div>' : "") + "</div>";
 }
 async function ownerSet(self) {
   var name = self ? null : (val("own_name") || "").trim();
   if (!self && name.length < 5) { toast("Type the full name of the registered owner", true); return; }
   await run(async function () { await rpc("rider_set_vehicle_owner", { p_self: self, p_owner_name: name }); S.owner = await rpc("rider_owner_info"); S.ownerAsk = null; S.busy = false; render(); toast(self ? "Saved: the vehicle is yours" : "Saved. Upload the owner's letter and ID above."); });
+}
+// ---------------- Paperless owner authorization (owner signs on the rider's phone) ----------------
+var OWA_POINTS = [
+  "The rider is an independent partner of PasuyoBuddy, not its employee, and uses this vehicle with my knowledge and permission.",
+  "The vehicle is properly registered and roadworthy. The rider and I are responsible for its registration, insurance (at least CTPL), maintenance and traffic violations.",
+  "PasuyoBuddy is not responsible for loss of, or damage to, this vehicle, or for any agreement between me and the rider (rent, sharing of earnings, repairs). To the extent the law allows, PasuyoBuddy is only connected to a delivery from the moment the rider accepts a PasuyoBuddy booking until it is completed or cancelled.",
+  "PasuyoBuddy may contact me to confirm this authorization, and may keep this letter and a copy of my ID as part of the rider's records (Data Privacy Act of 2012).",
+  "I may withdraw this authorization at any time by informing PasuyoBuddy in writing. The rider will then not be allowed to use this vehicle on PasuyoBuddy."
+];
+var OWA_IDS = ["Driver's license", "Philippine National ID (PhilSys)", "Passport", "UMID / SSS ID", "PRC ID", "Postal ID", "Other government ID"];
+var OWA_FIELDS = [["oname", "Owner's full name (as on the OR/CR)", "text"], ["oaddress", "Owner's address", "text"], ["ophone", "Owner's mobile number", "tel"],
+  ["idno", "ID number", "text"], ["model", "Make / model / color (e.g. Honda Click, red)", "text"], ["orcr", "OR/CR number", "text"], ["rel", "Relationship of the rider to the owner (e.g. son, brother, employee, renting)", "text"]];
+var OWA = { f: null, idFile: null, idUrl: null, selfFile: null, selfUrl: null, sigO: [], sigR: [], agree: false, sending: false };
+function owaNoExpiry(t) { return /PhilSys/.test(t || ""); }
+function owaOpen() {
+  var r = rider() || {}, ow = S.owner || {};
+  if (!OWA.f) { var keep = null; try { keep = JSON.parse(sessionStorage.getItem("pb_owa") || "null"); } catch (e) {}
+    OWA.f = keep || { oname: ow.owner_name || "", oaddress: "", ophone: "", idtype: "Driver's license", idno: "", idexp: "", model: "", orcr: "", rel: "" }; }
+  S.view = "owa"; render(); window.scrollTo(0, 0);
+}
+function owaSave() {
+  if (!OWA.f) return;
+  OWA_FIELDS.forEach(function (x) { var el = $("owa_" + x[0]); if (el) OWA.f[x[0]] = el.value.trim(); });
+  var t = $("owa_idtype"); if (t) OWA.f.idtype = t.value; var e = $("owa_idexp"); if (e) OWA.f.idexp = e.value;
+  var a = $("owa_agree"); if (a) OWA.agree = a.checked;
+  try { sessionStorage.setItem("pb_owa", JSON.stringify(OWA.f)); } catch (x) {}
+}
+// One hidden file box that is never redrawn (same reason as the document photos)
+var OWAPICK = null;
+function owaPickId(kind) {
+  owaSave();
+  if (!OWAPICK) {
+    OWAPICK = document.createElement("input"); OWAPICK.type = "file"; OWAPICK.accept = "image/*"; OWAPICK.style.display = "none";
+    OWAPICK.addEventListener("change", function () { var f = OWAPICK.files && OWAPICK.files[0]; if (!f) return;
+      if (!/^image\//.test(f.type)) { toast("Please choose a photo", true); return; }
+      if (OWAPICK.dataset.k === "self") { if (OWA.selfUrl) URL.revokeObjectURL(OWA.selfUrl); OWA.selfFile = f; OWA.selfUrl = URL.createObjectURL(f); toast("Selfie added"); }
+      else { if (OWA.idUrl) URL.revokeObjectURL(OWA.idUrl); OWA.idFile = f; OWA.idUrl = URL.createObjectURL(f); toast("ID photo added"); }
+      render(); });
+    document.body.appendChild(OWAPICK);
+  }
+  OWAPICK.dataset.k = kind === "self" ? "self" : "id";
+  if (kind === "self") OWAPICK.setAttribute("capture", "user"); else OWAPICK.removeAttribute("capture");
+  OWAPICK.value = ""; OWAPICK.click();
+}
+function vOwa() {
+  var f = OWA.f || {}, r = rider() || {};
+  function fld(x) { return '<div class="field"><label for="owa_' + x[0] + '">' + h(x[1]) + '</label><input class="in" id="owa_' + x[0] + '" type="' + x[2] + '"' + (x[2] === "tel" ? ' inputmode="numeric" maxlength="13"' : "") + ' value="' + h(f[x[0]] || "") + '"></div>'; }
+  var byK = {}; OWA_FIELDS.forEach(function (x) { byK[x[0]] = x; });
+  var idOpts = OWA_IDS.map(function (t) { return "<option" + (t === f.idtype ? " selected" : "") + ">" + h(t) + "</option>"; }).join("");
+  var noExp = owaNoExpiry(f.idtype);
+  return topBar("Owner's authorization") + '<div class="body">'
+    + '<div class="note n-info">Give this phone to the <b>registered owner</b> of the vehicle (the name on the OR/CR). The owner fills this in and signs with a finger. Then the rider signs too. No printer needed. PasuyoBuddy will <b>call the owner</b> to confirm before approving.</div>'
+    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0">1. Owner\'s ID and selfie</h2>'
+    + '<div class="small muted">Take a clear photo of the owner\'s valid ID that is <b>NOT expired</b>, with all 4 corners and the signature visible. A driver\'s license is best, but any government ID is OK.</div>'
+    + (OWA.idUrl ? '<img src="' + OWA.idUrl + '" alt="Owner ID photo" style="width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:#f3f1ec">' : "")
+    + '<button class="btn' + (OWA.idUrl ? "" : " yel") + '" data-act="owa-id">' + (OWA.idUrl ? "Retake / change photo" : "&#128247; Take photo of the owner's ID") + "</button>"
+    + '<div class="field"><label for="owa_idtype">Type of ID</label><select class="in" id="owa_idtype">' + idOpts + "</select></div>"
+    + fld(byK.idno)
+    + (noExp ? '<div class="small muted">The Philippine National ID has no expiry date.</div>' : '<div class="field"><label for="owa_idexp">ID expiry date (must not be expired)</label><input class="in" id="owa_idexp" type="date" value="' + h(f.idexp || "") + '"></div>')
+    + '<h2 style="margin:6px 0 0">Owner\'s selfie holding the ID</h2><div class="small muted">The <b>owner</b> takes a selfie holding the same ID next to his/her face. Face and ID must both be clear. This proves the owner really agreed.</div>'
+    + (OWA.selfUrl ? '<img src="' + OWA.selfUrl + '" alt="Owner selfie with ID" style="width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:#f3f1ec">' : "")
+    + '<button class="btn' + (OWA.selfUrl ? "" : " yel") + '" data-act="owa-self">' + (OWA.selfUrl ? "Retake selfie" : "&#129331; Owner: take a selfie holding the ID") + "</button>"
+    + "</div>"
+    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0">2. Owner and vehicle details</h2>' + fld(byK.oname) + fld(byK.oaddress) + fld(byK.ophone)
+    + '<div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle || "") + " · " + h(r.plate || "") + "</span></div>" + fld(byK.model) + fld(byK.orcr)
+    + '<div class="line"><span class="muted">Rider</span><span class="b">' + h(S.me.name || "") + "</span></div>" + fld(byK.rel) + "</div>"
+    + '<div class="card"><h2>3. Owner: read and agree</h2><div class="small" style="line-height:1.55"><p style="margin:0 0 8px">I, the registered owner of the vehicle above, authorize <b>' + h(S.me.name || "the rider") + "</b> to use this vehicle to accept and perform delivery jobs through PasuyoBuddy. I understand and agree that:</p>"
+    + '<ol style="padding-left:20px;margin:0">' + OWA_POINTS.map(function (p) { return '<li style="margin-bottom:8px">' + h(p) + "</li>"; }).join("") + "</ol></div>"
+    + '<label style="display:flex;gap:10px;align-items:flex-start;margin-top:8px;font-weight:700;font-size:14px"><input type="checkbox" id="owa_agree" style="width:22px;height:22px;flex-shrink:0"' + (OWA.agree ? " checked" : "") + "> I am the registered owner. I have read this and I agree.</label></div>"
+    + '<div class="card"><h2>4. Owner signs here</h2><div class="small muted" style="margin-bottom:8px">Owner: sign the same way as on your ID.</div>'
+    + '<canvas id="owa_sigO" style="width:100%;height:170px;border:2px dashed #C9C4B8;border-radius:12px;background:#fff;touch-action:none;display:block"></canvas>'
+    + '<button class="btn sm" data-act="owa-clear" data-w="O" style="margin-top:8px">Clear</button></div>'
+    + '<div class="card"><h2>5. Rider signs here</h2><div class="small muted" style="margin-bottom:8px">' + h(S.me.name || "Rider") + ": sign the same way as on your driver's license.</div>"
+    + '<canvas id="owa_sigR" style="width:100%;height:170px;border:2px dashed #C9C4B8;border-radius:12px;background:#fff;touch-action:none;display:block"></canvas>'
+    + '<button class="btn sm" data-act="owa-clear" data-w="R" style="margin-top:8px">Clear</button></div>'
+    + '<button class="btn pri" data-act="owa-send"' + (OWA.sending ? " disabled" : "") + ">" + (OWA.sending ? "Sending…" : "Submit authorization and ID") + "</button>"
+    + '<button class="btn" data-act="owa-back">Back</button></div>';
+}
+function owaPad(id, strokes) {
+  var c = $(id); if (!c) return;
+  var dpr = window.devicePixelRatio || 1, rc = c.getBoundingClientRect(); c.width = Math.round(rc.width * dpr); c.height = Math.round(rc.height * dpr);
+  var ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
+  function redraw() { ctx.clearRect(0, 0, rc.width, rc.height); owaStrokes(ctx, strokes, rc.width, rc.height, 2.6); }
+  redraw(); var cur = null;
+  function pt(e) { var b = c.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (e.clientY - b.top) / b.height))]; }
+  c.addEventListener("pointerdown", function (e) { e.preventDefault(); try { c.setPointerCapture(e.pointerId); } catch (x) {} cur = [pt(e)]; strokes.push(cur); redraw(); });
+  c.addEventListener("pointermove", function (e) { if (!cur) return; e.preventDefault(); cur.push(pt(e)); redraw(); });
+  function end() { cur = null; } c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end); c.addEventListener("pointerleave", end);
+}
+function owaStrokes(ctx, strokes, w, hgt, lw) {
+  ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0B1F5C"; ctx.lineWidth = lw;
+  strokes.forEach(function (s) { ctx.beginPath(); s.forEach(function (p, i) { var x = p[0] * w, y = p[1] * hgt; if (i) ctx.lineTo(x, y); else { ctx.moveTo(x, y); ctx.lineTo(x + 0.1, y + 0.1); } }); ctx.stroke(); });
+}
+function owaPads() { owaPad("owa_sigO", OWA.sigO); owaPad("owa_sigR", OWA.sigR); }
+function owaDate(v) { try { return new Date(v + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }); } catch (e) { return v; } }
+function owaImage() {
+  var W = 1240, M = 80, f = OWA.f, r = rider() || {}, c = document.createElement("canvas"); c.width = W; c.height = 4200;
+  var g = c.getContext("2d"), y = M;
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, c.height); g.fillStyle = "#111"; g.textBaseline = "top";
+  function font(sz, b) { g.font = (b ? "bold " : "") + sz + "px Arial, Helvetica, sans-serif"; }
+  function wrap(txt, x, maxW, lh) { var words = String(txt).split(/\s+/), line = ""; words.forEach(function (w) { var t = line ? line + " " + w : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; } else line = t; }); if (line) { g.fillText(line, x, y); y += lh; } }
+  function rows(list) { list.forEach(function (kv) { font(22, true); g.fillText(kv[0] + ":", M + 20, y); font(22); wrap(kv[1] || "—", M + 470, W - 2 * M - 470, 30); y += 4; }); }
+  var now = new Date(), ds = now.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }), ts = now.toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: true });
+  font(38, true); g.textAlign = "center"; g.fillText("AUTHORIZATION TO USE VEHICLE", W / 2, y); y += 52;
+  font(24); g.fillText("For a PasuyoBuddy independent delivery rider", W / 2, y); y += 56; g.textAlign = "left";
+  g.fillText("Date: " + ds, M, y); y += 40; g.fillText("To: The Management, PasuyoBuddy", M, y); y += 50;
+  wrap("I, the undersigned, of legal age, am the registered owner of the vehicle described below (as shown on its OR/CR):", M, W - 2 * M, 34); y += 10;
+  rows([["Owner's full name", f.oname], ["Owner's address", f.oaddress], ["Owner's mobile number", f.ophone],
+        ["Owner's ID", f.idtype + " · No. " + f.idno + " · " + (owaNoExpiry(f.idtype) ? "no expiry" : "expires " + owaDate(f.idexp))],
+        ["Vehicle", r.vehicle], ["Make / model / color", f.model], ["Plate number", r.plate], ["OR/CR number", f.orcr]]);
+  y += 14; font(24); wrap("I hereby authorize the rider named below to use this vehicle to accept and perform delivery jobs through the PasuyoBuddy platform:", M, W - 2 * M, 34); y += 10;
+  rows([["Rider's full name", S.me.name], ["Rider's mobile number", phoneFmt(S.me.phone || "")], ["Relationship to owner", f.rel]]);
+  y += 14; font(24); g.fillText("I understand and agree that:", M, y); y += 42;
+  font(21); OWA_POINTS.forEach(function (p, i) { g.fillText((i + 1) + ".", M + 10, y); wrap(p, M + 50, W - 2 * M - 50, 29); y += 10; });
+  y += 30;
+  var sw = 500, sh = 170, x2 = W / 2 + 20;
+  g.save(); g.translate(M, y); owaStrokes(g, OWA.sigO, sw, sh, 4); g.restore();
+  g.save(); g.translate(x2, y); owaStrokes(g, OWA.sigR, sw, sh, 4); g.restore(); y += sh;
+  g.fillStyle = "#111"; g.fillRect(M, y, sw, 2); g.fillRect(x2, y, sw, 2); y += 10;
+  font(22, true); g.fillText(String(f.oname).toUpperCase(), M, y); g.fillText(String(S.me.name || "").toUpperCase(), x2, y); y += 32;
+  font(19); g.fillStyle = "#444"; g.fillText("Signature over printed name of the registered owner", M, y); g.fillText("Signature over printed name of the rider", x2, y); y += 28;
+  g.fillText("Date signed: " + ds, M, y); g.fillText("Date signed: " + ds, x2, y); y += 50;
+  var boxY = y; y += 12; g.fillStyle = "#1E4D2B"; font(19);
+  wrap("Signed electronically in the PasuyoBuddy Rider app on " + ts + " (Philippine time), on the phone of rider " + (S.me.name || "") + " (rider ID " + String(S.me.id || "").slice(0, 8) + "). The owner ticked \"I am the registered owner. I have read this and I agree.\" Photos of the owner's ID and of the owner holding that ID were uploaded together with this letter.", M, W - 2 * M, 27);
+  y += 12; g.save(); g.globalCompositeOperation = "destination-over"; g.fillStyle = "#EEF3EE"; g.fillRect(M - 10, boxY, W - 2 * M + 20, y - boxY); g.restore(); y += 30;
+  var out = document.createElement("canvas"); out.width = W; out.height = y; var o = out.getContext("2d"); o.fillStyle = "#fff"; o.fillRect(0, 0, W, y); o.drawImage(c, 0, 0);
+  return new Promise(function (res, rej) { out.toBlob(function (b) { b ? res(b) : rej(new Error("Could not create the letter. Please try again.")); }, "image/jpeg", 0.88); });
+}
+async function owaSend() {
+  owaSave(); var f = OWA.f;
+  var st = {}; (S.me.docs || []).forEach(function (d) { st[d.doc_type] = d.status; });
+  if (!OWA.idFile && st.owner_id !== "approved") { toast("Take a photo of the owner's ID first (step 1)", true); return; }
+  if (!OWA.selfFile && st.owner_selfie !== "approved") { toast("The owner must take a selfie holding the ID (step 1)", true); return; }
+  var need = OWA_FIELDS.filter(function (x) { return !f[x[0]]; }).map(function (x) { return x[1].replace(/ \(.*\)$/, ""); });
+  if (!owaNoExpiry(f.idtype) && !f.idexp) need.unshift("ID expiry date");
+  if (need.length) { toast("Please fill in: " + need.join(", "), true); return; }
+  if (!owaNoExpiry(f.idtype)) { var today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); if (f.idexp < today) { toast("The owner's ID is EXPIRED. Please use another valid ID that is not expired.", true); return; } }
+  if (!phoneOk(f.ophone)) { toast("Owner's mobile: " + PHONE_MSG, true); return; }
+  if (f.oname.length < 5) { toast("Type the owner's full name, as on the OR/CR", true); return; }
+  if (!OWA.agree) { toast("The owner must tick \"I am the registered owner…\" first", true); return; }
+  function pts(s) { return s.reduce(function (n, x) { return n + x.length; }, 0); }
+  if (pts(OWA.sigO) < 15) { toast("The owner must sign in box 4", true); return; }
+  if (pts(OWA.sigR) < 15) { toast("The rider must sign in box 5", true); return; }
+  OWA.sending = true; render();
+  try {
+    if (OWA.idFile && st.owner_id !== "approved") { var idPath = await upload("rider-docs", "owner_id", OWA.idFile); await rpc("rider_add_document", { p_type: "owner_id", p_path: idPath }); }
+    if (OWA.selfFile && st.owner_selfie !== "approved") { var sfPath = await upload("rider-docs", "owner_selfie", OWA.selfFile); await rpc("rider_add_document", { p_type: "owner_selfie", p_path: sfPath }); }
+    var blob = await owaImage(), path = S.me.id + "/owner_authorization_signed_" + Date.now() + ".jpg";
+    var r = await sb.storage.from("rider-docs").upload(path, blob, { contentType: "image/jpeg", upsert: false });
+    if (r.error) throw new Error("Upload failed: " + r.error.message);
+    if (st.owner_authorization !== "approved") await rpc("rider_add_document", { p_type: "owner_authorization", p_path: path });
+    if (f.oname !== ((S.owner || {}).owner_name || "")) { try { await rpc("rider_set_vehicle_owner", { p_self: false, p_owner_name: f.oname }); S.owner = await rpc("rider_owner_info"); } catch (e) {} }
+    await reloadMe();
+    if (OWA.idUrl) URL.revokeObjectURL(OWA.idUrl); if (OWA.selfUrl) URL.revokeObjectURL(OWA.selfUrl);
+    OWA.f = null; OWA.idFile = null; OWA.idUrl = null; OWA.selfFile = null; OWA.selfUrl = null; OWA.sigO = []; OWA.sigR = []; OWA.agree = false; try { sessionStorage.removeItem("pb_owa"); } catch (e) {}
+    S.view = "docs"; toast("Authorization, owner's ID and selfie sent. Waiting for review. PasuyoBuddy may call the owner to confirm.");
+  } catch (e) { toast((e && e.message) || "Could not send. Please try again.", true); }
+  finally { OWA.sending = false; render(); window.scrollTo(0, 0); }
 }
 // ---------------- Paperless letter of intent (sign with your finger) ----------------
 var LOI_POINTS = [
@@ -1712,7 +1891,7 @@ function vDocs() {
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
     + '<div class="card"><h2>Documents</h2>' + rows + "</div>" + ownerCard(r)
-    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
+    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.com/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
     + supCard() + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 // Jobs this rider chose to hide (kept on this phone only; the booking stays open for other riders)
@@ -1747,7 +1926,7 @@ function vHome() {
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
     + (on ? '<div class="note n-info">' + (NATIVE ? "&#128994; You can minimize the app, lock the screen or use Waze. New jobs come as notifications and your location keeps sharing until you go offline." : "Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.") + '</div>' : "")
-    + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
+    + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
@@ -1948,17 +2127,18 @@ async function deleteAccount() {
 function vAccount() {
   var r = rider();
   return topBar("Account") + '<div class="body">' + photoCard() + supCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
-    + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you.</div><div class="chips">'
-    + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + "</button>"; }).join("")
+    + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you. It <b>follows your GPS</b>: if you travel to another region, it switches by itself (&#128205; = where you are now). Nearby only = just jobs close to you.</div><div class="chips">'
+    + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + (S.here && S.here.id === g.id ? " &#128205;" : "") + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
     + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000, 20000, 30000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
-    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {
   killMap(); var v = S.view;
-  $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "loi" ? vLoi() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : vHome();
+  $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "loi" ? vLoi() : v === "owa" ? vOwa() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : vHome();
   if (v === "job") drawJobMap();
   if (v === "loi") loiCanvas();
+  if (v === "owa") owaPads();
 }
 
 // ---------------- Events ----------------
@@ -2007,6 +2187,12 @@ document.addEventListener("click", function (ev) {
   else if (a === "refcode") copyRefCode();
   else if (a === "docpick") docPick(d.t);
   else if (a === "loi-open") loiOpen();
+  else if (a === "owa-open") owaOpen();
+  else if (a === "owa-id") owaPickId("id");
+  else if (a === "owa-self") owaPickId("self");
+  else if (a === "owa-clear") { owaSave(); if (d.w === "O") OWA.sigO = []; else OWA.sigR = []; render(); }
+  else if (a === "owa-send") owaSend();
+  else if (a === "owa-back") { owaSave(); S.view = "docs"; render(); window.scrollTo(0, 0); }
   else if (a === "loi-clear") { LOI.strokes = []; loiSave(); render(); }
   else if (a === "loi-send") loiSend();
   else if (a === "loi-back") { loiSave(); S.view = "docs"; render(); window.scrollTo(0, 0); }
@@ -2049,8 +2235,8 @@ document.addEventListener("change", function (ev) {
   else if (t.dataset.chgfile && t.files && t.files[0]) { chgKeep(); S.chgFile = t.files[0]; render(); }
   else if (t.dataset.pod && S.stopForm) { S.stopForm.name = val("st_name"); S.stopForm.file = t.files[0]; render(); }
 });
-document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash" || id === "c_phone" || id === "loi_phone") ev.target.value = phoneFmt(ev.target.value); if (/^loi_/.test(id || "")) loiSave(); });
-document.addEventListener("change", function (ev) { if (ev.target && ev.target.id === "loi_agree") loiSave(); });
+document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash" || id === "c_phone" || id === "loi_phone") ev.target.value = phoneFmt(ev.target.value); if (/^loi_/.test(id || "")) loiSave(); if (id === "owa_ophone") ev.target.value = phoneFmt(ev.target.value); if (/^owa_/.test(id || "")) owaSave(); });
+document.addEventListener("change", function (ev) { if (ev.target && ev.target.id === "loi_agree") loiSave(); if (ev.target && /^owa_/.test(ev.target.id || "")) { owaSave(); if (ev.target.id === "owa_idtype") render(); } });
 document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (ev.target.id === "a_pw" || ev.target.id === "a_email")) doAuth(); else if (ev.key === "Enter" && ev.target.id === "v_code") doVerify(); else if (ev.key === "Enter" && ev.target.id === "f_email") forgotSend(false); else if (ev.key === "Enter" && ev.target.id === "f_pw2") forgotSave(); });
 // Installable app: register the service worker when served from the website (not from a local file)
 if ("serviceWorker" in navigator && location.protocol === "https:") { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); }); }

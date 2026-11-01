@@ -1,9 +1,9 @@
 {
- "id": "/index.html",
+ "id": "/app.html",
  "name": "PasuyoBuddy",
  "short_name": "PasuyoBuddy",
  "description": "Book a Pasuyo Delivery in Metro Manila.",
- "start_url": "/index.html",
+ "start_url": "/app.html",
  "scope": "/",
  "display": "standalone",
  "orientation": "portrait",
