@@ -19,8 +19,31 @@
       "namespace": "android_app",
       "package_name": "io.github.pasuyobuddy.rider",
       "sha256_cert_fingerprints": [
-        "5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F",
-        "CE:DE:63:6C:F8:96:5D:E6:70:05:A0:59:C2:B8:07:3A:3A:88:56:3F:C6:45:21:5D:0F:D5:2F:9B:46:7D:06:51"
+        "5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.pasuyobuddy.app",
+      "sha256_cert_fingerprints": [
+        "8F:9C:01:79:39:0B:45:A6:30:20:8A:62:62:F2:3A:E7:54:8D:63:C0:9C:35:BF:72:A4:FC:77:B6:5A:37:87:B2"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.pasuyobuddy.rider",
+      "sha256_cert_fingerprints": [
+        "5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"
       ]
     }
   }
