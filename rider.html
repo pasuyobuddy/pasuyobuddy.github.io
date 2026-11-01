@@ -784,10 +784,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.66" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.67" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
-var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Valid ID of the vehicle owner"]];
+var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"]];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
 
 // ---------------- State ----------------
@@ -1580,7 +1580,7 @@ function ownerCard(r) {
     + '<div class="chips"><button class="chip' + (ow.self === true && S.ownerAsk !== "no" ? " on" : "") + '" data-act="ownerself" data-v="1">Yes, it\'s mine</button><button class="chip' + (no ? " on" : "") + '" data-act="ownerself" data-v="0">No, someone else owns it</button></div>'
     + (no ? '<div class="field"><label for="own_name">Full name of the registered owner (as on the OR/CR)</label><input class="in" id="own_name" maxlength="120" autocomplete="off" value="' + h(ow.owner_name || "") + '"></div>'
       + '<button class="btn pri" data-act="ownersave">' + (ow.self === false ? "Update owner name" : "Save") + "</button>"
-      + '<div class="note n-info small">Ask the owner to fill in and <b>sign</b> our authorization letter, then upload a photo of it and a photo of the <b>owner\'s valid ID</b> in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
+      + '<div class="note n-info small">Ask the owner to fill in and <b>sign</b> our authorization letter, then upload a photo of it and a photo of the <b>owner\'s ID that is NOT expired</b> (driver\'s license or other government ID) in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
       + '<a class="btn yel" style="display:block;text-align:center" href="https://pasuyobuddy.github.io/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the owner\'s authorization letter</a>' : "")
     + (ow.self == null && !no ? '<div class="small" style="color:var(--warn);font-weight:700">Please answer this question.</div>' : "") + "</div>";
 }

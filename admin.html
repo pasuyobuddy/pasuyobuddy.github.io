@@ -1013,7 +1013,7 @@ function drawRouteMap() {
 
 function viewRiders() {
   var r = S.riders; if (!r) return '<div class="empty">Loading…</div>';
-  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", owner_authorization: "Owner's authorization / Deed of Sale", owner_id: "Owner's valid ID", other: "Other" };
+  var NEED = ["drivers_license", "or_cr", "nbi_clearance", "selfie", "letter_of_intent"], DN = { drivers_license: "Driver's license", or_cr: "OR/CR", nbi_clearance: "NBI clearance", selfie: "Selfie", letter_of_intent: "Letter of intent", owner_authorization: "Owner's authorization / Deed of Sale", owner_id: "Owner's ID (check: NOT expired, name matches OR/CR)", other: "Other" };
   function needFor(id) { var o = S.owners && S.owners[id]; return o && o.self === false ? NEED.concat(["owner_authorization", "owner_id"]) : NEED; }
   function ownerLine(id) { var o = S.owners && S.owners[id]; if (!o) return '<div class="small muted">Vehicle owner: not answered yet</div>'; return o.self ? '<div class="small muted">Vehicle owner: the rider (OR/CR in his/her name)</div>' : '<div class="small">' + pill("Not the owner", "warn") + " Owner on OR/CR: <b>" + h(o.owner_name || "—") + "</b> · check the name matches the OR/CR and the signature matches the owner's ID</div>"; }
   var apps = (r.applications || []).map(function (a) {
