@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.73" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.74" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -2351,6 +2351,32 @@ document.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && (
 if ("serviceWorker" in navigator && location.protocol === "https:") { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); }); }
 nativeInit();
 boot();
+</script>
+<script>
+// Show / hide password: an eye button inside every password box (login, sign-up, new password, PIN)
+(function () {
+  var EYE = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var NOEYE = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>';
+  function add(inp) {
+    if (inp.dataset.eye || !inp.parentNode) return; inp.dataset.eye = "1";
+    var w = document.createElement("span"); w.style.cssText = "position:relative;display:block;width:100%";
+    inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
+    inp.style.paddingRight = "48px"; inp.style.boxSizing = "border-box"; if (!inp.style.width) inp.style.width = "100%";
+    var b = document.createElement("button"); b.type = "button"; b.tabIndex = -1; b.className = "pw-eye";
+    b.setAttribute("aria-label", "Show password"); b.innerHTML = EYE;
+    b.style.cssText = "position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;padding:8px;margin:0;cursor:pointer;color:#6b6f76;display:flex;align-items:center;justify-content:center;box-shadow:none;min-height:0;width:auto";
+    b.addEventListener("click", function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var show = inp.type === "password"; inp.type = show ? "text" : "password";
+      b.innerHTML = show ? NOEYE : EYE; b.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      try { inp.focus(); var n = inp.value.length; inp.setSelectionRange(n, n); } catch (x) {}
+    });
+    w.appendChild(b);
+  }
+  function scan() { document.querySelectorAll('input[type="password"]').forEach(add); }
+  try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan); else scan();
+})();
 </script>
 </body>
 </html>
