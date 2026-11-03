@@ -784,7 +784,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.74" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.75" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -817,9 +817,12 @@ function rider() { return S.me && S.me.rider; }
 // is minimized, the screen is off or Waze is open (Android shows a "sharing your location" notification).
 // New jobs come as phone notifications while online. In a normal browser none of this runs.
 var NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-var NAT = { bg: null, ln: null, app: null, http: null, watcher: null, starting: false, active: true, lastSent: 0, lastJobs: 0, told: {} };
+var NAT = { bg: null, ln: null, app: null, http: null, watcher: null, starting: false, active: true, lastSent: 0, lastJobs: 0, told: {}, tr: null, trOn: false, trJob: null, bat: null };
 function natPlugin(n) { var C = window.Capacitor; return (C.registerPlugin ? C.registerPlugin(n) : null) || (C.Plugins && C.Plugins[n]); }
 if (NATIVE) { try { NAT.bg = natPlugin("BackgroundGeolocation"); NAT.ln = natPlugin("LocalNotifications"); NAT.app = natPlugin("App"); NAT.http = natPlugin("CapacitorHttp"); } catch (e) { NATIVE = false; } }
+// Rider app 2.2+: PasuyoBuddy's own Android tracker sends the location by itself, even while the app is minimized
+// (the web page does not need to run). Older apps keep using the way below.
+if (NATIVE) { try { if (window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("PbTracker")) NAT.tr = natPlugin("PbTracker"); } catch (e) { NAT.tr = null; } }
 // Supabase call through Android's own internet connection (keeps working in the background)
 async function nativeRpc(name, params) {
   for (var tries = 0; tries < 2; tries++) {
@@ -835,6 +838,7 @@ async function nativeRpc(name, params) {
 function nativeWanted() { var r = rider(); return !!(S.session && r && r.status === "approved" && (r.is_online || (S.me && S.me.active_order))); }
 async function nativeSync(force) {
   if (!NATIVE || NAT.starting) return;
+  if (NAT.tr) return trackerSync(force);
   var want = force || nativeWanted();
   if (want && NAT.watcher == null) {
     NAT.starting = true;
@@ -851,6 +855,44 @@ async function nativeSync(force) {
     try { await NAT.bg.removeWatcher({ id: id }); } catch (e) {}
     if (S.session && rider() && rider().status === "approved") startGps();
   }
+}
+async function trackerSync(force) {
+  var want = force || nativeWanted(), job = !!(S.me && S.me.active_order), st = null;
+  if (want) {
+    try { st = await NAT.tr.status(); } catch (e) {}
+    if (NAT.trOn && st && st.running) {
+      NAT.bat = st.batteryUnrestricted;
+      if (NAT.trJob !== job) { NAT.trJob = job; try { await NAT.tr.setMode({ onJob: job }); } catch (e) {} }
+      return;
+    }
+    NAT.starting = true;
+    var tok = null;
+    try { tok = await rpc("rider_tracking_token"); }
+    catch (e) { NAT.starting = false; NAT.tr = null; return nativeSync(force); }   // server not updated yet: use the old way
+    try {
+      try { await NAT.ln.requestPermissions(); } catch (e) {}
+      st = await NAT.tr.start({ url: CONFIG.url, key: CONFIG.key, token: tok, onJob: job });
+      NAT.trOn = true; NAT.trJob = job; NAT.bat = st ? st.batteryUnrestricted : null; S.posErr = "";
+      stopGps();   // the browser GPS is not needed while the tracker runs
+    } catch (e) { NAT.trOn = false; S.posErr = "Could not start location sharing. Allow location for PasuyoBuddy Rider in your phone settings."; }
+    NAT.starting = false;
+  } else if (NAT.trOn || ((st = await NAT.tr.status().catch(function () { return null; })) && st.running)) {
+    NAT.trOn = false; NAT.trJob = null;
+    try { await NAT.tr.stop(); } catch (e) {}
+    if (S.session && rider() && rider().status === "approved") startGps();
+  }
+}
+// Location from the tracker (it already sent it to PasuyoBuddy): update the screen and check for new jobs
+function trackerPos(loc) {
+  if (!loc) return;
+  var now = Date.now(), onJob = !!(S.me && S.me.active_order) || S.view === "job";
+  S.pos = { lat: loc.latitude, lng: loc.longitude }; S.posAt = now; S.posErr = ""; NAT.lastSent = lastSent = now;
+  if (NAT.active) updateMe();
+  if (!NAT.active && !onJob && rider() && rider().is_online && now - NAT.lastJobs >= 15000) { NAT.lastJobs = now; nativeJobAlerts(); }
+}
+function trackerMode(job) { if (NAT.tr && NAT.trOn && NAT.trJob !== job) { NAT.trJob = job; NAT.tr.setMode({ onJob: job }).catch(function () {}); } }
+function batteryNote() {
+  return NAT.trOn && NAT.bat === false ? '<div class="note n-warn">&#128267; <b>Keep live location from stopping:</b> open App settings &rarr; <b>Battery</b> &rarr; choose <b>Unrestricted</b> (or "Don\'t optimize"). Also set Location to <b>Allow all the time</b> if your phone asks.<div class="chips" style="margin-top:8px"><button class="chip on" data-act="batteryfix">Open App settings</button></div></div>' : "";
 }
 function nativePos(loc, err) {
   if (err) { if (err.code === "NOT_AUTHORIZED") { S.posErr = "Location permission is off. Allow location for PasuyoBuddy Rider in your phone settings."; if (NAT.active && (S.view === "home" || S.view === "job")) render(); } return; }
@@ -877,6 +919,10 @@ async function nativeJobAlerts() {
 function topupBack() { if (!TOPUP.waiting || Date.now() - TOPUP.waiting > 30 * 60000) return; TOPUP.waiting = 0; topupReturn("check"); }
 function nativeInit() {
   if (!NATIVE) return;
+  if (NAT.tr) {
+    try { NAT.tr.addListener("location", trackerPos); } catch (e) {}
+    try { NAT.tr.addListener("stopped", function () { NAT.trOn = false; if (NAT.active && S.session) run(async function () { await reloadMe(); S.busy = false; if (S.view === "home") render(); }); }); } catch (e) {}
+  }
   try { var br = natPlugin("Browser"); if (br && br.addListener) br.addListener("browserFinished", topupBack); } catch (e) {}
   try { NAT.ln.createChannel({ id: "jobs", name: "New job alerts", description: "New bookings while you are online", importance: 5, visibility: 1, vibration: true }); } catch (e) {}
   // New Play Store app: job alerts with the PasuyoBuddy tone (the sound file is inside the new app)
@@ -897,7 +943,7 @@ function nativeInit() {
 // ---------------- Location ----------------
 // The app must be open for location to be sent. window.__TEST_POS__ lets automated tests supply a position.
 var watchId = null, lastSent = 0;
-function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer.' + (NATIVE && NAT.watcher != null ? " It keeps sharing even when you minimize the app, lock the screen or use Waze." : " Keep this page open with the screen on.") + '</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
+function locNote() { return '<div id="locnote">' + (S.posAt && !S.posErr && Date.now() - S.posAt < 60000 ? '<div class="note n-info">&#128994; Sharing your live location with the customer.' + (NATIVE && (NAT.watcher != null || NAT.trOn) ? " It keeps sharing even when you minimize the app, lock the screen or use Waze." : " Keep this page open with the screen on.") + '</div>' : '<div class="note n-warn">&#128308; Your location is not updating. Keep this page open, turn the screen on, and allow location for this site.</div>') + "</div>"; }
 var meMk = null; setInterval(function () { updateMe(); }, 10000);
 // Move "You" on the job map and refresh the location note without redrawing the page (keeps the rider's zoom)
 function updateMe() { if (S.view !== "job") return; var n = $("locnote"); if (n) n.outerHTML = locNote(); if (!mapObj || !S.pos) return; var ll = [S.pos.lat, S.pos.lng];
@@ -925,7 +971,7 @@ async function sendPos(lat, lng) {
 // A phone that is not moving sends no new GPS fixes, so re-send the last known spot to stay "fresh" for job matching.
 async function keepAlive() { if (S.pos && Date.now() - lastSent > (S.view === "job" || S.view === "chat" ? 8000 : 30000)) { lastSent = Date.now(); try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); } catch (e) {} } }
 function startGps() {
-  if (NATIVE && NAT.watcher != null) return;
+  if (NATIVE && (NAT.watcher != null || NAT.trOn)) return;
   keepAwake();
   if (window.__TEST_POS__) { sendPos(window.__TEST_POS__.lat, window.__TEST_POS__.lng); return; }
   if (watchId != null) return;
@@ -1264,6 +1310,7 @@ async function signOut() {
   if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before signing out.", true); return; }
   stopTimers(); stopGps();
   try { if (rider() && rider().is_online) await rpc("rider_set_online", { p_online: false }); } catch (e) {}
+  if (NAT.tr) { try { await rpc("rider_tracking_stop"); } catch (e) {} }
   await sb.auth.signOut(); S.session = null; S.me = null; S.order = null; S.jobs = null; S.pos = null; S.view = "auth"; render(); if (NATIVE) nativeSync();
 }
 
@@ -1380,7 +1427,7 @@ function regionNote(r) {
 }
 async function goHome() {
   checkNotices(); loadSuspend(); regionCheck();
-  stopTimers(); S.view = "home"; S.order = null; S.done = null; S.ask = ""; render(); window.scrollTo(0, 0);
+  stopTimers(); S.view = "home"; S.order = null; S.done = null; if (!(S.me && S.me.active_order)) trackerMode(false); S.ask = ""; render(); window.scrollTo(0, 0);
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
 async function setOnline(on) {
@@ -1397,7 +1444,7 @@ async function accept(id) {
     if (!ok) { toast("Another rider got this job first", true); await loadJobs(); return; } await openJob(id); toast("Job accepted"); });
 }
 async function openJob(id) {
-  stopTimers(); S.order = await rpc("rider_order", { p_order: id }); S.view = "job"; S.ask = ""; S.stopForm = null; render(); window.scrollTo(0, 0);
+  stopTimers(); S.order = await rpc("rider_order", { p_order: id }); S.view = "job"; trackerMode(true); S.ask = ""; S.stopForm = null; render(); window.scrollTo(0, 0);
   S.unread = 0; refreshUnread("Chat with customer");
   jobT = setInterval(pollJob, 8000);
 }
@@ -2034,7 +2081,7 @@ function vHome() {
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
     + (on ? '<div class="note n-info">' + (NATIVE ? "&#128994; You can minimize the app, lock the screen or use Waze. New jobs come as notifications and your location keeps sharing until you go offline." : "Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.") + '</div>' : "")
-    + phoneNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
+    + phoneNote() + batteryNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
@@ -2334,6 +2381,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "cashout") cashOut();
   else if (a === "radius") setRadius(+d.v);
   else if (a === "region") setRegion(d.v ? +d.v : null);
+  else if (a === "batteryfix") { try { NAT.tr.openSettings({ what: "app" }); } catch (e) {} }
 });
 var tuT = null;
 document.addEventListener("input", function (ev) { if (ev.target && ev.target.id === "tu_amt") { clearTimeout(tuT); tuT = setTimeout(function () { var v = Number(ev.target.value); if (v) { TOPUP.amount = v; TOPUP.quote = null; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", +b.dataset.v === v); }); loadTopupQuote(); } }, 400); } });
