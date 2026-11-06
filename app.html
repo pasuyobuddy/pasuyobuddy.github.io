@@ -713,6 +713,8 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0;margin-top:2px}
 .dot.pk{background:var(--ink)} .dot.dr{background:var(--accent)}
 .veh{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left}
+.ocard{padding:9px 12px;gap:10px;align-items:flex-start}.ocard .pill{font-size:11.5px;padding:2px 8px;margin-top:3px}.oroute{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wtx{display:inline-block;font-size:12px;font-weight:800;padding:2px 8px;border-radius:999px}.wtx-g{background:#E3F6EA;color:#11753A}.wtx-y{background:#FFF3CD;color:#7A5A00}.wtx-s{background:#F3F2EE;color:#555}
 .veh.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
 .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
 .vc{position:relative;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:6px 8px 8px;font:inherit;color:inherit;cursor:pointer;width:100%}
@@ -794,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.56" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.57" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1282,16 +1284,21 @@ function vWallet() {
   var w = S.wallet;
   if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
   var amt = S.topAmt || 200, quick = [100, 200, 500, 1000].filter(function (x) { return x >= w.topup_min && x <= w.topup_max; });
+  // Top-up = green, refund = yellow, used for a booking / tip = yellow
   var hist = !w.history.length ? '<div class="muted small">No transactions yet.</div>' : w.history.map(function (x) {
-    return '<div class="line"><span class="sp"><span class="b">' + walletLabel(x.kind) + (x.order_no ? " · " + h(x.order_no) : "") + '</span><br><span class="small muted">' + h(when(x.created_at)) + (x.note && x.kind !== "payment" ? " · " + h(x.note) : "") + '</span></span><span class="b" style="color:' + (x.amount > 0 ? "var(--good)" : "inherit") + '">' + (x.amount > 0 ? "+" : "−") + peso(Math.abs(x.amount)) + "</span></div>"; }).join("");
+    var cls = x.kind === "top_up" ? "wtx-g" : (x.kind === "refund" || x.kind === "payment" || x.kind === "tip") ? "wtx-y" : "wtx-s";
+    var col = x.kind === "top_up" ? "var(--good)" : (x.kind === "refund" || x.kind === "payment" || x.kind === "tip") ? "#9A6B00" : "inherit";
+    var lbl = x.kind === "payment" ? "Used for booking" : x.kind === "tip" ? "Used for tip" : walletLabel(x.kind);
+    return '<div class="line"><span class="sp"><span class="wtx ' + cls + '">' + lbl + "</span>" + (x.order_no ? ' <span class="small muted">' + h(x.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(x.created_at)) + (x.note && x.kind !== "payment" && x.kind !== "top_up" ? " · " + h(x.note) : "") + '</span></span><span class="b" style="color:' + col + '">' + (x.amount > 0 ? "+" : "−") + peso(Math.abs(x.amount)) + "</span></div>"; }).join("");
+  var tuOpen = S.wTopOpen == null ? !w.balance : S.wTopOpen;
   return topBar("PasuyoBuddy Wallet") + '<div class="body">'
     + (S.payMsg ? '<div class="note n-warn">' + h(S.payMsg) + "</div>" : "")
-    + '<div class="card" style="text-align:center"><div class="muted small">Balance</div><div style="font-size:34px;font-weight:800;margin:4px 0">' + peso(w.balance) + '</div><div class="small muted">Pay for bookings without cash. Choose <b>Wallet</b> when you book.</div></div>'
-    + '<div class="card"><h2>Top up with GCash</h2><div class="chips">' + quick.map(function (x) { return '<button class="chip ' + (amt === x ? "on" : "") + '" data-act="wamt" data-v="' + x + '">' + peso(x * 100) + "</button>"; }).join("") + "</div>"
+    + '<div class="card" style="padding:12px 14px"><div class="row" style="align-items:center"><div class="sp"><div class="muted small">Balance</div><div style="font-size:26px;font-weight:800;line-height:1.1">' + peso(w.balance) + '</div></div><button class="btn sm' + (tuOpen ? "" : " pri") + '" style="width:auto" data-act="wtopen">' + (tuOpen ? "Close" : "&#65291; Top up") + '</button></div><div class="small muted" style="margin-top:4px">Pay for bookings without cash. Choose <b>Wallet</b> when you book.</div></div>'
+    + (!tuOpen ? "" : '<div class="card"><h2>Top up with GCash</h2><div class="chips">' + quick.map(function (x) { return '<button class="chip ' + (amt === x ? "on" : "") + '" data-act="wamt" data-v="' + x + '">' + peso(x * 100) + "</button>"; }).join("") + "</div>"
     + '<div class="field" style="margin-top:10px"><label for="w_amt">Amount (₱' + w.topup_min + " to ₱" + w.topup_max + ')</label><input class="in" id="w_amt" type="number" inputmode="numeric" value="' + h(amt) + '"></div>'
     + '<div class="line"><span class="muted">GCash fee</span><span id="w_fee">' + peso(gcashFee(amt * 100)) + '</span></div><div class="line tot"><span>You pay in GCash</span><span id="w_tot">' + peso(amt * 100 + gcashFee(amt * 100)) + "</span></div>"
-    + '<button class="btn pri" data-act="wtopup">Top up with GCash</button><div class="small muted" style="margin-top:8px">Wallet money is only for PasuyoBuddy bookings and tips. It cannot be cashed out or sent to others. Cancelled bookings go back to your wallet.</div></div>'
-    + '<div class="card"><h2>History</h2>' + hist + "</div></div>" + nav("wallet");
+    + '<button class="btn pri" data-act="wtopup">Top up with GCash</button><div class="small muted" style="margin-top:8px">Wallet money is only for PasuyoBuddy bookings and tips. It cannot be cashed out or sent to others. Cancelled bookings go back to your wallet.</div></div>')
+    + '<div class="card"><h2>History</h2><div class="small muted" style="margin:-4px 0 4px"><span class="wtx wtx-g">Top-up</span> money in · <span class="wtx wtx-y">Refund</span> / <span class="wtx wtx-y">Used</span> refunds and bookings</div>' + hist + "</div></div>" + nav("wallet");
 }
 function wAmtInput() { var v = Number(val("w_amt")) || 0, c = Math.round(v * 100), f = $("w_fee"), t = $("w_tot"); S.topAmt = v; if (f) f.textContent = peso(gcashFee(c)); if (t) t.textContent = peso(c + gcashFee(c)); }
 function payParts(q) {   // how the sender's part is paid: wallet part + rest (GCash or cash)
@@ -1523,7 +1530,7 @@ function watchDrag(map) { map._pbInit = true; map.on("dragstart", mapMine); map.
   map.on("moveend", function () { if (FOLLOW.free && !map._pbInit) FOLLOW.keep = { id: FOLLOW.id, c: map.getCenter(), z: map.getZoom() }; }); }
 // After the map is drawn again (new status), keep the person's own view of the same booking
 function mapRestore(map, id, ll) { if (FOLLOW.id !== id) { FOLLOW.id = id; FOLLOW.on = false; FOLLOW.free = false; FOLLOW.keep = null; VEHB.b = null; map._pbInit = false; return; }
-  if (FOLLOW.free && FOLLOW.keep) map.setView(FOLLOW.keep.c, FOLLOW.keep.z, { animate: false }); else if (FOLLOW.on && ll) map.setView(ll, Math.max(map.getZoom(), 16), { animate: false });
+  if (FOLLOW.free && FOLLOW.keep) map.setView(FOLLOW.keep.c, FOLLOW.keep.z, { animate: false }); else if (FOLLOW.on && ll) map.setView(ll, Math.max(map.getZoom(), 15), { animate: false });
   map._pbInit = false; }
 function updateRider() {
   var o = S.order, el = $("rdrinfo"); if (el) el.innerHTML = riderInfoText(o);
@@ -1600,7 +1607,7 @@ function drawTrackMap() {
   routeLine(mapObj, pts.slice(), "#D7141A");
   riderMk = null;
   if (o.rider && o.rider.lat != null && ENDED.indexOf(o.status) < 0) { pts.push([o.rider.lat, o.rider.lng]); updateRider(); }
-  mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 }); mapRestore(mapObj, o.id, o.rider && o.rider.lat != null ? [o.rider.lat, o.rider.lng] : null);
+  mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 15 }); mapRestore(mapObj, o.id, o.rider && o.rider.lat != null ? [o.rider.lat, o.rider.lng] : null);
 }
 
 // ---------------- Chat with the other person on this booking ----------------
@@ -1860,8 +1867,10 @@ function vTrack() {
 }
 function vOrders() {
   var list = S.orders;
+  var card = function (o) { return '<button class="veh ocard" data-act="open" data-id="' + o.id + '"><span class="sp" style="min-width:0"><span class="b oroute">' + h(o.from_area) + " → " + h(o.to_area) + (o.drops > 1 ? " (+" + (o.drops - 1) + ")" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span></span><span style="text-align:right;flex:0 0 auto"><span class="b" style="display:block">' + peso(o.fare_total) + "</span>" + pill(o.status) + "</span></button>"; };
+  var cur = (list || []).filter(function (o) { return ENDED.indexOf(o.status) < 0; }), past = (list || []).filter(function (o) { return ENDED.indexOf(o.status) >= 0; });
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
-    : list.map(function (o) { return '<button class="veh" data-act="open" data-id="' + o.id + '"><span class="sp"><span class="b" style="display:block">' + h(o.from_area) + " → " + h(o.to_area) + (o.drops > 1 ? " (+" + (o.drops - 1) + ")" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span><br>' + pill(o.status) + '</span><span class="b">' + peso(o.fare_total) + "</span></button>"; }).join("");
+    : (cur.length ? '<h2 style="margin:0">Current</h2>' + cur.map(card).join("") : "") + (past.length ? '<h2 style="margin:' + (cur.length ? "6px" : "0") + ' 0 0">Past bookings</h2>' + past.map(card).join("") : "");
   return topBar("My orders") + '<div class="body">' + body + "</div>" + nav("orders");
 }
 
@@ -1899,8 +1908,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "chatback") { stopChat(); openOrder(CHAT.id); }
   else if (a === "chatsend") sendChat(val("chat_in"));
   else if (a === "chatquick") sendChat(CHAT_QUICK[+d.i]);
-  else if (a === "maprider") { var o = S.order; if (mapObj && o && o.rider && o.rider.lat != null) { FOLLOW.on = true; FOLLOW.free = false; mapObj.setView(riderMk ? riderMk.getLatLng() : [o.rider.lat, o.rider.lng], 16); toast("Following the rider. Move the map to stop."); } else toast("Rider location is not available yet", true); }
-  else if (a === "mapall") { FOLLOW.on = false; FOLLOW.free = false; if (mapObj && S.order) { var q = S.order.stops.map(function (s) { return [s.lat, s.lng]; }); if (S.order.rider && S.order.rider.lat != null) q.push([S.order.rider.lat, S.order.rider.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
+  else if (a === "maprider") { var o = S.order; if (mapObj && o && o.rider && o.rider.lat != null) { FOLLOW.on = true; FOLLOW.free = false; mapObj.setView(riderMk ? riderMk.getLatLng() : [o.rider.lat, o.rider.lng], 15); toast("Following the rider. Move the map to stop."); } else toast("Rider location is not available yet", true); }
+  else if (a === "mapall") { FOLLOW.on = false; FOLLOW.free = false; if (mapObj && S.order) { var q = S.order.stops.map(function (s) { return [s.lat, s.lng]; }); if (S.order.rider && S.order.rider.lat != null) q.push([S.order.rider.lat, S.order.rider.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 15 }); } }
   else if (a === "sharetrack") shareTrack();
   else if (a === "confirmedgo") { if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
   else if (a === "submitid") submitId();
@@ -1910,6 +1919,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
+  else if (a === "wtopen") { var w0 = S.wallet; S.wTopOpen = !(S.wTopOpen == null ? !(w0 && w0.balance) : S.wTopOpen); render(); }
   else if (a === "pushon") enablePush();
   else if (a === "receipt") openReceipt();
   else if (a === "supopen") supList();
