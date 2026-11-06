@@ -719,6 +719,10 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .veh{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left}
 .veh.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
 .line{display:flex;justify-content:space-between;gap:12px;padding:5px 0}
+.txl{cursor:pointer;border-radius:8px}.txl:active{background:var(--soft)}
+.wbal{padding:12px 14px}.wbig{font-size:26px;font-weight:800;line-height:1.1}
+.sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:480px;max-height:88vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px)))}
 .line.tot{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;font-weight:800;font-size:16px}
 .note{padding:10px 12px;border-radius:10px;font-size:13px}
 .n-warn{background:var(--warn-bg);color:var(--warn)} .n-info{background:var(--blue-bg);color:var(--blue)} .n-good{background:var(--good-bg);color:var(--good)} .n-bad{background:var(--bad-bg);color:var(--bad)}
@@ -785,7 +789,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.76" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.78" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -916,6 +920,31 @@ async function nativeJobAlerts() {
       body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + " · " + Number(j.total_km || 0).toFixed(1) + " km trip · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
   } catch (e) {}
 }
+// ---------------- Ads (Google AdMob, rider app 2.0.6 and newer) ----------------
+// A small banner above the bottom menu, ONLY on Jobs (while waiting), Wallet, History and Account.
+// Never during a delivery, chat, sign-up or the lock screen. test: true = Google test ads (never click your own real ads).
+var ADS = { on: true, test: true, unit: "ca-app-pub-3940256099942544/6300978111", ready: false, shown: false, busy: false, plugin: null };
+function adsWanted() {
+  if (!ADS.on || !ADS.plugin || !S.session || !S.me || LOCK.locked || LOCK.setup) return false;
+  if (S.me.active_order) return false;
+  return S.view === "home" || S.view === "wallet" || S.view === "history" || S.view === "account";
+}
+async function adsSync() {
+  if (!ADS.plugin || ADS.busy) return; ADS.busy = true;
+  try {
+    var want = adsWanted();
+    if (want && !ADS.ready) { await ADS.plugin.initialize({ initializeForTesting: ADS.test }); ADS.ready = true; }
+    if (want && !ADS.shown) {
+      var nav = document.querySelector(".nav"), m = nav ? Math.round(nav.getBoundingClientRect().height) : 58;
+      await ADS.plugin.showBanner({ adId: ADS.unit, adSize: "ADAPTIVE_BANNER", position: "BOTTOM_CENTER", margin: m, isTesting: ADS.test });
+      ADS.shown = true;
+    } else if (!want && ADS.shown) { await ADS.plugin.removeBanner(); ADS.shown = false; }
+  } catch (e) { ADS.shown = false; }
+  ADS.busy = false;
+  if (adsWanted() !== ADS.shown) setTimeout(adsSync, 300);   // the screen changed while we were busy
+}
+if (NATIVE) { try { if (window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("AdMob")) ADS.plugin = natPlugin("AdMob"); } catch (e) { ADS.plugin = null; } }
+
 // Back from the GCash page (Android app): look for the new load
 function topupBack() { if (!TOPUP.waiting || Date.now() - TOPUP.waiting > 30 * 60000) return; TOPUP.waiting = 0; topupReturn("check"); }
 function nativeInit() {
@@ -974,7 +1003,7 @@ function watchDrag(map) { map._pbInit = true; map.on("dragstart", mapMine); map.
   map.on("moveend", function () { if (FOLLOW.free && !map._pbInit) FOLLOW.keep = { id: FOLLOW.id, c: map.getCenter(), z: map.getZoom() }; }); }
 // After the map is drawn again (new status), keep the person's own view of the same booking
 function mapRestore(map, id, ll) { if (FOLLOW.id !== id) { FOLLOW.id = id; FOLLOW.on = false; FOLLOW.free = false; FOLLOW.keep = null; VEHB.b = null; map._pbInit = false; return; }
-  if (FOLLOW.free && FOLLOW.keep) map.setView(FOLLOW.keep.c, FOLLOW.keep.z, { animate: false }); else if (FOLLOW.on && ll) map.setView(ll, Math.max(map.getZoom(), 16), { animate: false });
+  if (FOLLOW.free && FOLLOW.keep) map.setView(FOLLOW.keep.c, FOLLOW.keep.z, { animate: false }); else if (FOLLOW.on && ll) map.setView(ll, Math.max(map.getZoom(), 15), { animate: false });
   map._pbInit = false; }
 async function sendPos(lat, lng) {
   S.pos = { lat: lat, lng: lng }; S.posAt = Date.now(); S.posErr = ""; updateMe();
@@ -1059,7 +1088,7 @@ async function setReferral() {
 }
 async function copyRef() {
   var c = S.promos && S.promos.ref_code; if (!c) return;
-  var link = "https://pasuyobuddy.github.io/rider.html?ref=" + encodeURIComponent(c);
+  var link = "https://pasuyobuddy.com/rider.html?ref=" + encodeURIComponent(c);
   var txt = "Join PasuyoBuddy as a rider! Sign up here (my invite code " + c + " is already filled in): " + link;
   if (navigator.share) { try { await navigator.share({ title: "PasuyoBuddy Rider", text: txt }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(txt); toast("Invite copied. Paste it in Messenger or SMS."); } catch (e) { window.prompt("Copy this invite:", txt); }
@@ -1106,8 +1135,10 @@ async function lockRegister() {
   if (!LOCK.on || !LOCK.dev) return;
   try { var r = await rpc("rider_app_register", { p_device: LOCK.dev, p_lock: lockGet("method"), p_version: LOCK.ver }); if (r) { LOCK.phone = r.status || "ok"; LOCK.bioOnly = Number(r.bio_only) || 0; } } catch (e) {}
 }
-function lockHide() { var o = $("lockov"); if (o) o.remove(); }
+function lockHide() {
+  if (typeof ADS !== "undefined" && ADS.plugin) setTimeout(adsSync, 0); var o = $("lockov"); if (o) o.remove(); }
 function lockShow() {
+  if (typeof ADS !== "undefined" && ADS.plugin) setTimeout(adsSync, 0);
   var o = $("lockov"); if (!o) { o = document.createElement("div"); o.id = "lockov"; document.body.appendChild(o); }
   o.style.cssText = "position:fixed;inset:0;z-index:6000;background:#F6F5F1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px";
   var st = LOCK.setup, m = lockGet("method"), body = "";
@@ -1170,6 +1201,13 @@ async function lockAct(a, d) {
   }
   if (a === "lock-forgot") { if (confirm("Log out of PasuyoBuddy Rider? You will log in again with your email and password, then create a new lock.")) lockForgot(); return; }
   if (a === "lock-change") { LOCK.setup = { step: "choose" }; lockShow(); return; }
+}
+// App lock card: folded by default (tap to show / hide)
+function lockFold() {
+  if (!LOCK.on) return "";
+  if (S.lockFold) return lockCard().replace("<h2>&#128274; App lock</h2>", '<div class="row" style="align-items:center"><h2 class="sp" style="margin:0">&#128274; App lock</h2><button class="btn sm" style="width:auto;min-height:34px" data-act="lockfold">Hide &#9652;</button></div>');
+  var m = lockGet("method");
+  return '<button class="card row" data-act="lockfold" style="width:100%;align-items:center;cursor:pointer;text-align:left;font:inherit;color:inherit"><span class="sp b">&#128274; App lock <span class="muted" style="font-weight:400">· ' + (m === "bio" ? "Fingerprint / Face" : m === "pin" ? "PIN" : "Not set") + '</span></span><span class="muted">Show &#9662;</span></button>';
 }
 function lockCard() {
   if (!LOCK.on) return "";
@@ -1471,7 +1509,19 @@ async function pollJob() {
   try { var o = await rpc("rider_order", { p_order: S.order.id }); if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); } }
   catch (e) { if (/not assigned/i.test(e.message)) { toast("This job is no longer yours", true); await reloadMe(); await goHome(); } }
 }
+// Anti-fake delivery: how far the rider is from a stop, and whether the buttons work yet
+function stopDist(stp) { if (!S.pos || !stp || typeof L === "undefined") return null; try { return L.latLng(S.pos.lat, S.pos.lng).distanceTo(L.latLng(stp.lat, stp.lng)); } catch (e) { return null; } }
+function nearNote(stp, what) {
+  var g = S.order && S.order.geofence_m, d = stopDist(stp); if (!g || d == null || d <= g) return "";
+  return '<div class="note n-warn" style="font-size:14px">&#128205; You are <b>' + km(d) + "</b> from the " + what + " pin. The buttons work when you are within <b>" + g + " m</b> of the pin.</div>";
+}
+function pickNeedPhoto() { var o = S.order; return !!(o && o.pickup_photo_required && o.service_type !== "pabili" && !o.pickup_photo); }
+async function pickPhoto(file) {
+  await run(async function () { toast("Uploading photo…"); var path = await upload("pod-photos", "pod_" + S.order.order_no + "_0", file);
+    await rpc("rider_pickup_photo", { p_order: S.order.id, p_path: path }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); toast("Parcel photo saved"); });
+}
 async function step(statuses) {
+  if (statuses.indexOf("picked_up") >= 0 && pickNeedPhoto()) { toast("Take a photo of the parcel first (tap the camera button above).", true); return; }
   await run(async function () { for (var i = 0; i < statuses.length; i++) await rpc("update_order_status", { p_order: S.order.id, p_status: statuses[i] }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); window.scrollTo(0, 0); });
 }
 async function cancelJob() {
@@ -1482,6 +1532,7 @@ function nextStop() { return S.order.stops.filter(function (s) { return s.kind =
 async function arrivedStop() { var st = nextStop(); if (!st) return; await run(async function () { await rpc("rider_arrived_stop", { p_stop: st.id }); S.order = await rpc("rider_order", { p_order: S.order.id }); render(); toast("The customer was told you arrived"); }); }
 async function finishStop(failed) {
   var st = nextStop(), f = S.stopForm, name = st ? st.contact_name : "";
+  if (!failed && S.order.pod_photo_required && !(f && f.file)) { toast("Take a photo of the parcel at the drop-off first.", true); return; }
   await run(async function () {
     var path = null; if (f && f.file && !failed) { toast("Uploading photo…"); path = await upload("pod-photos", "pod_" + S.order.order_no + "_" + st.seq, f.file); }
     await rpc("complete_stop", { p_stop: st.id, p_photo: path, p_receiver: failed ? null : name, p_failed: !!failed });
@@ -1574,7 +1625,7 @@ function drawJobMap() {
     L.marker([s.lat, s.lng], { icon: flagIcon(s.kind, s.seq, multi, s.status !== "pending") }).bindTooltip(s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq).addTo(mapObj); });
   routeLine(mapObj, pts.slice(), "#D7141A");
   meMk = null; if (S.pos) { pts.push([S.pos.lat, S.pos.lng]); meMk = L.marker([S.pos.lat, S.pos.lng], { icon: vehMarker(rider() && rider().vehicle), zIndexOffset: 1000 }).bindTooltip("You").addTo(mapObj); }
-  mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 16 }); mapRestore(mapObj, S.order.id, S.pos ? [S.pos.lat, S.pos.lng] : null);
+  mapObj.fitBounds(pts, { padding: [28, 28], maxZoom: 15 }); mapRestore(mapObj, S.order.id, S.pos ? [S.pos.lat, S.pos.lng] : null);
   if (meMk) vehAim(meMk, nextStopOf(S.order.status, S.order.stops));
   riderLeg();
 }
@@ -1756,11 +1807,11 @@ function vAuth() {
     + '<div class="field"><label for="a_email">Email</label><input class="in" id="a_email" name="email" type="email" autocomplete="email" value="' + h(S.authEmail) + '"></div>'
     + '<div class="field"><label for="a_pw">Password</label><input class="in" id="a_pw" name="password" type="password" autocomplete="' + (su ? "new-password" : "current-password") + '"></div>'
     + (su ? '<div class="field"><label for="a_ref">Invite code <span class="muted" style="font-weight:400">(optional)</span></label><input class="in" id="a_ref" autocomplete="off" autocapitalize="characters" maxlength="12" placeholder="From the rider who invited you" style="text-transform:uppercase;letter-spacing:1px" value="' + h(S.refCode || refFromLink()) + '"><div class="small muted" style="margin-top:4px">Invited by a PasuyoBuddy rider? Type their code. They get a reward after you are approved and finish your first jobs.</div></div>' : "")
-    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
+    + (su ? '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;cursor:pointer"><input type="checkbox" id="a_terms" onchange="S.termsOk=this.checked"' + (S.termsOk ? ' checked' : '') + ' style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)"><span>I am 18 or older and I agree to the <a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Terms &amp; Conditions</a> and <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Privacy Policy</a>.</span></label>' : "")
     + '<button class="btn pri" data-act="auth">' + (su ? "Create account" : "Log in") + "</button>"
     + (su ? "" : '<button class="link" data-act="forgot" style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer;padding:4px;align-self:center">Forgot password?</button>') + "</div>"
     + '<button class="btn" data-act="authmode">' + (su ? "I already have an account" : "New rider? Create an account") + "</button>"
-    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
+    + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>'
     + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>";
 }
 function vApply() {
@@ -1784,7 +1835,7 @@ function ownerCard(r) {
       + (ow.self === false ? '<div class="note n-info small"><b>Easiest:</b> give your phone to the owner. The owner takes a photo of his/her ID, fills in the details and <b>signs with a finger</b>, then you sign too. No printer needed.</div>'
       + '<button class="btn pri" data-act="owa-open">&#9997;&#65039; Owner signs in the app (no printer)</button>' : "")
       + '<div class="small muted">Owner not with you? Print our authorization letter, have the owner sign it, then upload a photo of it and a photo of the <b>owner\'s ID that is NOT expired</b> in Documents above. Bought the vehicle but the OR/CR is not yet in your name? Upload the signed <b>Deed of Sale</b> instead of the letter.</div>'
-      + '<a class="btn" style="display:block;text-align:center" href="https://pasuyobuddy.github.io/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>' : "")
+      + '<a class="btn" style="display:block;text-align:center" href="https://pasuyobuddy.com/owner-authorization.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>' : "")
     + (ow.self == null && !no ? '<div class="small" style="color:var(--warn);font-weight:700">Please answer this question.</div>' : "") + "</div>";
 }
 async function ownerSet(self) {
@@ -2073,7 +2124,7 @@ function vDocs() {
   return topBar("Your application") + '<div class="body">' + msg + referralApplyCard()
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Vehicle</span><span class="b">' + h(r.vehicle) + " · " + h(r.plate) + "</span></div></div>"
     + '<div class="card"><h2>Documents</h2>' + rows + "</div>" + ownerCard(r)
-    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.github.io/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
+    + '<div class="card"><h2>About the letter of intent</h2>' + (by.letter_of_intent === "approved" ? '<div class="small muted">Your letter of intent is approved. Salamat!</div>' : '<div class="small muted"><b>Easiest:</b> sign it here in the app with your finger. No printer needed.</div><button class="btn pri" style="margin-top:10px" data-act="loi-open">&#9997;&#65039; Sign in the app (no printer)</button><div class="small muted" style="margin-top:10px">Prefer paper? Print our letter, fill it in, sign it and upload a clear photo of the whole page with the Upload button above.</div><a class="btn" style="margin-top:8px;display:block;text-align:center" href="https://pasuyobuddy.com/letter-of-intent.html" target="_blank" rel="noopener">&#128196; Open the letter to print</a>') + '</div>'
     + supCard() + '<button class="btn pri" data-act="check">Check status</button><button class="btn bad" data-act="signout">Sign out</button></div>';
 }
 // Jobs this rider chose to hide (kept on this phone only; the booking stays open for other riders)
@@ -2145,18 +2196,19 @@ function dueNote(o) {
 function vJob() {
   var o = S.order, st = o.status, pick = o.stops[0], next = nextStop(), foot = "", extra = "";
   if (st === "cancelled_by_customer") return topBar(o.order_no) + '<div class="body"><div class="note n-bad">The customer cancelled this booking.' + (o.cancel_reason ? " " + h(o.cancel_reason) : "") + '</div><button class="btn pri" data-act="home">Back to jobs</button></div>';
-  if (st === "accepted") foot = '<button class="btn pri" data-act="step" data-s="at_pickup">I have arrived at the pickup</button>';
+  if (st === "accepted") { foot = '<button class="btn pri" data-act="step" data-s="at_pickup">I have arrived at the pickup</button>'; extra = nearNote(pick, "pickup"); }
   else if (st === "at_pickup") {
     extra = '<div class="card"><h2>At the pickup</h2>' + (o.cod_amount > 0 ? '<div class="line"><span>Pay the seller for the COD item</span><span class="b">' + peso(o.cod_amount) + "</span></div>" : "")
-      + (o.payment_method === "cash" ? '<div class="line"><span>Collect from the sender (cash)</span><span class="b">' + peso(o.sender_pays) + "</span></div>" : '<div class="line"><span>Sender already paid online</span><span class="b">Collect ' + peso(0) + "</span></div>") + '<div class="small muted">Check the parcel before you leave.</div></div>';
+      + (o.payment_method === "cash" ? '<div class="line"><span>Collect from the sender (cash)</span><span class="b">' + peso(o.sender_pays) + "</span></div>" : '<div class="line"><span>Sender already paid online</span><span class="b">Collect ' + peso(0) + "</span></div>") + '<div class="small muted">Check the parcel before you leave.</div>'
+      + (o.service_type !== "pabili" ? '<div class="field" style="margin-top:10px"><label>Photo of the parcel' + (o.pickup_photo_required ? " (required)" : "") + '</label><label class="btn sm' + (o.pickup_photo ? "" : " pri") + '" style="cursor:pointer;width:100%">' + (o.pickup_photo ? "&#9989; Photo saved. Tap to retake" : "&#128247; Take a photo of the parcel") + '<input type="file" accept="image/*" capture="environment" data-pick="1" hidden></label></div>' : "") + "</div>" + nearNote(pick, "pickup");
     foot = '<button class="btn pri" data-act="step" data-s="picked_up,in_transit">Parcel picked up, start delivery</button>';
   } else if (st === "in_transit") {
     if (next) {
       if (S.stopForm) extra = '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Drop-off ' + next.seq + ": hand over</h2>" + (next.collect_amount > 0 ? '<div class="note n-warn">Collect ' + peso(next.collect_amount) + " cash before handing over.</div>" : "")
         + '<div class="field"><label>Hand it to (set by the customer)</label><div class="in" style="display:flex;align-items:center;background:#F3F2EE">&#128274; ' + h(next.contact_name || "the receiver") + (next.contact_phone ? ' <span class="small muted" style="margin-left:6px">· ' + h(phoneFmt(next.contact_phone)) + "</span>" : "") + '</div><span class="small muted">Give the parcel only to this person. If someone else will receive it, call the customer first.</span></div>'
-        + '<div class="field"><label>Photo proof (recommended)</label><label class="btn sm" style="cursor:pointer;width:100%">' + (S.stopForm.file ? "Photo added. Tap to change" : "Take a photo") + '<input type="file" accept="image/*" capture="environment" data-pod="1" hidden></label></div>'
+        + '<div class="field"><label>Photo proof' + (o.pod_photo_required ? " (required)" : " (recommended)") + '</label><label class="btn sm" style="cursor:pointer;width:100%">' + (S.stopForm.file ? "Photo added. Tap to change" : "Take a photo") + '<input type="file" accept="image/*" capture="environment" data-pod="1" hidden></label></div>'
         + '<button class="btn pri" data-act="delivered">Confirm delivered</button><button class="btn" data-act="stopcancel">Back</button></div>';
-      else if (next.status === "pending") foot = '<button class="btn pri" data-act="arrivedrop">I have arrived at drop-off ' + next.seq + "</button>";
+      else if (next.status === "pending") { foot = '<button class="btn pri" data-act="arrivedrop">I have arrived at drop-off ' + next.seq + "</button>"; extra = nearNote(next, "drop-off"); }
       else foot = '<div class="row"><button class="btn bad" style="flex:1" data-act="failask">Receiver not available</button><button class="btn pri" style="flex:2" data-act="stopform">Delivered</button></div>';
       if (S.ask === "fail") extra = '<div class="card"><div class="b" style="margin-bottom:6px">Mark drop-off ' + next.seq + ' as not delivered?</div><div class="small muted" style="margin-bottom:10px">Use this only if you called and the receiver cannot take the parcel. Nothing is collected at this stop.</div><div class="row"><button class="btn" data-act="asknone">Go back</button><button class="btn bad" data-act="failed">Yes, not delivered</button></div></div>', foot = "";
     } else foot = '<button class="btn pri" data-act="finish">Finish job</button>';
@@ -2191,16 +2243,47 @@ function vDone() {
 var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
 function vWallet() {
   var w = S.wallet; if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
-  var tx = w.tx.length ? w.tx.map(function (t) { return '<div class="line"><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--accent-d)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + "</span></div>"; }).join("") : '<div class="muted">No wallet activity yet.</div>';
+  var tx = w.tx.length ? w.tx.map(function (t) { return '<div class="line' + (t.order_id ? ' txl" data-act="txbd" data-o="' + h(t.order_id) + '"' : '"') + '><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--accent-d)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + (t.order_id ? ' <span class="muted" style="font-weight:400">&rsaquo;</span>' : "") + "</span></div>"; }).join("") : '<div class="muted">No wallet activity yet.</div>';
   var po = w.payouts.length ? '<div class="card"><h2>Cash-outs</h2>' + w.payouts.map(function (p) { return '<div class="line"><span class="sp">' + peso(p.amount) + ' <span class="small muted">to ' + h(p.destination) + " · " + h(when(p.requested_at)) + "</span></span>" + pill(p.status, p.status === "sent" ? "good" : p.status === "failed" ? "bad" : "warn") + "</div>"; }).join("") + "</div>" : "";
-  return topBar("Wallet") + '<div class="body"><div class="card" style="text-align:center"><div class="small muted">Balance</div><div style="font-size:30px;font-weight:800">' + peso(w.balance) + '</div><div class="row" style="margin-top:10px;justify-content:space-around"><div><div class="small muted">Load (non-refundable)</div><div class="b">' + peso(w.load) + '</div></div><div><div class="small muted">You can cash out</div><div class="b" style="color:var(--good)">' + peso(w.withdrawable) + "</div></div></div></div>"
+  var open = S.wOpen == null ? (w.load < w.min_load ? "topup" : "") : S.wOpen;
+  return topBar("Wallet") + '<div class="body">'
+    + '<div class="card wbal"><div class="row" style="align-items:flex-end"><div class="sp"><div class="small muted">Balance</div><div class="wbig">' + peso(w.balance) + '</div></div>'
+    + '<div style="text-align:right"><div class="small muted">Load</div><div class="b">' + peso(w.load) + '</div></div><div style="text-align:right;margin-left:14px"><div class="small muted">Cash out</div><div class="b" style="color:var(--good)">' + peso(w.withdrawable) + "</div></div></div>"
+    + '<div class="row" style="gap:8px;margin-top:10px"><button class="btn sm' + (open === "topup" ? " pri" : "") + '" data-act="wopen" data-v="topup">&#65291; Top up load</button><button class="btn sm' + (open === "cashout" ? " pri" : "") + '" data-act="wopen" data-v="cashout">Cash out</button></div>'
+    + '<div class="small muted" style="margin-top:6px">Load is non-refundable and pays commission. Only earnings can be cashed out.</div></div>'
     + promoWalletCard()
-    + topupCard(w)
-    + earnCard(w)
-    + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Cash out</h2><div class="field"><label for="w_gcash">GCash number</label><input class="in" id="w_gcash" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(w.payout_gcash)) + '"></div>'
-    + '<div class="field"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div><div class="small muted">Only your earnings can be cashed out, not top-up load. A ' + peso(w.payout_fee) + " fee applies to each cash-out. Cash-outs are sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>"
-    + po + '<div class="card"><h2>Activity</h2>' + tx + "</div></div>" + nav("wallet");
+    + (open === "topup" ? topupCard(w) : "")
+    + (open === "cashout" ? '<div class="card" style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0">Cash out to GCash</h2><div class="row" style="gap:8px"><div class="field" style="flex:3"><label for="w_gcash">GCash number</label><input class="in" id="w_gcash" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(w.payout_gcash)) + '"></div>'
+      + '<div class="field" style="flex:2"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div></div><div class="small muted">' + peso(w.payout_fee) + " fee per cash-out · sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>" + earnCard(w) : "")
+    + po + '<div class="card"><h2>Activity</h2><div class="small muted" style="margin:-4px 0 4px">Tap a job to see the breakdown.</div>' + tx + "</div></div>" + nav("wallet") + bdSheet();
 }
+// Job breakdown sheet (like the receipt of the job): opened from Wallet > Activity
+function bdLine(label, v, cls) { return '<div class="line"><span class="' + (cls || "muted") + '">' + label + '</span><span' + (cls ? ' class="' + cls + '"' : "") + ">" + v + "</span></div>"; }
+function bdSheet() {
+  var b = S.bd; if (!b) return "";
+  if (b.loading) return '<div class="sheetbg" data-act="bdclose"><div class="sheet"><div class="spin">Loading…</div></div></div>';
+  var parts = (b.fare_base || 0) + (b.fare_distance || 0) + (b.fare_stops || 0) + (b.fare_surcharge || 0) + (b.fare_speed_adj || 0) + (b.fare_waiting || 0), rnd = b.fare_total - parts;
+  var sur = b.is_night ? "Night surcharge" : b.is_surge ? "High demand surcharge" : "Rush-hour surcharge";
+  var paid = b.fare_total + (b.tip || 0) + (b.abono_fee || 0), pay = b.payment_method === "cash" ? "Cash" : b.payment_method === "gcash" ? "GCash" : b.payment_method === "wallet" ? "PasuyoBuddy Wallet" : b.payment_method;
+  return '<div class="sheetbg" data-act="bdclose"><div class="sheet" data-act="none">'
+    + '<div class="row" style="align-items:center"><h2 class="sp" style="margin:0">Breakdown</h2><button class="btn sm" style="width:auto" data-act="bdclose">Close</button></div>'
+    + '<div class="small muted" style="margin:2px 0 8px">' + h(b.order_no) + " · " + h(when(b.completed_at || b.created_at)) + " · " + h(b.pickup || "") + " → " + h(b.dropoff || "") + "</div>"
+    + bdLine("<b>Paid by customer</b> (" + h(pay) + ")", "<b>" + peso(paid) + "</b>", "b")
+    + bdLine("Base fare (" + h(b.vehicle || "") + ")", peso(b.fare_base))
+    + bdLine("Additional distance fee (" + Number(b.total_km || 0).toFixed(1) + " km)", peso(b.fare_distance))
+    + (b.fare_stops ? bdLine("Additional stop fee (" + Math.max(0, (b.drops || 1) - 1) + " stop" + ((b.drops || 1) - 1 > 1 ? "s" : "") + ")", peso(b.fare_stops)) : "")
+    + (b.fare_surcharge ? bdLine(sur, peso(b.fare_surcharge)) : "")
+    + (b.fare_speed_adj > 0 ? bdLine("Priority fee", peso(b.fare_speed_adj)) : b.fare_speed_adj < 0 ? bdLine("Pooling discount", "&minus;" + peso(-b.fare_speed_adj)) : "")
+    + (b.fare_waiting ? bdLine("Waiting fee", peso(b.fare_waiting)) : "")
+    + (rnd ? bdLine(rnd > 0 ? "Rounding / minimum fare" : "Rounding", (rnd < 0 ? "&minus;" : "") + peso(Math.abs(rnd))) : "")
+    + (b.tip ? bdLine("Tip (100% yours)", peso(b.tip)) : "") + (b.abono_fee ? bdLine("Abono fee", peso(b.abono_fee)) : "")
+    + '<div style="border-top:1px solid var(--line);margin:8px 0"></div>'
+    + bdLine("<b>Commission</b>", '<b style="color:var(--bad)">&minus;' + peso(b.commission) + "</b>", "b")
+    + (b.promo_discount ? '<div class="small muted">Customer promo ' + peso(b.promo_discount) + " is paid by PasuyoBuddy, not taken from you.</div>" : "")
+    + '<div class="line tot" style="margin-top:6px"><span>Earnings</span><span style="color:var(--good)">' + peso(b.rider_earns) + "</span></div>"
+    + '<div class="small muted" style="margin-top:6px">' + (b.payment_method === "cash" ? "You collected the cash. The commission was taken from your load." : "Paid online: your share was added to your wallet and the commission was taken from it.") + "</div></div></div>";
+}
+async function openBreakdown(id) { S.bd = { loading: true }; render(); try { S.bd = await rpc("rider_job_breakdown", { p_order: id }); } catch (e) { S.bd = null; toast(e.message, true); } render(); }
 function vHistory() {
   var list = S.history, body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">Your finished jobs will show here.</div>'
     : list.map(function (o) { return '<div class="card"><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + "</div></div><div class=\"right\">" + (o.status === "completed" ? '<div class="b">' + peso(o.rider_earns) + "</div>" : pill("Cancelled", "soft")) + "</div></div></div>"; }).join("");
@@ -2308,17 +2391,20 @@ async function deleteAccount() {
 }
 function vAccount() {
   var r = rider();
-  return topBar("Account") + '<div class="body">' + photoCard() + lockCard() + supCard() + pushCard(true) + inviteCard() + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+  return topBar("Account") + '<div class="body">'
     + '<div class="card"><h2>Which jobs do you want to see?</h2><div class="small muted" style="margin-bottom:6px">Whole region = every job in your region, even far from you. It <b>follows your GPS</b>: if you travel to another region, it switches by itself (&#128205; = where you are now). Nearby only = just jobs close to you.</div><div class="chips">'
     + (S.me.regions || []).slice().sort(function (x, y) { return x.id - y.id; }).map(function (g) { return '<button class="chip ' + (r.region_id === g.id ? "on" : "") + '" data-act="region" data-v="' + g.id + '">Whole ' + h(g.name) + (S.here && S.here.id === g.id ? " &#128205;" : "") + "</button>"; }).join("")
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
     + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000, 20000, 30000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
-    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.github.io/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.github.io/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
+    + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
+    + photoCard() + pushCard(true) + inviteCard() + supCard() + lockFold()
+    + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {
   killMap(); var v = S.view;
   $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "loi" ? vLoi() : v === "owa" ? vOwa() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : vHome();
   if (v === "job") drawJobMap();
+  if (typeof ADS !== "undefined" && ADS.plugin) adsSync();
   if (v === "loi") loiCanvas();
   if (v === "owa") owaPads();
 }
@@ -2354,8 +2440,8 @@ document.addEventListener("click", function (ev) {
   else if (a === "hidejob") { HIDDEN[d.id] = Date.now(); saveHidden(); render(); toast("Job hidden. Other riders can still take it."); }
   else if (a === "unhidejobs") { HIDDEN = {}; saveHidden(); render(); }
   else if (a === "confirmedgo") { S.confirmErr = ""; if (S.session) afterLogin(); else { S.view = "auth"; S.authMode = "login"; render(); } }
-  else if (a === "mapme") { if (mapObj && S.pos) { FOLLOW.on = true; FOLLOW.free = false; mapObj.setView(meMk ? meMk.getLatLng() : [S.pos.lat, S.pos.lng], 16); toast("Following you. Move the map to stop."); } else toast("Finding your location…", true); }
-  else if (a === "mapall") { FOLLOW.on = false; FOLLOW.free = false; if (mapObj && S.order) { var q = S.order.stops.map(function (x) { return [x.lat, x.lng]; }); if (S.pos) q.push([S.pos.lat, S.pos.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 16 }); } }
+  else if (a === "mapme") { if (mapObj && S.pos) { FOLLOW.on = true; FOLLOW.free = false; mapObj.setView(meMk ? meMk.getLatLng() : [S.pos.lat, S.pos.lng], 15); toast("Following you. Move the map to stop."); } else toast("Finding your location…", true); }
+  else if (a === "mapall") { FOLLOW.on = false; FOLLOW.free = false; if (mapObj && S.order) { var q = S.order.stops.map(function (x) { return [x.lat, x.lng]; }); if (S.pos) q.push([S.pos.lat, S.pos.lng]); mapObj.fitBounds(q, { padding: [28, 28], maxZoom: 15 }); } }
   else if (a === "apply") apply();
   else if (a === "check") checkStatus();
   else if (a === "noticeok") noticeOk(+d.v);
@@ -2408,6 +2494,10 @@ document.addEventListener("click", function (ev) {
   else if (a === "cashout") cashOut();
   else if (a === "radius") setRadius(+d.v);
   else if (a === "region") setRegion(d.v ? +d.v : null);
+  else if (a === "wopen") { var cur = S.wOpen == null ? (S.wallet && S.wallet.load < S.wallet.min_load ? "topup" : "") : S.wOpen; S.wOpen = cur === d.v ? "" : d.v; render(); }
+  else if (a === "txbd") openBreakdown(d.o);
+  else if (a === "bdclose") { S.bd = null; render(); }
+  else if (a === "lockfold") { S.lockFold = !S.lockFold; render(); }
   else if (a === "batteryfix") { try { NAT.tr.openSettings({ what: "app" }); } catch (e) {} }
 });
 var tuT = null;
@@ -2417,6 +2507,7 @@ document.addEventListener("change", function (ev) {
   if (t.dataset.doc) uploadDoc(t.dataset.doc, t.files[0]);
   else if (t.dataset.photo) uploadPhoto(t.files[0]);
   else if (t.dataset.chgfile && t.files && t.files[0]) { chgKeep(); S.chgFile = t.files[0]; render(); }
+  else if (t.dataset.pick && t.files && t.files[0]) pickPhoto(t.files[0]);
   else if (t.dataset.pod && S.stopForm) { S.stopForm.name = val("st_name"); S.stopForm.file = t.files[0]; render(); }
 });
 document.addEventListener("input", function (ev) { var id = ev.target.id; if (id === "ap_phone" || id === "w_gcash" || id === "c_phone" || id === "loi_phone") ev.target.value = phoneFmt(ev.target.value); if (/^loi_/.test(id || "")) loiSave(); if (id === "owa_ophone") ev.target.value = phoneFmt(ev.target.value); if (/^owa_/.test(id || "")) owaSave(); });
