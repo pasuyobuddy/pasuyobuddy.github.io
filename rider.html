@@ -719,6 +719,11 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .veh{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;width:100%;text-align:left}
 .veh.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
 .line{display:flex;justify-content:space-between;gap:12px;padding:5px 0}
+.jc{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.jch{background:#D7141A;color:#fff;font-weight:800;padding:8px 14px;display:flex;justify-content:space-between;gap:8px;font-size:15px}
+.jcb{padding:10px 14px 14px}.jtag{font-size:12.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:#F3F2EE;color:#444}.jbad{background:#FDECEC;color:#B50F14}
+.jrt{display:flex;flex-direction:column;gap:4px}.jst{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}.jdot{width:12px;height:12px;border-radius:50%;border:3px solid #1c1d21;flex:0 0 12px;box-sizing:border-box}.jpin{width:12px;text-align:center;font-size:13px}
+.jpay{font-size:13px;font-weight:800;padding:4px 10px;border-radius:8px}.jcash{background:#FFF3CD;color:#7A5A00}.jon{background:#E3EEFF;color:#0B4FB3}
 .txl{cursor:pointer;border-radius:8px}.txl:active{background:var(--soft)}
 .wbal{padding:12px 14px}.wbig{font-size:26px;font-weight:800;line-height:1.1}
 .sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:flex-end;justify-content:center}
@@ -789,14 +794,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.78" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.82" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
 var DOCS = [["drivers_license", "Driver's license"], ["or_cr", "OR / CR of the vehicle"], ["nbi_clearance", "NBI clearance"], ["selfie", "Selfie holding your license"], ["letter_of_intent", "Letter of intent (signed)"]];
 
 // ---------------- State ----------------
-var S = { session: null, me: null, view: "auth", authMode: "login", authEmail: "", authMsg: "", busy: false,
+var S = { fold: {}, session: null, me: null, view: "auth", authMode: "login", authEmail: "", authMsg: "", busy: false,
   jobs: null, jobsErr: "", order: null, wallet: null, history: null, pos: null, posAt: 0, posErr: "", done: null, ask: "", stopForm: null, seen: {} };
 var $ = function (id) { return document.getElementById(id); };
 function h(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -917,7 +922,7 @@ async function nativeJobAlerts() {
     var j = fresh[0], more = fresh.length - 1;
     await NAT.ln.schedule({ notifications: [{ id: Math.floor(Date.now() / 1000) % 2000000000, channelId: newApp() ? "jobs_tone" : "jobs",
       title: "New job · you earn " + peso(j.rider_earns) + (more ? "  (+" + more + " more)" : ""),
-      body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + " · " + Number(j.total_km || 0).toFixed(1) + " km trip · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
+      body: (j.pickup_area || "Pickup") + " → " + ((j.drop_areas || []).join(" → ") || "Drop-off") + (j.total_km != null ? " · " + Number(j.total_km).toFixed(1) + " km trip" : "") + " · pickup " + ((j.pickup_distance_m || 0) / 1000).toFixed(1) + " km from you" }] });
   } catch (e) {}
 }
 // ---------------- Ads (Google AdMob, rider app 2.0.6 and newer) ----------------
@@ -1362,6 +1367,7 @@ async function signOut() {
   stopTimers(); stopGps();
   try { if (rider() && rider().is_online) await rpc("rider_set_online", { p_online: false }); } catch (e) {}
   if (NAT.tr) { try { await rpc("rider_tracking_stop"); } catch (e) {} }
+  JT.v = null; JT.info = null;
   await sb.auth.signOut(); S.session = null; S.me = null; S.order = null; S.jobs = null; S.pos = null; S.view = "auth"; render(); if (NATIVE) nativeSync();
 }
 
@@ -1477,7 +1483,7 @@ function regionNote(r) {
   return "";
 }
 async function goHome() {
-  checkNotices(); loadSuspend(); regionCheck();
+  checkNotices(); loadSuspend(); regionCheck(); if (!JT.v) jtLoad();
   stopTimers(); S.view = "home"; S.order = null; S.done = null; if (!(S.me && S.me.active_order)) trackerMode(false); S.ask = ""; render(); window.scrollTo(0, 0);
   if (rider().is_online) { await loadJobs(); jobsT = setInterval(loadJobs, 8000); }
 }
@@ -2131,18 +2137,39 @@ function vDocs() {
 var HIDDEN = {}; try { HIDDEN = JSON.parse(localStorage.getItem("pb_hidden_jobs") || "{}") || {}; } catch (e) { HIDDEN = {}; }
 function saveHidden() { try { var now = Date.now(); Object.keys(HIDDEN).forEach(function (k) { if (now - HIDDEN[k] > 3 * 864e5) delete HIDDEN[k]; }); localStorage.setItem("pb_hidden_jobs", JSON.stringify(HIDDEN)); } catch (e) {} }
 function jobCard(j) {
-  var tags = [pill(j.payment_method === "cash" ? "Cash" : "Paid online", j.payment_method === "cash" ? "warn" : "blue")];
-  if (j.receivers_pay) tags.push(pill("Receiver pays", "soft")); if (j.advance > 0) tags.push(pill("COD: advance " + peso(j.advance), "bad"));
-  if (j.abono > 0) tags.push(pill("Abono +" + peso(j.abono) + " (yours)", "good"));
-  if (j.needs_bag) tags.unshift(pill("🎒 Bring a delivery bag", "bad"));
-  if (j.service_level === "priority") tags.push(pill("Priority", "blue")); if (j.service_level === "pooling") tags.push(pill("Saver", "soft"));
-  return '<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><div class="b">' + h(j.pickup_area || "Pickup") + ' <span class="muted" style="font-weight:400">→</span> ' + h((j.drop_areas || []).join(" → ")) + '</div><div class="small muted">' + km(j.pickup_distance_m) + " to pickup · " + j.total_km + " km trip · " + j.drops + (j.drops > 1 ? " drop-offs" : " drop-off") + "</div></div>"
-    + (j.customer_pays != null
-        ? '<div class="right"><div class="b" style="font-size:20px">' + peso(j.customer_pays) + '</div><div class="small muted" style="white-space:nowrap">customer pays</div>' + (j.tip ? '<div class="small muted" style="white-space:nowrap">incl. tip ' + peso(j.tip) + "</div>" : "") + "</div></div>"
-          + '<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--good-bg)"><div class="row"><span class="sp small">Commission</span><span class="small">&minus;' + peso(j.commission) + '</span></div><div class="row"><span class="sp b" style="color:var(--good)">You keep</span><span class="b" style="font-size:18px;color:var(--good)">' + peso(j.rider_earns) + "</span></div></div>"
-        : '<div class="right"><div class="b" style="font-size:18px;color:var(--good)">' + peso(j.rider_earns) + '</div><div class="small muted">you earn' + (j.tip ? " · tip " + peso(j.tip) : "") + "</div></div></div>")
-    + '<div class="chips" style="margin:10px 0">' + tags.join("") + '</div><div class="row"><button class="btn" style="flex:0 0 32%" data-act="hidejob" data-id="' + j.order_id + '">Hide</button><button class="btn pri" style="flex:1" data-act="accept" data-id="' + j.order_id + '">Accept</button></div></div>';
+  // Job offer card (Lalamove-style): distance to pickup on top, cities only, tags, payment and earnings
+  var pu = j.scheduled_at && new Date(j.scheduled_at).getTime() > Date.now() + 15 * 60000 ? "Pick up " + new Date(j.scheduled_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }) : "Pick up now";
+  var tags = ['<span class="jtag">' + (j.service_type === "pabili" ? "&#128717; Pabili" : "&#128230; Padala") + "</span>",
+    '<span class="jtag">' + (j.service_level === "priority" ? "&#9889; Priority" : j.service_level === "pooling" ? "Saver" : "Regular") + "</span>"];
+  if (j.needs_bag) tags.push('<span class="jtag jbad">&#127890; Bring a bag</span>');
+  if (j.advance > 0) tags.push('<span class="jtag jbad">COD advance ' + peso(j.advance) + "</span>");
+  if (j.receivers_pay) tags.push('<span class="jtag">Receiver pays</span>');
+  var drops = j.drop_areas || [];
+  var route = '<div class="jrt"><div class="jst"><span class="jdot"></span>' + h(j.pickup_area || "Pickup") + "</div>"
+    + drops.map(function (d, i) { return '<div class="jst"><span class="jpin">&#128205;</span>' + h(d) + (drops.length > 1 ? ' <span class="muted small">(' + (i + 1) + ")</span>" : "") + "</div>"; }).join("") + "</div>";
+  var extra = (j.tip || 0) + (j.abono || 0);
+  var price = j.fare_total != null ? peso(j.fare_total) + (extra ? ' <span class="muted">+ ' + peso(extra) + (j.tip && !j.abono ? " tip" : j.abono && !j.tip ? " abono" : " tip/abono") + "</span>" : "") : "";
+  return '<div class="jc"><div class="jch"><span>(~' + km(j.pickup_distance_m) + ") " + pu + "</span>" + (j.show_km && j.total_km != null ? '<span style="font-weight:600;opacity:.9">' + Number(j.total_km).toFixed(1) + " km trip</span>" : "") + "</div>"
+    + '<div class="jcb"><div class="chips" style="gap:6px">' + tags.join("") + "</div>"
+    + '<div class="row" style="align-items:flex-start;margin-top:8px">' + route + '<div class="muted small" style="margin-left:auto;white-space:nowrap">' + h((rider() && rider().vehicle) || "") + "</div></div>"
+    + (j.note ? '<div class="small muted" style="margin-top:6px">&#128221; ' + h(j.note) + "</div>" : "")
+    + '<div class="row" style="align-items:flex-end;margin-top:10px"><span class="jpay ' + (j.payment_method === "cash" ? "jcash" : "jon") + '">' + (j.payment_method === "cash" ? "&#128181; Cash" : "&#128179; Paid online") + "</span>"
+    + '<div style="margin-left:auto;text-align:right">' + (price ? '<div class="small">' + price + "</div>" : "") + '<div class="b" style="font-size:20px;color:var(--good)">You keep ' + peso(j.rider_earns) + "</div>" + (j.commission != null ? '<div class="small muted">commission &minus;' + peso(j.commission) + "</div>" : "") + "</div></div>"
+    + '<div class="row" style="margin-top:10px"><button class="btn" style="flex:0 0 32%" data-act="hidejob" data-id="' + j.order_id + '">Hide</button><button class="btn pri" style="flex:1" data-act="accept" data-id="' + j.order_id + '">Accept</button></div></div></div>';
 }
+// Which kind of jobs the rider wants: All / Padala only / Abono only (saved on the server, also used for job alerts)
+var JT = { v: null, info: null };
+async function jtLoad() { try { JT.info = await rpc("rider_job_types"); JT.v = JT.info.job_types; } catch (e) { JT.v = null; } if (S.view === "home") render(); }
+function jtChips() {
+  if (!JT.v) return "";
+  var opts = [["all", "All jobs"], ["padala", "&#128230; Padala only"], ["abono", "&#128176; Abono only"]];
+  var note = JT.v === "padala" ? "Only deliveries where you do not pay anything first."
+    : JT.v === "abono" ? "Only jobs where you pay first (Pabili or COD) and earn the abono fee." + (JT.info && !JT.info.can_abono ? " <b>Unlocked after " + JT.info.abono_min_jobs + " finished jobs</b> (you have " + JT.info.jobs_done + ")." : "")
+    : "";
+  return '<div class="chips" style="gap:6px;flex-wrap:nowrap">' + opts.map(function (o) { return '<button class="chip' + (JT.v === o[0] ? " on" : "") + '" style="padding:0 10px;font-size:14px;white-space:nowrap;min-height:34px" data-act="jtype" data-v="' + o[0] + '">' + o[1] + "</button>"; }).join("") + "</div>"
+    + (note ? '<div class="small muted">' + note + "</div>" : "");
+}
+async function jtSet(v) { await run(async function () { JT.info = await rpc("rider_job_types", { p_set: v }); JT.v = JT.info.job_types; S.jobs = null; render(); S.busy = false; await loadJobs(); }); }
 function vHome() {
   var r = rider(), on = r.is_online, loadAmt = r.load != null ? r.load : r.wallet, low = loadAmt < S.me.settings.rider_min_load * 100;
   var sus = S.cancelSt && S.cancelSt.suspended_until && new Date(S.cancelSt.suspended_until) > new Date() ? '<div class="note n-bad"><b>&#9940; You are suspended until ' + h(new Date(S.cancelSt.suspended_until).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + ".</b> " + h(S.cancelSt.reason ? "Reason: " + S.cancelSt.reason + "." : "") + " You can go online again after that. <button class=\"link\" data-act=\"supappeal\" style=\"background:none;border:none;color:inherit;text-decoration:underline;font-weight:800;cursor:pointer;padding:0\">Appeal</button></div>" : "";
@@ -2159,7 +2186,7 @@ function vHome() {
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
     + (on ? '<div class="note n-info">' + (NATIVE ? "&#128994; You can minimize the app, lock the screen or use Waze. New jobs come as notifications and your location keeps sharing until you go offline." : "Keep this page open with the screen on. Your location is only sent while the app is open. If job alerts are off and the app is closed for more than 10 minutes, you are switched offline.") + '</div>' : "")
-    + phoneNote() + batteryNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + list + "</div>" + nav("home");
+    + phoneNote() + batteryNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + jtChips() + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
@@ -2240,11 +2267,13 @@ function vDone() {
     + '<div class="card"><div class="line"><span class="muted">Balance now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
     + '<button class="btn pri" data-act="home">Find the next job</button><button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="done" data-id="' + h(d.id) + '">&#9888;&#65039; Report a problem with this job</button></div>';
 }
-var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
+var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out to GCash", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
 function vWallet() {
   var w = S.wallet; if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
-  var tx = w.tx.length ? w.tx.map(function (t) { return '<div class="line' + (t.order_id ? ' txl" data-act="txbd" data-o="' + h(t.order_id) + '"' : '"') + '><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--accent-d)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + (t.order_id ? ' <span class="muted" style="font-weight:400">&rsaquo;</span>' : "") + "</span></div>"; }).join("") : '<div class="muted">No wallet activity yet.</div>';
-  var po = w.payouts.length ? '<div class="card"><h2>Cash-outs</h2>' + w.payouts.map(function (p) { return '<div class="line"><span class="sp">' + peso(p.amount) + ' <span class="small muted">to ' + h(p.destination) + " · " + h(when(p.requested_at)) + "</span></span>" + pill(p.status, p.status === "sent" ? "good" : p.status === "failed" ? "bad" : "warn") + "</div>"; }).join("") + "</div>" : "";
+  var wtx = w.tx.filter(function (t) { return !t.order_id && t.amount && recent14(t.created_at); });
+  var tx = wtx.length ? wtx.map(function (t) { return '<div class="line' + (t.order_id ? ' txl" data-act="txbd" data-o="' + h(t.order_id) + '"' : '"') + '><span class="sp"><span class="b">' + h(TX[t.type] || t.type) + "</span>" + (t.order_no ? ' <span class="small muted">' + h(t.order_no) + "</span>" : "") + '<br><span class="small muted">' + h(when(t.created_at)) + '</span></span><span class="b" style="color:' + (t.amount < 0 ? "var(--bad)" : "var(--good)") + '">' + (t.amount > 0 ? "+" : "") + peso(t.amount) + (t.order_id ? ' <span class="muted" style="font-weight:400">&rsaquo;</span>' : "") + "</span></div>"; }).join("") : '<div class="muted">No top-ups or cash-outs yet.</div>';
+  var pol = w.payouts.filter(function (p) { return p.status === "requested" || p.status === "processing" || recent14(p.requested_at); });
+  var po = pol.length ? '<div class="card">' + foldHead("Cash-outs", "po") + (S.fold.po ? "" : pol.map(function (p) { return '<div class="line"><span class="sp">' + peso(p.amount) + ' <span class="small muted">to ' + h(p.destination) + " · " + h(when(p.requested_at)) + "</span></span>" + pill(p.status, p.status === "sent" ? "good" : p.status === "failed" ? "bad" : "warn") + "</div>"; }).join("")) + "</div>" : "";
   var open = S.wOpen == null ? (w.load < w.min_load ? "topup" : "") : S.wOpen;
   return topBar("Wallet") + '<div class="body">'
     + '<div class="card wbal"><div class="row" style="align-items:flex-end"><div class="sp"><div class="small muted">Balance</div><div class="wbig">' + peso(w.balance) + '</div></div>'
@@ -2255,14 +2284,18 @@ function vWallet() {
     + (open === "topup" ? topupCard(w) : "")
     + (open === "cashout" ? '<div class="card" style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0">Cash out to GCash</h2><div class="row" style="gap:8px"><div class="field" style="flex:3"><label for="w_gcash">GCash number</label><input class="in" id="w_gcash" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(phoneFmt(w.payout_gcash)) + '"></div>'
       + '<div class="field" style="flex:2"><label for="w_amt">Amount (₱)</label><input class="in" id="w_amt" type="number" inputmode="decimal" min="0"></div></div><div class="small muted">' + peso(w.payout_fee) + " fee per cash-out · sent weekly.</div><button class=\"btn pri\" data-act=\"cashout\">Request cash-out</button></div>" + earnCard(w) : "")
-    + po + '<div class="card"><h2>Activity</h2><div class="small muted" style="margin:-4px 0 4px">Tap a job to see the breakdown.</div>' + tx + "</div></div>" + nav("wallet") + bdSheet();
+    + po + '<div class="card">' + foldHead("Activity · last 2 weeks", "act") + (S.fold.act ? "" : '<div class="small muted" style="margin:0 0 4px">Top-ups and cash-outs. Each job\'s earnings and commission are in <b>History</b> (tap a job).</div>' + tx) + "</div></div>" + nav("wallet") + bdSheet();
 }
+// Only the last 2 weeks are listed; cards can be folded (Show / Hide)
+function recent14(t) { return t && Date.now() - new Date(t).getTime() < 14 * 864e5; }
+function foldHead(title, key) { var shut = !!(S.fold && S.fold[key]); return '<div class="row" style="align-items:center;cursor:pointer" data-act="fold" data-v="' + key + '"><h2 class="sp" style="margin:0">' + title + '</h2><span class="muted small b">' + (shut ? "Show &#9662;" : "Hide &#9652;") + "</span></div>"; }
 // Job breakdown sheet (like the receipt of the job): opened from Wallet > Activity
 function bdLine(label, v, cls) { return '<div class="line"><span class="' + (cls || "muted") + '">' + label + '</span><span' + (cls ? ' class="' + cls + '"' : "") + ">" + v + "</span></div>"; }
 function bdSheet() {
   var b = S.bd; if (!b) return "";
   if (b.loading) return '<div class="sheetbg" data-act="bdclose"><div class="sheet"><div class="spin">Loading…</div></div></div>';
   var parts = (b.fare_base || 0) + (b.fare_distance || 0) + (b.fare_stops || 0) + (b.fare_surcharge || 0) + (b.fare_speed_adj || 0) + (b.fare_waiting || 0), rnd = b.fare_total - parts;
+  b = Object.assign({}, b); if (rnd) { if (b.fare_surcharge && b.fare_surcharge + rnd > 0) b.fare_surcharge += rnd; else b.fare_distance = (b.fare_distance || 0) + rnd; } rnd = 0;
   var sur = b.is_night ? "Night surcharge" : b.is_surge ? "High demand surcharge" : "Rush-hour surcharge";
   var paid = b.fare_total + (b.tip || 0) + (b.abono_fee || 0), pay = b.payment_method === "cash" ? "Cash" : b.payment_method === "gcash" ? "GCash" : b.payment_method === "wallet" ? "PasuyoBuddy Wallet" : b.payment_method;
   return '<div class="sheetbg" data-act="bdclose"><div class="sheet" data-act="none">'
@@ -2284,10 +2317,15 @@ function bdSheet() {
     + '<div class="small muted" style="margin-top:6px">' + (b.payment_method === "cash" ? "You collected the cash. The commission was taken from your load." : "Paid online: your share was added to your wallet and the commission was taken from it.") + "</div></div></div>";
 }
 async function openBreakdown(id) { S.bd = { loading: true }; render(); try { S.bd = await rpc("rider_job_breakdown", { p_order: id }); } catch (e) { S.bd = null; toast(e.message, true); } render(); }
+function histTop(list) {
+  var done = list.filter(function (o) { return o.status === "completed"; }), earn = done.reduce(function (a, o) { return a + (o.rider_earns || 0); }, 0), com = done.reduce(function (a, o) { return a + (o.commission || 0); }, 0);
+  return '<div class="card">' + foldHead("Last 2 weeks", "hist") + '<div class="row" style="margin-top:6px"><div class="sp"><div class="small muted">Jobs done</div><div class="b">' + done.length + '</div></div><div class="sp"><div class="small muted">You kept</div><div class="b" style="color:var(--good)">' + peso(earn) + '</div></div><div class="sp" style="text-align:right"><div class="small muted">Commission</div><div class="b">&minus;' + peso(com) + "</div></div></div>"
+    + (S.fold.hist ? "" : '<div class="small muted" style="margin-top:6px">Tap a job to see the full breakdown.</div>') + "</div>";
+}
 function vHistory() {
-  var list = S.history, body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">Your finished jobs will show here.</div>'
-    : list.map(function (o) { return '<div class="card"><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + "</div></div><div class=\"right\">" + (o.status === "completed" ? '<div class="b">' + peso(o.rider_earns) + "</div>" : pill("Cancelled", "soft")) + "</div></div></div>"; }).join("");
-  return topBar("History") + '<div class="body">' + body + "</div>" + nav("history");
+  var list = S.history && S.history.filter(function (o) { return recent14(o.at); }), body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No jobs in the last 2 weeks.</div>'
+    : histTop(list) + (S.fold.hist ? "" : list.map(function (o) { var ok = o.status === "completed"; return '<div class="card' + (ok ? ' txl" data-act="txbd" data-o="' + h(o.id) + '"' : '"') + '><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + "</div></div><div class=\"right\">" + (ok ? '<div class="b" style="color:var(--good)">' + peso(o.rider_earns) + ' <span class="muted" style="font-weight:400">&rsaquo;</span></div><div class="small muted">commission &minus;' + peso(o.commission) + "</div>" : pill("Cancelled", "soft")) + "</div></div></div>"; }).join(""));
+  return topBar("History") + '<div class="body">' + body + "</div>" + nav("history") + bdSheet();
 }
 function photoUrl(p) { return p ? CONFIG.url + "/storage/v1/object/public/avatars/" + p : ""; }
 function photoCard() {
@@ -2494,10 +2532,12 @@ document.addEventListener("click", function (ev) {
   else if (a === "cashout") cashOut();
   else if (a === "radius") setRadius(+d.v);
   else if (a === "region") setRegion(d.v ? +d.v : null);
+  else if (a === "jtype") jtSet(d.v);
   else if (a === "wopen") { var cur = S.wOpen == null ? (S.wallet && S.wallet.load < S.wallet.min_load ? "topup" : "") : S.wOpen; S.wOpen = cur === d.v ? "" : d.v; render(); }
   else if (a === "txbd") openBreakdown(d.o);
   else if (a === "bdclose") { S.bd = null; render(); }
   else if (a === "lockfold") { S.lockFold = !S.lockFold; render(); }
+  else if (a === "fold") { S.fold[d.v] = !S.fold[d.v]; render(); }
   else if (a === "batteryfix") { try { NAT.tr.openSettings({ what: "app" }); } catch (e) {} }
 });
 var tuT = null;
