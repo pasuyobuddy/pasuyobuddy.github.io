@@ -2,7 +2,7 @@
 // and shows job alerts (riders) and delivery alerts (customers) even when the app is closed.
 // Pages are always fetched fresh from the network first, so updates appear right away.
 // If the website host is down or returns an error, the last good copy saved on the phone is used.
-const CACHE = "pasuyobuddy-shell-v1";   // v2: customer delivery alerts
+const CACHE = "pasuyobuddy-shell-v1";   // sw 2026-11-06: always the newest page   // v2: customer delivery alerts
 self.addEventListener("install", (e) => { self.skipWaiting(); });
 self.addEventListener("activate", (e) => { e.waitUntil(self.clients.claim()); });
 self.addEventListener("fetch", (e) => {
@@ -10,7 +10,8 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;   // never touch Supabase or map requests
   if (req.mode !== "navigate") return;
   e.respondWith(
-    fetch(req).then((res) => {
+    // "no-cache": always ask the website for the newest page (never an old copy kept by the phone's browser)
+    fetch(req.url, { cache: "no-cache", credentials: "same-origin" }).then((res) => {
       // Only keep and show a good page. If the website host answers with an error (e.g. GitHub is down),
       // fall back to the last good copy saved on this phone.
       if (!res.ok) return caches.match(req, { ignoreSearch: true }).then((hit) => hit || res);

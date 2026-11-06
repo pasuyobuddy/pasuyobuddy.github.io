@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.82" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.83" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -965,6 +965,7 @@ function nativeInit() {
   NAT.app.addListener("appStateChange", function (st) {
     NAT.active = !!st.isActive;
     if (!NAT.active) { (S.jobs || []).forEach(function (j) { NAT.told[j.order_id] = 1; }); return; }
+    riderPing(true);
     if (TOPUP.waiting) { topupBack(); return; }
     if (S.session && S.me) run(async function () { await reloadMe(); S.busy = false;
       if (S.view === "home" || S.view === "job") { if (S.me.active_order) await openJob(S.me.active_order); else if (S.view === "home") await goHome(); }
@@ -1243,7 +1244,7 @@ function showNotice() {
   var n = NOTE.list[0]; if (!n) return;
   var d = document.createElement("div"); d.id = "notice";
   d.style.cssText = "position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px";
-  d.innerHTML = '<div class="card" role="dialog" aria-modal="true" style="max-width:360px;width:100%;text-align:center;padding:24px 20px"><div style="font-size:56px;line-height:1">' + (n.kind === "signup" ? "&#127881;" : n.kind === "suspended" ? "&#9940;" : n.kind === "cancel_warning" ? "&#9888;&#65039;" : n.kind === "unsuspended" ? "&#9989;" : "&#127873;") + '</div>'
+  d.innerHTML = '<div class="card" role="dialog" aria-modal="true" style="max-width:360px;width:100%;text-align:center;padding:24px 20px"><div style="font-size:56px;line-height:1">' + (n.kind === "idle_offline" ? "&#128564;" : n.kind === "signup" ? "&#127881;" : n.kind === "suspended" ? "&#9940;" : n.kind === "cancel_warning" ? "&#9888;&#65039;" : n.kind === "unsuspended" ? "&#9989;" : "&#127873;") + '</div>'
     + '<h2 style="margin:12px 0 8px;font-size:21px">' + h(n.title) + '</h2><div style="font-size:15px;line-height:1.55;margin-bottom:18px">' + h(n.body) + '</div>'
     + '<button class="btn pri" data-act="noticeok" data-v="' + n.id + '">OK</button></div>';
   document.body.appendChild(d);
@@ -1494,7 +1495,7 @@ async function setOnline(on) {
     if (S.pos) { try { await rpc("update_my_location", { p_lat: S.pos.lat, p_lng: S.pos.lng }); NAT.lastSent = lastSent = Date.now(); } catch (e) {} }
   }
   if (!on) { try { await reloadMe(); } catch (e) {} if (S.me && S.me.active_order) { toast("You have a delivery in progress. Finish it (or give it up) before going offline.", true); await openJob(S.me.active_order); return; } }
-  await run(async function () { await rpc("rider_set_online", { p_online: on }); S.autoOff = false; await reloadMe(); S.jobs = null; S.seen = {}; S.busy = false; await goHome(); if (on && !(rider() && rider().is_online)) toast("Could not go online: no location from this phone. Turn on Location (GPS), allow location for PasuyoBuddy, turn off battery saver, then try again.", true); else toast(on ? "You are online" : "You are offline"); });
+  await run(async function () { await rpc("rider_set_online", { p_online: on }); S.autoOff = false; S.idleOff = false; PING.at = Date.now(); await reloadMe(); S.jobs = null; S.seen = {}; S.busy = false; await goHome(); if (on && !(rider() && rider().is_online)) toast("Could not go online: no location from this phone. Turn on Location (GPS), allow location for PasuyoBuddy, turn off battery saver, then try again.", true); else toast(on ? "You are online" : "You are offline"); });
 }
 async function accept(id) {
   await run(async function () { var ok = await rpc("rider_accept", { p_order: id }); S.busy = false;
@@ -2157,6 +2158,18 @@ function jobCard(j) {
     + '<div style="margin-left:auto;text-align:right">' + (price ? '<div class="small">' + price + "</div>" : "") + '<div class="b" style="font-size:20px;color:var(--good)">You keep ' + peso(j.rider_earns) + "</div>" + (j.commission != null ? '<div class="small muted">commission &minus;' + peso(j.commission) + "</div>" : "") + "</div></div>"
     + '<div class="row" style="margin-top:10px"><button class="btn" style="flex:0 0 32%" data-act="hidejob" data-id="' + j.order_id + '">Hide</button><button class="btn pri" style="flex:1" data-act="accept" data-id="' + j.order_id + '">Accept</button></div></div></div>';
 }
+// Idle rider: opening or touching the app counts as activity. After rider_idle_offline_mins with no activity
+// (no app use, no job, not moving) the server switches the rider offline.
+var PING = { at: 0 };
+function riderPing(force) {
+  if (!S.session || !rider() || !rider().is_online) return;
+  if (!force && Date.now() - PING.at < 300000) return; PING.at = Date.now();
+  rpc("rider_ping").then(function (res) {
+    if (res === "idle_off") { S.idleOff = true; run(async function () { await reloadMe(); S.busy = false; if (S.view === "home") await goHome(); else render(); checkNotices(true); }); }
+  }).catch(function () {});
+}
+document.addEventListener("click", function () { riderPing(false); }, true);
+document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") riderPing(true); });
 // Which kind of jobs the rider wants: All / Padala only / Abono only (saved on the server, also used for job alerts)
 var JT = { v: null, info: null };
 async function jtLoad() { try { JT.info = await rpc("rider_job_types"); JT.v = JT.info.job_types; } catch (e) { JT.v = null; } if (S.view === "home") render(); }
@@ -2173,7 +2186,7 @@ async function jtSet(v) { await run(async function () { JT.info = await rpc("rid
 function vHome() {
   var r = rider(), on = r.is_online, loadAmt = r.load != null ? r.load : r.wallet, low = loadAmt < S.me.settings.rider_min_load * 100;
   var sus = S.cancelSt && S.cancelSt.suspended_until && new Date(S.cancelSt.suspended_until) > new Date() ? '<div class="note n-bad"><b>&#9940; You are suspended until ' + h(new Date(S.cancelSt.suspended_until).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + ".</b> " + h(S.cancelSt.reason ? "Reason: " + S.cancelSt.reason + "." : "") + " You can go online again after that. <button class=\"link\" data-act=\"supappeal\" style=\"background:none;border:none;color:inherit;text-decoration:underline;font-weight:800;cursor:pointer;padding:0\">Appeal</button></div>" : "";
-  var list = sus ? sus : !on ? (S.autoOff ? '<div class="note n-warn">You were switched offline because this phone sent no location for a while (app closed, Location/GPS off, or battery saver). Turn on <b>Location</b>, keep the app open, then tap <b>Go online</b>.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
+  var list = sus ? sus : !on ? (S.idleOff ? '<div class="note n-warn">&#128564; You were switched offline after <b>' + ((S.me.settings && S.me.settings.rider_idle_offline_mins) || 120) + ' minutes with no activity</b>, to save your battery. Tap <b>Go online</b> when you are ready for jobs.</div>' : "") + (S.autoOff ? '<div class="note n-warn">You were switched offline because this phone sent no location for a while (app closed, Location/GPS off, or battery saver). Turn on <b>Location</b>, keep the app open, then tap <b>Go online</b>.</div>' : '<div class="card muted">You are offline. Go online to see jobs near you.</div>')
     : S.jobsErr ? '<div class="note n-warn">' + h(S.jobsErr) + "</div>"
     : !S.jobs ? '<div class="spin">Looking for jobs…</div>'
     : !S.jobs.length ? '<div class="card muted">No jobs ' + (r.region_id ? "in " + h(r.region_name) : "within " + (r.radius_m / 1000) + " km") + " right now. This list refreshes by itself.</div>" : (function () {
