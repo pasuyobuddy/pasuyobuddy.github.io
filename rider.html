@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.88" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.89" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -1223,6 +1223,13 @@ async function lockAct(a, d) {
   }
   if (a === "lock-forgot") { if (confirm("Log out of PasuyoBuddy Rider? You will log in again with your email and password, then create a new lock.")) lockForgot(); return; }
   if (a === "lock-change") { LOCK.setup = { step: "choose" }; lockShow(); return; }
+}
+// How many customers added this rider as favorite (they get those customers' bookings first)
+var FAVN = { n: null, at: 0 };
+function favCountCard() {
+  if (Date.now() - FAVN.at > 60000) { FAVN.at = Date.now(); rpc("rider_fav_count").then(function (n) { var ch = n !== FAVN.n; FAVN.n = n; if (ch && S.view === "account") render(); }).catch(function () {}); }
+  if (!FAVN.n) return "";
+  return '<div class="note n-good">&#11088; <b>' + FAVN.n + " customer" + (FAVN.n > 1 ? "s" : "") + "</b> added you as a favorite rider. You get their bookings first. Keep up the great service!</div>";
 }
 // App lock card: folded by default (tap to show / hide)
 function lockFold() {
@@ -2170,6 +2177,7 @@ function jobCard(j) {
   var pu = j.scheduled_at && new Date(j.scheduled_at).getTime() > Date.now() + 15 * 60000 ? "Pick up " + new Date(j.scheduled_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }) : "Pick up now";
   var tags = ['<span class="jtag">' + (j.service_type === "pabili" ? "&#128717; Pabili" : "&#128230; Padala") + "</span>",
     '<span class="jtag">' + (j.service_level === "priority" ? "&#9889; Priority" : j.service_level === "pooling" ? "Saver" : "Regular") + "</span>"];
+  if (j.fav) tags.unshift('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#11088; Your favorite customer</span>');
   if (j.hd_pct) tags.push('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#9889; High demand +' + j.hd_pct + "%</span>");
   if (j.needs_bag) tags.push('<span class="jtag jbad">&#127890; Bring a bag</span>');
   if (j.advance > 0) tags.push('<span class="jtag jbad">COD advance ' + peso(j.advance) + "</span>");
@@ -2481,7 +2489,7 @@ function vAccount() {
     + '<button class="chip ' + (!r.region_id ? "on" : "") + '" data-act="region" data-v="">Nearby only</button></div>'
     + (!r.region_id ? '<h2 style="margin-top:14px">How far will you go for a pickup?</h2><div class="chips">' + [1000, 3000, 5000, 10000, 20000, 30000].map(function (m) { return '<button class="chip ' + (r.radius_m === m ? "on" : "") + '" data-act="radius" data-v="' + m + '">' + (m / 1000) + " km</button>"; }).join("") + "</div>" : "") + "</div>"
     + '<div class="card"><div class="line"><span class="muted">Name</span><span class="b">&#128274; ' + h(S.me.name) + '</span></div><div class="line"><span class="muted">Mobile</span><span>&#128274; ' + h(phoneFmt(S.me.phone)) + '</span></div>' + chgBox() + '<div class="line"><span class="muted">Vehicle</span><span>' + h(r.vehicle) + " · " + h(r.plate) + '</span></div><div class="line"><span class="muted">Rating</span><span>★ ' + h(r.rating) + " (" + h(r.rating_count) + ')</span></div><div class="line"><span class="muted">Jobs done</span><span>' + h(r.completed_jobs) + "</span></div></div>"
-    + photoCard() + pushCard(true) + inviteCard() + supCard() + lockFold()
+    + favCountCard() + photoCard() + pushCard(true) + inviteCard() + supCard() + lockFold()
     + '<button class="btn bad" data-act="signout">Sign out</button>' + '<button data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>' + '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html#rider" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Rider app version ' + CONFIG.version + "</div></div>" + nav("account");
 }
 function render() {

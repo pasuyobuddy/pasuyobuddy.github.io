@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.58" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.59" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -983,7 +983,7 @@ async function afterLogin() {
   if (!S.me.name || !S.me.phone) { S.view = "profile"; render(); return; }
   try { var dv = deviceId(); if (dv) await rpc("customer_set_device", { p_device: dv }); } catch (e) {}
   await loadPromo();
-  loadWallet(); checkPush();
+  loadWallet(); checkPush(); loadFavs();
   if (payReturnStart()) return;
   if (S.me.active_order) { await openOrder(S.me.active_order); return; }
   S.view = "home"; render();
@@ -1198,7 +1198,7 @@ function poolOk() { return S.bk.vehicle === 1 && S.bk.stops.length === 2 && !has
 function payload() {
   var b = S.bk;
   return { service_type: "padala", service_level: b.level, vehicle_type_id: b.vehicle, payment_method: b.pay === "wallet" ? "wallet" : "cash", use_wallet: b.pay === "cash" && b.useWallet !== false && !!(S.wallet && S.wallet.balance > 0), abono_payer: b.abonoPayer,
-    tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag,
+    tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag, fav_first: hasFavs() && b.favFirst !== false,
     stops: b.stops.map(function (s, i) {
       var o = { kind: s.kind, address: (s.detail ? s.detail + ", " : "") + s.address, area: s.area, lat: s.lat, lng: s.lng, contact_name: s.contact_name, contact_phone: s.contact_phone };
       if (i > 0) { o.leg_km = b.legs[i - 1]; o.payer = s.payer; if (Number(s.cod) > 0) o.cod_amount = Math.round(Number(s.cod) * 100); }
@@ -1209,6 +1209,15 @@ function readReview() { var n = $("r_note"); if (n) S.bk.note = n.value.trim(); 
 async function setTip(v) { readReview(); S.bk.tip = v; S.bk.customTip = ""; await requote(); }
 async function applyCustomTip() { readReview(); var v = Number(val("r_tip")); var mn = S.me.settings.tip_min, mx = S.me.settings.tip_max;
   if (!(v >= mn && v <= mx)) { toast("Tip can be from " + peso(mn * 100) + " to " + peso(mx * 100), true); return; } S.bk.tip = v; S.bk.customTip = String(v); await requote(); }
+// ---------------- Favorite riders ----------------
+async function loadFavs() { try { S.favs = await rpc("customer_favs"); } catch (e) { S.favs = null; } return S.favs; }
+function hasFavs() { return !!(S.favs && S.favs.enabled && S.favs.riders && S.favs.riders.length); }
+function favCard() {
+  if (!S.favs || !S.favs.enabled) return "";
+  var list = S.favs.riders || [];
+  return '<div class="card"><h2>&#11088; Favorite riders</h2>' + (!list.length ? '<div class="small muted">After a delivery, tap <b>Add to favorite riders</b> on the booking. When you book, your favorite riders get it first.</div>'
+    : list.map(function (r) { return '<div class="line" style="align-items:center"><span class="row sp" style="gap:10px;align-items:center">' + riderPhoto(r) + '<span><span class="b">' + h(r.name || "Rider") + '</span><br><span class="small muted">' + h(r.vehicle || "") + " · " + h(r.plate || "") + " · ★ " + h(r.rating || "") + (r.online ? ' · <span style="color:var(--good)">online</span>' : "") + '</span></span></span><button class="btn sm" style="width:auto" data-act="favrm" data-id="' + h(r.id) + '">Remove</button></div>'; }).join("")) + "</div>";
+}
 async function book() {
   readReview();
   if (S.wallet && S.bk.quote.sender_pays > 0 && S.wallet.balance >= S.bk.quote.sender_pays && (S.bk.pay === "gcash" || (S.bk.pay === "cash" && S.bk.useWallet !== false))) S.bk.pay = "wallet";   // wallet already covers it
@@ -1709,7 +1718,7 @@ function vProfile(first) {
     + (first ? '<div class="note n-info">Riders need your name and mobile number to reach you about a delivery.</div>' : "")
     + nameBox
     + (first ? "" : '<div class="card"><div class="line"><span class="muted">Email</span><span>' + h(S.me.email) + '</span></div><div class="line"><span class="muted">Completed deliveries</span><span>' + h(S.me.completed_orders) + "</span></div></div>")
-    + (first ? "" : supCard()) + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
+    + (first ? "" : favCard()) + (first ? "" : supCard()) + (first ? "" : vVerify()) + (first ? "" : pushCard(true))
     + '<button class="btn bad" data-act="signout">Sign out</button>' + (first ? "" : '<button class="link" data-act="delopen" style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:6px">Delete my account</button>') + (first ? "" : '<div class="small" style="text-align:center"><a href="https://pasuyobuddy.com/terms.html" target="_blank" rel="noopener" style="color:var(--muted)">Terms &amp; Conditions</a> &middot; <a href="https://pasuyobuddy.com/privacy.html" target="_blank" rel="noopener" style="color:var(--muted)">Privacy Policy</a></div>' + '<div class="muted small" style="text-align:center">Version ' + CONFIG.version + "</div>") + "</div>" + (first ? "" : nav("account"));
 }
 // Name and number are locked after sign-up; changes go through a request that staff review
@@ -1838,6 +1847,7 @@ function vReview() {
       + '<label class="bagopt' + (b.needsBag ? " on" : "") + '"><input type="checkbox" id="r_bag" data-act="bagtoggle"' + (b.needsBag ? " checked" : "") + '><span><b>&#127890; Ask the rider to bring a delivery bag</b><br><span class="small muted">For food, groceries or many small items. Riders see this before they accept.</span></span></label></div>'
     + '<div class="card"><h2>Tip for the rider</h2><div class="small muted" style="margin-bottom:8px">100% goes to the rider.</div><div class="chips">' + tipChips + '</div><div class="row" style="margin-top:10px"><input class="in sp" id="r_tip" type="number" inputmode="decimal" placeholder="Other amount (₱)" value="' + h(b.customTip) + '"><button class="btn sm" data-act="customtip">Apply</button></div></div>'
     + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee (' + peso(q.abono_fee) + ')?</h2><div class="small muted" style="margin-bottom:8px">Abono is the fee for the rider advancing the COD item money to the seller.</div><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
+    + (hasFavs() ? '<label class="bagopt' + (b.favFirst !== false ? " on" : "") + '"><input type="checkbox" data-act="favfirst"' + (b.favFirst !== false ? " checked" : "") + '><span><b>&#11088; Favorite riders first</b><br><span class="small muted">Your ' + S.favs.riders.length + " favorite rider" + (S.favs.riders.length > 1 ? "s get" : " gets") + " this booking first. If none accepts in " + S.favs.mins + " minutes, all riders get it.</span></span></label>" : "")
     + payChoice(q)
     + '</div><div class="foot"><button class="btn pri" data-act="book">' + bookLabel(q) + "</button></div>";
 }
@@ -1851,6 +1861,9 @@ function vTrack() {
     + '<div class="note n-info small" style="margin-top:10px">&#128064; <b>Check your rider:</b> the face and plate number should match the photo above. <button class="linkbtn" style="font-size:13px" data-act="repdiff">Different person? Report it</button></div></div>' : "";
   if (o.needs_bag) rider += '<div class="note n-info">&#127890; You asked the rider to bring a delivery bag.</div>';
   var arr = o.status === "in_transit" ? o.stops.filter(function (x) { return x.kind === "dropoff" && x.status === "arrived"; })[0] : null;
+  var favWait = o.status === "searching" && o.fav_only_until && new Date(o.fav_only_until).getTime() > Date.now();
+  var favMsg = favWait ? '<div class="note n-info">&#11088; Offered to your <b>favorite riders</b> first, until ' + h(new Date(o.fav_only_until).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })) + '. If none accepts, all nearby riders get it.<div style="margin-top:8px"><button class="btn sm" data-act="favall">Offer to all riders now</button></div></div>' : "";
+  var favBtn = o.status === "completed" && o.rider && S.favs && S.favs.enabled ? '<button class="btn" data-act="favset" data-v="' + (o.is_fav ? "0" : "1") + '">' + (o.is_fav ? "&#128148; Remove from favorite riders" : "&#10084;&#65039; Add " + h((o.rider.name || "this rider").split(" ")[0]) + " to favorite riders") + "</button>" : "";
   var msg = arr ? '<div class="note n-good"><b>Your rider has arrived at ' + (o.stops.length > 2 ? "drop-off " + arr.seq : "the drop-off") + ".</b> Please let " + h(arr.contact_name || "the receiver") + " know.</div>" : o.status === "searching" ? '<div class="note n-warn">We are offering your booking to nearby riders. This page updates by itself.</div>'
     : o.status === "no_rider_found" ? '<div class="note n-bad">No rider was available. ' + (o.wallet_refunded ? peso(o.wallet_refunded) + " went back to your PasuyoBuddy Wallet." : "You were not charged.") + ' Please try booking again.</div>'
     : o.status === "cancelled_by_rider" ? '<div class="note n-bad">The rider cancelled this booking.' + (o.cancel_reason ? " Reason: " + h(o.cancel_reason) : "") + "</div>"
@@ -1859,10 +1872,10 @@ function vTrack() {
     + '<div class="field" style="margin-top:10px"><label for="rate_note">Comment (optional)</label><input class="in" id="rate_note"></div><button class="btn pri" style="margin-top:10px" data-act="rate">' + (o.my_rating ? "Update rating" : "Send rating") + "</button></div>" : "";
   var tip = canTip ? '<div class="card"><h2>Add a tip</h2><div class="small muted" style="margin-bottom:8px">A tip can help your booking get picked up faster. 100% goes to the rider.</div><div class="chips">' + [20, 50, 100].map(function (t) { return '<button class="chip" data-act="tipnow" data-v="' + t + '">+ ' + peso(t * 100) + "</button>"; }).join("") + "</div></div>" : "";
   return topBar(o.order_no, "orders") + '<div class="body">'
-    + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + msg + (ended ? "" : pushCard(false))
+    + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + favMsg + msg + (ended ? "" : pushCard(false))
     + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "") + '<button class="btn" data-act="suporder">&#128172; Ask PasuyoBuddy Support about this booking</button>'
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
-    + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate
+    + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate + favBtn
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
     + (o.status === "completed" ? '<button class="btn" data-act="receipt">&#129534; View receipt / request invoice</button>' : "")
     + (ended ? '<button class="btn pri" data-act="home">Book another delivery</button>' : "") + "</div>" + nav("orders");
@@ -1921,6 +1934,10 @@ document.addEventListener("click", function (ev) {
   else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
   else if (a === "wamt") { S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
+  else if (a === "favfirst") { readReview(); S.bk.favFirst = !(S.bk.favFirst !== false); render(); }
+  else if (a === "favall") run(async function () { await rpc("customer_fav_all_now", { p_order: S.order.id }); S.order = await rpc("customer_order", { p_order: S.order.id }); render(); toast("Offered to all nearby riders"); });
+  else if (a === "favset") run(async function () { await rpc("customer_fav_set", { p_order: S.order.id, p_on: d.v === "1" }); S.order = await rpc("customer_order", { p_order: S.order.id }); await loadFavs(); render(); toast(d.v === "1" ? "Added to your favorite riders" : "Removed from favorites"); });
+  else if (a === "favrm") run(async function () { await rpc("customer_fav_remove", { p_rider: d.id }); await loadFavs(); render(); toast("Removed from favorites"); });
   else if (a === "wtopen") { var w0 = S.wallet; S.wTopOpen = !(S.wTopOpen == null ? !(w0 && w0.balance) : S.wTopOpen); render(); }
   else if (a === "pushon") enablePush();
   else if (a === "receipt") openReceipt();
