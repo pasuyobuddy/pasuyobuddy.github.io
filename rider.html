@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.83" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.84" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -2142,6 +2142,7 @@ function jobCard(j) {
   var pu = j.scheduled_at && new Date(j.scheduled_at).getTime() > Date.now() + 15 * 60000 ? "Pick up " + new Date(j.scheduled_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }) : "Pick up now";
   var tags = ['<span class="jtag">' + (j.service_type === "pabili" ? "&#128717; Pabili" : "&#128230; Padala") + "</span>",
     '<span class="jtag">' + (j.service_level === "priority" ? "&#9889; Priority" : j.service_level === "pooling" ? "Saver" : "Regular") + "</span>"];
+  if (j.hd_pct) tags.push('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#9889; High demand +' + j.hd_pct + "%</span>");
   if (j.needs_bag) tags.push('<span class="jtag jbad">&#127890; Bring a bag</span>');
   if (j.advance > 0) tags.push('<span class="jtag jbad">COD advance ' + peso(j.advance) + "</span>");
   if (j.receivers_pay) tags.push('<span class="jtag">Receiver pays</span>');
@@ -2309,7 +2310,7 @@ function bdSheet() {
   if (b.loading) return '<div class="sheetbg" data-act="bdclose"><div class="sheet"><div class="spin">Loading…</div></div></div>';
   var parts = (b.fare_base || 0) + (b.fare_distance || 0) + (b.fare_stops || 0) + (b.fare_surcharge || 0) + (b.fare_speed_adj || 0) + (b.fare_waiting || 0), rnd = b.fare_total - parts;
   b = Object.assign({}, b); if (rnd) { if (b.fare_surcharge && b.fare_surcharge + rnd > 0) b.fare_surcharge += rnd; else b.fare_distance = (b.fare_distance || 0) + rnd; } rnd = 0;
-  var sur = b.is_night ? "Night surcharge" : b.is_surge ? "High demand surcharge" : "Rush-hour surcharge";
+  var sur = b.is_surge ? "High demand surcharge" : b.is_night ? "Night surcharge" : "Rush-hour surcharge";
   var paid = b.fare_total + (b.tip || 0) + (b.abono_fee || 0), pay = b.payment_method === "cash" ? "Cash" : b.payment_method === "gcash" ? "GCash" : b.payment_method === "wallet" ? "PasuyoBuddy Wallet" : b.payment_method;
   return '<div class="sheetbg" data-act="bdclose"><div class="sheet" data-act="none">'
     + '<div class="row" style="align-items:center"><h2 class="sp" style="margin:0">Breakdown</h2><button class="btn sm" style="width:auto" data-act="bdclose">Close</button></div>'

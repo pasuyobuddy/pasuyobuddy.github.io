@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.57" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.58" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1186,7 +1186,8 @@ async function toVehicle() {
       legs.push(Math.max(0.5, Math.round(km * 10) / 10));
     }
     S.bk.legs = legs; S.bk.km = Math.round(legs.reduce(function (a, b) { return a + b; }, 0) * 10) / 10; S.bk.approx = approx;
-    S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1 });
+    try { S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1, p_lat: st[0].lat, p_lng: st[0].lng }); }
+    catch (e) { S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1 }); }   // server not updated yet
     if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular";
     go("vehicle");
   });
@@ -1797,15 +1798,16 @@ function vVehicle() {
   var veh = pr.vehicles.map(function (v) { var price = v[b.level] != null ? v[b.level] : v.regular, k = vehKey(v), inf = VEH_INFO[k] || ["", "", ""];
     if (b.vehicle === v.id) sel = v;
     return '<button class="vc ' + (b.vehicle === v.id ? "on" : "") + '" data-act="veh" data-id="' + v.id + '">' + (inf[2] ? '<span class="vtag">' + h(inf[2]) + "</span>" : "") + (VEH_ART[k] || "")
-      + '<div class="vn">' + h(v.name) + '</div><div class="vk">Up to ' + Number(v.max_kg).toLocaleString("en-PH") + ' kg</div><div class="vp">' + peso(price) + "</div>"
+      + '<div class="vn">' + h(v.name) + (v.hd_pct ? ' <span style="color:#B7791F;font-size:12px">&#9889;+' + v.hd_pct + "%</span>" : "") + '</div><div class="vk">Up to ' + Number(v.max_kg).toLocaleString("en-PH") + ' kg</div><div class="vp">' + peso(price) + "</div>"
       + '<div class="vm">' + (inf[0] ? "&#128230; Fits about " + h(inf[0]) + "<br>" : "") + (inf[1] ? "&#128077; " + h(inf[1]) : "") + "</div></button>"; }).join("");
   var help = S.vehHelp ? '<div class="card" style="padding:8px 10px"><table class="vhelp"><tr><th>Vehicle</th><th>Max</th><th>Fits about</th><th>Good for</th></tr>' + pr.vehicles.map(function (v) { var inf = VEH_INFO[vehKey(v)] || ["", ""]; return "<tr><td><b>" + h(v.name) + "</b></td><td>" + Number(v.max_kg).toLocaleString("en-PH") + " kg</td><td>" + h(inf[0]) + "</td><td>" + h(inf[1]) + "</td></tr>"; }).join("") + '</table><div class="small muted" style="margin-top:6px">Not sure? Choose the bigger vehicle. Items must fit inside the vehicle and be within the weight limit, or the rider may refuse them.</div></div>' : "";
   veh = '<div class="row" style="display:flex;justify-content:space-between;align-items:center;margin:2px 2px 0"><h2 style="margin:0">Choose vehicle</h2><button class="linkbtn" data-act="vehhelp">' + (S.vehHelp ? "Hide guide" : "How to decide?") + "</button></div>" + help + '<div class="vgrid">' + veh + "</div>";
   var hrs = S.me.settings.pooling_window_hours;
   return topBar("Choose vehicle", "home") + '<div class="body">'
     + '<div class="card"><div class="line"><span class="muted">Total distance</span><span class="b">' + b.km + " km" + (b.approx ? " (estimate)" : "") + '</span></div><div class="line"><span class="muted">Drop-offs</span><span class="b">' + (b.stops.length - 1) + "</span></div>"
-    + (pr.is_night ? '<div class="note n-warn" style="margin-top:6px">Night rate applies (10pm to 6am).</div>' : "")
-    + (pr.is_rush ? '<div class="note n-warn" style="margin-top:6px">&#128678; Rush-hour rate applies (+' + h(pr.rush_pct) + "%, " + h(pr.rush_hours) + "). Book outside rush hours to pay less.</div>" : "") + "</div>"
+    + (pr.is_night && !(sel && sel.hd_pct) ? '<div class="note n-warn" style="margin-top:6px">Night rate applies (10pm to 6am).</div>' : "")
+    + (sel && sel.hd_pct ? '<div class="note n-warn" style="margin-top:6px">&#9889; <b>High demand +' + h(sel.hd_pct) + '%</b>: many bookings and few free riders near your pickup right now. The extra goes to the rider. Prices go back to normal when more riders are free.</div>'
+       : pr.is_rush ? '<div class="note n-warn" style="margin-top:6px">&#128678; Rush-hour rate applies (+' + h(pr.rush_pct) + "%, " + h(pr.rush_hours) + "). Book outside rush hours to pay less.</div>" : "") + "</div>"
     + '<div class="card"><h2>Speed</h2><div class="chips"><button class="chip ' + (b.level === "regular" ? "on" : "") + '" data-act="level" data-v="regular">Regular</button><button class="chip ' + (b.level === "priority" ? "on" : "") + '" data-act="level" data-v="priority">Priority</button><button class="chip ' + (b.level === "pooling" ? "on" : "") + '" data-act="level" data-v="pooling"' + (ok ? "" : " disabled") + '>Saver</button></div>'
     + '<div class="small muted" style="margin-top:8px">' + (b.level === "priority" ? "Priority: your booking is offered to riders first." : b.level === "pooling" ? "Saver: cheaper, delivered within " + hrs + " hours, shared with other parcels." : ok ? "Saver is cheaper but takes up to " + hrs + " hours." : "Saver is for motorcycle, one drop-off, no COD.") + "</div></div>"
     + veh + '</div><div class="foot"><button class="btn pri" data-act="toreview">Review booking' + (sel ? " · " + h(sel.name) : "") + "</button></div>";
@@ -1813,7 +1815,7 @@ function vVehicle() {
 function quoteLines(q) {
   var L1 = '<div class="line"><span class="muted">Base fare</span><span>' + peso(q.fare_base) + '</span></div><div class="line"><span class="muted">Distance (' + q.total_km + ' km)</span><span>' + peso(q.fare_distance) + "</span></div>";
   if (q.fare_stops) L1 += '<div class="line"><span class="muted">Extra stops</span><span>' + peso(q.fare_stops) + "</span></div>";
-  if (q.fare_surcharge) L1 += '<div class="line"><span class="muted">' + (q.is_night ? "Night rate" : "Rush-hour rate") + '</span><span>' + peso(q.fare_surcharge) + "</span></div>";
+  if (q.fare_surcharge) L1 += '<div class="line"><span class="muted">' + (q.is_surge ? "High demand" + (q.hd_pct ? " (+" + q.hd_pct + "%)" : "") : q.is_night ? "Night rate" : "Rush-hour rate") + '</span><span>' + peso(q.fare_surcharge) + "</span></div>";
   if (q.fare_speed_adj) L1 += '<div class="line"><span class="muted">' + (q.fare_speed_adj > 0 ? "Priority" : "Saver discount") + "</span><span>" + (q.fare_speed_adj < 0 ? "−" : "") + peso(Math.abs(q.fare_speed_adj)) + "</span></div>";
   L1 += '<div class="line b"><span>Delivery fare</span><span>' + peso(q.fare_total) + "</span></div>";
   if (q.promo_discount) L1 += '<div class="line" style="color:var(--good)"><span>&#127873; First delivery promo</span><span class="b">−' + peso(q.promo_discount) + "</span></div>";
