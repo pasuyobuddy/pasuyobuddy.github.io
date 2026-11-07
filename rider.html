@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.89" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.90" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -1589,7 +1589,10 @@ async function finishJob() {
 async function showWallet() { stopTimers(); S.view = "wallet"; render(); window.scrollTo(0, 0);
   try { var res = await Promise.all([rpc("rider_wallet"), refreshTopups(), loadPromos()]); S.wallet = res[0]; if (S.view === "wallet") render(); loadTopupQuote(); } catch (e) { if (!S.wallet) toast(e.message, true); } }
 async function prefetchWallet() { try { S.wallet = await rpc("rider_wallet"); } catch (e) {} }
-async function showHistory() { stopTimers(); S.view = "history"; render(); try { S.history = await rpc("rider_history", { p_limit: 30 }); if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
+async function showHistory() { stopTimers(); S.view = "history"; render();
+  try { var l; try { l = await rpc("rider_history2", { p_limit: 80 }); } catch (e1) { l = await rpc("rider_history", { p_limit: 30 }); }
+    (l || []).forEach(function (o) { if (o.kind) o.status = o.kind === "completed" ? "completed" : o.kind; });
+    S.history = l; if (S.view === "history") render(); } catch (e) { toast(e.message, true); } }
 async function cashOut() {
   var amt = Number(val("w_amt")), g = val("w_gcash");
   if (!phoneOk(g)) { toast("Enter the GCash number to send to (11 digits starting with 09)", true); return; }
@@ -2274,6 +2277,29 @@ function dueNote(o) {
   }
   return "";
 }
+// Next job: when delivering near the last drop-off, the rider can accept ONE next booking close to it
+var NEXT = { at: 0, data: null, busy: false };
+function nextLoad(force) {
+  if (NEXT.busy || (!force && Date.now() - NEXT.at < 15000)) return; NEXT.busy = true; NEXT.at = Date.now();
+  rpc("rider_next_jobs").then(function (d) { var ch = JSON.stringify(d) !== JSON.stringify(NEXT.data); NEXT.data = d; if (ch && S.view === "job" && !S.stopForm) render(); })
+    .catch(function () { NEXT.data = null; }).then(function () { NEXT.busy = false; });
+}
+function nextCard() {
+  var o = S.order; if (!o || ["picked_up", "in_transit", "bought"].indexOf(o.status) < 0) return "";
+  var nx = S.me && S.me.next_order;
+  if (nx && nx.order_no) return '<div class="note n-good">&#9989; <b>Next job ' + h(nx.order_no) + "</b> (pickup in " + h(nx.pickup_area || "") + ") is waiting for you. Finish this delivery first, then go straight there.</div>";
+  nextLoad(false);
+  var d = NEXT.data; if (!d || d.on === false) return "";
+  if (!d.ok) return '<div class="small muted" style="text-align:center">&#128284; When you are within ' + (d.near_km || 2) + " km of your last drop-off, you can accept your next job near there.</div>";
+  if (!d.jobs || !d.jobs.length) return '<div class="small muted" style="text-align:center">&#128284; No next job near your drop-off right now.</div>';
+  return '<div class="card" style="border-color:#FFC629"><h2 style="margin:0 0 6px">&#128284; Next job near your drop-off</h2><div class="small muted" style="margin-bottom:8px">Accept now, finish this delivery first, then go straight to the pickup. No empty trip back.</div>'
+    + d.jobs.slice(0, 3).map(function (j) { return jobCard(j).replace('data-act="accept"', 'data-act="nextacc"').replace(/<button class="btn" style="flex:0 0 32%" data-act="hidejob"[^>]*>Hide<\/button>/, ""); }).join("") + "</div>";
+}
+async function acceptNext(id) {
+  await run(async function () { var ok = await rpc("rider_accept", { p_order: id }); S.busy = false;
+    if (!ok) { toast("Another rider got this job first", true); nextLoad(true); return; }
+    await reloadMe(); NEXT.data = null; render(); toast("Next job accepted. Finish this delivery first."); });
+}
 function vJob() {
   var o = S.order, st = o.status, pick = o.stops[0], next = nextStop(), foot = "", extra = "";
   if (st === "cancelled_by_customer") return topBar(o.order_no) + '<div class="body"><div class="note n-bad">The customer cancelled this booking.' + (o.cancel_reason ? " " + h(o.cancel_reason) : "") + '</div><button class="btn pri" data-act="home">Back to jobs</button></div>';
@@ -2297,7 +2323,7 @@ function vJob() {
   var canCancel = st === "accepted" || st === "at_pickup";
   var stops = o.stops.map(function (s) { var active = (s.kind === "pickup" && (st === "accepted" || st === "at_pickup")) || (next && s.id === next.id && st === "in_transit"); return stopBlock(s, active); }).join("");
   return topBar(o.order_no, pill(({ accepted: "Go to pickup", at_pickup: "At pickup", picked_up: "Picked up", in_transit: "Delivering" })[st] || st, "blue")) + '<div class="body">'
-    + locNote() + dueNote(o)
+    + locNote() + dueNote(o) + nextCard()
     + (o.needs_bag ? '<div class="note n-warn" style="font-weight:700">&#127890; The customer asked you to bring a delivery bag.</div>' : "")
     + chatBtn("Chat with customer", S.unread)
     + '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="job">&#9888;&#65039; Report a problem</button>'
@@ -2319,7 +2345,8 @@ function vDone() {
     + '<div class="line tot"><span>Your earnings</span><span style="color:var(--good)">' + peso(d.earns) + "</span></div>"
     + '<div class="small muted" style="margin-top:8px">You keep the cash you collected. The commission comes off your <b>load</b> only, never your earnings.</div></div>'
     + '<div class="card"><div class="line"><span class="muted">Balance now</span><span class="b">' + peso(d.wallet) + '</span></div></div>'
-    + '<button class="btn pri" data-act="home">Find the next job</button><button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="done" data-id="' + h(d.id) + '">&#9888;&#65039; Report a problem with this job</button></div>';
+    + (S.me && S.me.active_order ? '<button class="btn pri" data-act="nextgo">&#128284; Go to your next job</button>' : '<button class="btn pri" data-act="home">Find the next job</button>')
+    + '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen" data-from="done" data-id="' + h(d.id) + '">&#9888;&#65039; Report a problem with this job</button></div>';
 }
 var TX = { earning: "Online payment", commission_due: "Commission", tip: "Tip", abono: "Abono", reimbursement: "Reimbursement", payout: "Cash-out to GCash", top_up: "Top-up", adjustment: "Adjustment", penalty: "Penalty" };
 function vWallet() {
@@ -2377,9 +2404,17 @@ function histTop(list) {
     + (S.fold.hist ? "" : '<div class="small muted" style="margin-top:6px">Tap a job to see the full breakdown.</div>') + "</div>";
 }
 function vHistory() {
-  var list = S.history && S.history.filter(function (o) { return recent14(o.at); }), body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No jobs in the last 2 weeks.</div>'
-    : histTop(list) + (S.fold.hist ? "" : list.map(function (o) { var ok = o.status === "completed"; return '<div class="card' + (ok ? ' txl" data-act="txbd" data-o="' + h(o.id) + '"' : '"') + '><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + "</div></div><div class=\"right\">" + (ok ? '<div class="b" style="color:var(--good)">' + peso(o.rider_earns) + ' <span class="muted" style="font-weight:400">&rsaquo;</span></div><div class="small muted">commission &minus;' + peso(o.commission) + "</div>" : pill("Cancelled", "soft")) + "</div></div></div>"; }).join(""));
-  return topBar("History") + '<div class="body">' + body + "</div>" + nav("history") + bdSheet();
+  var all = S.history && S.history.filter(function (o) { return recent14(o.at); }), tab = S.histTab || "done";
+  var done = all && all.filter(function (o) { return o.status === "completed"; }), canc = all && all.filter(function (o) { return o.status !== "completed"; });
+  var tabs = '<div class="chips" style="gap:6px"><button class="chip' + (tab === "done" ? " on" : "") + '" data-act="htab" data-v="done">Completed' + (done ? " (" + done.length + ")" : "") + '</button><button class="chip' + (tab === "canc" ? " on" : "") + '" data-act="htab" data-v="canc">Canceled' + (canc ? " (" + canc.length + ")" : "") + "</button></div>";
+  var body;
+  if (!all) body = '<div class="spin">Loading…</div>';
+  else if (tab === "done") body = !done.length ? '<div class="card muted">No finished jobs in the last 2 weeks.</div>'
+    : histTop(done) + (S.fold.hist ? "" : done.map(function (o) { return '<div class="card txl" data-act="txbd" data-o="' + h(o.id) + '"><div class="row"><div class="sp"><div class="b">' + h(o.from_area) + " → " + h(o.to_area) + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + '</div></div><div class="right"><div class="b" style="color:var(--good)">' + peso(o.rider_earns) + ' <span class="muted" style="font-weight:400">&rsaquo;</span></div><div class="small muted">commission &minus;' + peso(o.commission) + "</div></div></div></div>"; }).join(""));
+  else body = !canc.length ? '<div class="card muted">No canceled jobs in the last 2 weeks. &#128077;</div>'
+    : '<div class="small muted">Give-ups count toward suspension (' + ((S.me.settings && S.me.settings.rider_cancel_limit) || 3) + " in 7 days). Only accept jobs you can finish.</div>"
+      + canc.map(function (o) { var gu = o.status === "gave_up"; return '<div class="card"><div class="row"><div class="sp"><div class="b">' + h(o.from_area || "") + " → " + h(o.to_area || "") + '</div><div class="small muted">' + h(o.order_no) + " · " + h(when(o.at)) + '</div></div><div class="right">' + pill(gu ? "You gave up" : "Customer canceled", gu ? "bad" : "soft") + '<div class="b" style="margin-top:4px">' + peso(0) + "</div></div></div></div>"; }).join("");
+  return topBar("History") + '<div class="body">' + tabs + body + "</div>" + nav("history") + bdSheet();
 }
 function photoUrl(p) { return p ? CONFIG.url + "/storage/v1/object/public/avatars/" + p : ""; }
 function photoCard() {
@@ -2592,6 +2627,9 @@ document.addEventListener("click", function (ev) {
   else if (a === "bdclose") { S.bd = null; render(); }
   else if (a === "lockfold") { S.lockFold = !S.lockFold; render(); }
   else if (a === "fold") { S.fold[d.v] = !S.fold[d.v]; render(); }
+  else if (a === "htab") { S.histTab = d.v; render(); }
+  else if (a === "nextacc") acceptNext(d.id);
+  else if (a === "nextgo") { if (S.me && S.me.active_order) run(async function () { await openJob(S.me.active_order); }); }
   else if (a === "batteryfix") { try { NAT.tr.openSettings({ what: "app" }); } catch (e) {} }
 });
 var tuT = null;
