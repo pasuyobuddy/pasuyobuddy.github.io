@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.62" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.63" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1815,7 +1815,7 @@ function vPlace() {
     + '<div class="field"><label for="pl_contact_phone">Mobile number</label><input class="in" id="pl_contact_phone" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(p.contact_phone) + '"></div>'
     + (i === 0 ? '<button class="btn sm yel" data-act="mecontact">Use my name and number</button>' : "")
     + (drop ? '<div class="field"><label>Who pays this drop-off\'s share of the fare?</label><div class="chips"><button class="chip ' + (p.payer === "sender" ? "on" : "") + '" data-act="payer" data-v="sender">I pay</button><button class="chip ' + (p.payer === "receiver" ? "on" : "") + '" data-act="payer" data-v="receiver">Receiver pays cash</button></div></div>'
-      + '<div class="field"><label for="pl_cod">COD: item price to collect from the receiver (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">The rider pays the seller at pickup, then collects this from the receiver.</span><span class="small" style="display:block;margin-top:4px;font-weight:700;color:var(--warn)">&#9888;&#65039; Abono fee: ' + peso(abonoFee() * 100) + ' when there is a COD amount (the rider advances the money). You choose on the next screen who pays it: the receiver or you.</span><span class="small muted">' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
+      + '<div class="field"><label for="pl_cod">Abono amount: what the rider pays the seller in advance (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">For COD items: the rider pays this amount to the seller at pickup, then collects it back from the receiver at the drop-off. Leave 0 if nothing needs to be paid.</span><span class="small" style="display:block;margin-top:4px;font-weight:700;color:var(--warn)">&#9888;&#65039; Abono fee: ' + peso(abonoFee() * 100) + ' when there is an abono amount (the rider advances the money). You choose on the next screen who pays it: the receiver or you.</span><span class="small muted">' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
     + '</div></div><div class="foot"><button class="btn pri" data-act="saveplace">Save this stop</button></div>';
 }
 // ---------------- Vehicle pictures (original PasuyoBuddy drawings) ----------------

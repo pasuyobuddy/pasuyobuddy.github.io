@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.91" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.92" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -2218,7 +2218,7 @@ function saveHidden() { try { var now = Date.now(); Object.keys(HIDDEN).forEach(
 function jobCard(j) {
   // Job offer card (Lalamove-style): distance to pickup on top, cities only, tags, payment and earnings
   var pu = j.scheduled_at && new Date(j.scheduled_at).getTime() > Date.now() + 15 * 60000 ? "Pick up " + new Date(j.scheduled_at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" }) : "Pick up now";
-  var tags = ['<span class="jtag">' + (j.service_type === "pabili" ? "&#128717; Pabili" : "&#128230; Padala") + "</span>",
+  var tags = ['<span class="jtag">' + (j.service_type === "pabili" ? "&#128717; Pabili" : "&#128230; Pasuyo") + "</span>",
     '<span class="jtag">' + (j.service_level === "priority" ? "&#9889; Priority" : j.service_level === "pooling" ? "Saver" : "Regular") + "</span>"];
   if (j.fav) tags.unshift('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#11088; Your favorite customer</span>');
   if (j.hd_pct) tags.push('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#9889; High demand +' + j.hd_pct + "%</span>");
@@ -2254,12 +2254,12 @@ document.addEventListener("click", function (ev) {
   riderPing(false);
 }, true);
 document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") riderPing(true); });
-// Which kind of jobs the rider wants: All / Padala only / Abono only (saved on the server, also used for job alerts)
+// Which kind of jobs the rider wants: All / Pasuyo only / Abono only (saved on the server, also used for job alerts)
 var JT = { v: null, info: null };
 async function jtLoad() { try { JT.info = await rpc("rider_job_types"); JT.v = JT.info.job_types; } catch (e) { JT.v = null; } if (S.view === "home") render(); }
 function jtChips() {
   if (!JT.v) return "";
-  var opts = [["all", "All jobs"], ["padala", "&#128230; Padala only"], ["abono", "&#128176; Abono only"]];
+  var opts = [["all", "All jobs"], ["padala", "&#128230; Pasuyo only"], ["abono", "&#128176; Abono only"]];
   var note = JT.v === "padala" ? "Only deliveries where you do not pay anything first."
     : JT.v === "abono" ? "Only jobs where you pay first (Pabili or COD) and earn the abono fee." + (JT.info && !JT.info.can_abono ? " <b>Unlocked after " + JT.info.abono_min_jobs + " finished jobs</b> (you have " + JT.info.jobs_done + ")." : "")
     : "";
