@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.63" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.64" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -828,7 +828,7 @@ async function rpc(name, params) {
 async function run(fn) { if (S.busy) return; S.busy = true; try { await fn(); } catch (e) { toast(isNetErr(e && e.message) ? NET_MSG : (e.message || "Something went wrong"), true); } finally { S.busy = false; } }
 // Typed amounts stay in the box when the screen refreshes (they used to disappear)
 var KEEP = {}, KEEP_IDS = /^(w_amt|w_gcash|tu_amt|e2l_amt)$/;
-document.addEventListener("input", function (ev) { var t = ev.target; if (t && t.id && KEEP_IDS.test(t.id)) KEEP[t.id] = { v: t.value, view: S.view }; });
+document.addEventListener("input", function (ev) { var t = ev.target; if (t && t.id === "pl_cod") { var fb = document.getElementById("abfeebox"); if (fb) fb.hidden = !(Number(t.value) > 0); } if (t && t.id && KEEP_IDS.test(t.id)) KEEP[t.id] = { v: t.value, view: S.view }; });
 function keepRestore() { Object.keys(KEEP).forEach(function (id) { var k = KEEP[id], el = document.getElementById(id); if (k.view !== S.view) { delete KEEP[id]; return; } if (el) el.value = k.v; }); }
 // Big "done" message (top-up successful, etc.)
 function okPop(title, body) {
@@ -1162,7 +1162,7 @@ function savePlace() {
   if (!phoneOk(p.contact_phone)) { toast(PHONE_MSG, true); return; }
   p.contact_phone = phoneFmt(p.contact_phone);
   if (p.kind === "dropoff" && Number(p.cod) > 0 && needsId()) { toast("COD needs a verified account. Go to Account and tap Verify my account, or clear the COD amount.", true); return; }
-  if (p.kind === "dropoff" && p.cod) { var c = Number(p.cod); if (!(c > 0)) { toast("COD amount must be a number", true); return; } var cap = S.me.settings.advance_cap; if (c > cap) { toast("COD can be up to " + peso(cap * 100) + " per booking", true); return; } }
+  if (p.kind === "dropoff" && p.cod) { var c = Number(p.cod); if (!(c > 0)) { toast("Abono amount must be a number", true); return; } var cap = S.me.settings.advance_cap; if (c > cap) { toast("Abono amount can be up to " + peso(cap * 100) + " per booking", true); return; } }
   p.area = areaOf(p.address);
   delete p.sug; S.bk.stops[S.editIdx] = p; S.bk.quote = null; S.bk.prices = null; go("home");
 }
@@ -1218,6 +1218,7 @@ async function toVehicle() {
     go("vehicle");
   });
 }
+function abonoOpts() { var b = abonoFee(); return [b, Math.round(b * 1.5), b * 2]; }
 function abonoFee() { return S.me && S.me.settings && S.me.settings.abono_fee != null ? Number(S.me.settings.abono_fee) : 50; }
 function hasCod() { return S.bk.stops.some(function (s) { return s.kind === "dropoff" && Number(s.cod) > 0; }); }
 function poolOk() { return S.bk.vehicle === 1 && S.bk.stops.length === 2 && !hasCod(); }
@@ -1227,7 +1228,7 @@ function payload() {
     tip: Math.round((Number(b.tip) || 0) * 100), tolls: 0, item_type: b.itemType, note: b.note || null, needs_bag: !!b.needsBag, fav_first: hasFavs() && b.favFirst !== false,
     stops: b.stops.map(function (s, i) {
       var o = { kind: s.kind, address: (s.detail ? s.detail + ", " : "") + s.address, area: s.area, lat: s.lat, lng: s.lng, contact_name: s.contact_name, contact_phone: s.contact_phone };
-      if (i > 0) { o.leg_km = b.legs[i - 1]; o.payer = s.payer; if (Number(s.cod) > 0) o.cod_amount = Math.round(Number(s.cod) * 100); }
+      if (i > 0) { o.leg_km = b.legs[i - 1]; o.payer = s.payer; if (Number(s.cod) > 0) { o.cod_amount = Math.round(Number(s.cod) * 100); o.abono_fee = s.abono || abonoFee(); } }
       return o; }) };
 }
 async function requote(thenView) { await run(async function () { S.bk.quote = await rpc("customer_quote", { p: payload() }); if (thenView) go(thenView); else render(); }); }
@@ -1322,7 +1323,13 @@ function vWallet() {
   if (!w) return topBar("Wallet") + '<div class="body"><div class="spin">Loading…</div></div>' + nav("wallet");
   var amt = S.topAmt || 200, quick = [100, 200, 500, 1000].filter(function (x) { return x >= w.topup_min && x <= w.topup_max; });
   // Top-up = green, refund = yellow, used for a booking / tip = yellow
-  var hist = !w.history.length ? '<div class="muted small">No transactions yet.</div>' : w.history.map(function (x) {
+  // History tabs: Bookings paid (bookings + tips) / Top-ups / Refunds (others like adjustments go with refunds)
+  var HT = { pay: function (x) { return x.kind === "payment" || x.kind === "tip"; }, top: function (x) { return x.kind === "top_up"; } };
+  HT.ref = function (x) { return !HT.pay(x) && !HT.top(x); };
+  var wt = S.wTab || "pay", cnt = function (k) { return w.history.filter(HT[k]).length; };
+  var wtabs = '<div class="chips" style="gap:6px;margin-bottom:6px;flex-wrap:nowrap">' + [["pay", "Bookings paid"], ["top", "Top-ups"], ["ref", "Refunds"]].map(function (t) { var n = cnt(t[0]); return '<button class="chip' + (wt === t[0] ? " on" : "") + '" style="padding:0 11px;font-size:14px" data-act="wtab" data-v="' + t[0] + '">' + t[1] + (n ? " (" + n + ")" : "") + "</button>"; }).join("") + "</div>";
+  var hl = w.history.filter(HT[wt]);
+  var hist = !hl.length ? '<div class="muted small">' + (wt === "pay" ? "No bookings paid from your wallet yet." : wt === "top" ? "No top-ups yet." : "No refunds yet.") + "</div>" : hl.map(function (x) {
     var cls = x.kind === "top_up" ? "wtx-g" : (x.kind === "refund" || x.kind === "payment" || x.kind === "tip") ? "wtx-y" : "wtx-s";
     var col = x.kind === "top_up" ? "var(--good)" : (x.kind === "refund" || x.kind === "payment" || x.kind === "tip") ? "#9A6B00" : "inherit";
     var lbl = x.kind === "payment" ? "Used for booking" : x.kind === "tip" ? "Used for tip" : walletLabel(x.kind);
@@ -1330,12 +1337,12 @@ function vWallet() {
   var tuOpen = S.wTopOpen == null ? !w.balance : S.wTopOpen;
   return topBar("PasuyoBuddy Wallet") + '<div class="body">'
     + (S.payMsg ? '<div class="note n-warn">' + h(S.payMsg) + "</div>" : "")
-    + '<div class="card" style="padding:12px 14px"><div class="row" style="align-items:center"><div class="sp"><div class="muted small">Balance</div><div style="font-size:26px;font-weight:800;line-height:1.1">' + peso(w.balance) + '</div></div><button class="btn sm' + (tuOpen ? "" : " pri") + '" style="width:auto" data-act="wtopen">' + (tuOpen ? "Close" : "&#65291; Top up") + '</button></div><div class="small muted" style="margin-top:4px">Pay for bookings without cash. Choose <b>Wallet</b> when you book.</div></div>'
+    + '<div class="card" style="padding:12px 14px"><div class="row" style="align-items:center"><div class="sp"><div class="muted small">Balance</div><div style="font-size:26px;font-weight:800;line-height:1.1">' + peso(w.balance) + '</div></div><button class="btn sm' + (tuOpen ? "" : " pri") + '" style="width:auto" data-act="wtopen">' + (tuOpen ? "Close" : "&#65291; Top up") + '</button></div></div>'
     + (!tuOpen ? "" : '<div class="card"><h2>Top up with GCash</h2><div class="chips">' + quick.map(function (x) { return '<button class="chip ' + (amt === x ? "on" : "") + '" data-act="wamt" data-v="' + x + '">' + peso(x * 100) + "</button>"; }).join("") + "</div>"
     + '<div class="field" style="margin-top:10px"><label for="w_amt">Amount (₱' + w.topup_min + " to ₱" + w.topup_max + ')</label><input class="in" id="w_amt" type="number" inputmode="numeric" value="' + h(amt) + '"></div>'
     + '<div class="line"><span class="muted">GCash fee</span><span id="w_fee">' + peso(gcashFee(amt * 100)) + '</span></div><div class="line tot"><span>You pay in GCash</span><span id="w_tot">' + peso(amt * 100 + gcashFee(amt * 100)) + "</span></div>"
     + '<button class="btn pri" data-act="wtopup">Top up with GCash</button><div class="small muted" style="margin-top:8px">Wallet money is only for PasuyoBuddy bookings and tips. It cannot be cashed out or sent to others. Cancelled bookings go back to your wallet.</div></div>')
-    + '<div class="card"><h2>History</h2><div class="small muted" style="margin:-4px 0 4px"><span class="wtx wtx-g">Top-up</span> money in · <span class="wtx wtx-y">Refund</span> / <span class="wtx wtx-y">Used</span> refunds and bookings</div>' + hist + "</div></div>" + nav("wallet");
+    + '<div class="card"><h2>History</h2>' + wtabs + hist + "</div></div>" + nav("wallet");
 }
 function wAmtInput() { var v = Number(val("w_amt")) || 0, c = Math.round(v * 100), f = $("w_fee"), t = $("w_tot"); S.topAmt = v; if (f) f.textContent = peso(gcashFee(c)); if (t) t.textContent = peso(c + gcashFee(c)); }
 function payParts(q) {   // how the sender's part is paid: wallet part + rest (GCash or cash)
@@ -1789,7 +1796,7 @@ function vHome() {
   var st = S.bk.stops, drops = st.length - 1;
   var rows = st.map(function (s, i) {
     var title = s.lat != null ? h((s.detail ? s.detail + ", " : "") + s.address) : (i === 0 ? "Where to pick up?" : "Where to deliver?");
-    var sub = s.lat != null ? h(s.contact_name + " · " + s.contact_phone) + (i > 0 ? " · " + (s.payer === "receiver" ? "Receiver pays fare" : "You pay fare") + (Number(s.cod) > 0 ? " · COD " + peso(Number(s.cod) * 100) + " + abono " + peso(abonoFee() * 100) : "") : "") : '<span class="muted">Tap to set</span>';
+    var sub = s.lat != null ? h(s.contact_name + " · " + s.contact_phone) + (i > 0 ? " · " + (s.payer === "receiver" ? "Drop-off pays fare" : "Pickup pays fare") + (Number(s.cod) > 0 ? " · Abono " + peso(Number(s.cod) * 100) + " + rider fee " + peso((s.abono || abonoFee()) * 100) : "") : "") : '<span class="muted">Tap to set</span>';
     return '<button class="stop" data-act="place" data-i="' + i + '"><span class="dot ' + (i === 0 ? "pk" : "dr") + '">' + (i === 0 ? "P" : i) + '</span><span class="sp"><span class="b" style="display:block">' + (s.lat != null ? title : '<span class="muted">' + title + "</span>") + '</span><span class="small muted">' + sub + "</span></span>"
       + (i > 0 && st.length > 2 ? '<span class="chip" style="min-height:30px;padding:0 10px;display:inline-flex;align-items:center" data-act="rmdrop" data-i="' + i + '">Remove</span>' : "") + "</button>";
   }).join("");
@@ -1814,8 +1821,9 @@ function vPlace() {
     + '<div class="field"><label for="pl_contact_name">' + (drop ? "Receiver's name" : "Contact name at pickup") + '</label><input class="in" id="pl_contact_name" value="' + h(p.contact_name) + '"></div>'
     + '<div class="field"><label for="pl_contact_phone">Mobile number</label><input class="in" id="pl_contact_phone" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(p.contact_phone) + '"></div>'
     + (i === 0 ? '<button class="btn sm yel" data-act="mecontact">Use my name and number</button>' : "")
-    + (drop ? '<div class="field"><label>Who pays this drop-off\'s share of the fare?</label><div class="chips"><button class="chip ' + (p.payer === "sender" ? "on" : "") + '" data-act="payer" data-v="sender">I pay</button><button class="chip ' + (p.payer === "receiver" ? "on" : "") + '" data-act="payer" data-v="receiver">Receiver pays cash</button></div></div>'
-      + '<div class="field"><label for="pl_cod">Abono amount: what the rider pays the seller in advance (optional)</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '"><span class="small muted">For COD items: the rider pays this amount to the seller at pickup, then collects it back from the receiver at the drop-off. Leave 0 if nothing needs to be paid.</span><span class="small" style="display:block;margin-top:4px;font-weight:700;color:var(--warn)">&#9888;&#65039; Abono fee: ' + peso(abonoFee() * 100) + ' when there is an abono amount (the rider advances the money). You choose on the next screen who pays it: the receiver or you.</span><span class="small muted">' + (needsId() ? " COD needs a verified account (Account, then Verify my account)." : "") + '</span></div>' : "")
+    + (drop ? '<div class="field"><label>Who pays the PasuyoBuddy fare?</label><div class="chips"><button class="chip ' + (p.payer === "sender" ? "on" : "") + '" data-act="payer" data-v="sender">Pickup pays</button><button class="chip ' + (p.payer === "receiver" ? "on" : "") + '" data-act="payer" data-v="receiver">Drop-off pays</button></div></div>'
+      + '<div class="field"><label for="pl_cod">Abono amount</label><input class="in" id="pl_cod" type="number" inputmode="decimal" min="0" placeholder="₱ 0" value="' + h(p.cod) + '">' + (needsId() ? '<span class="small muted">COD needs a verified account (Account, then Verify my account).</span>' : "") + '</div>'
+      + '<div class="field" id="abfeebox"' + (Number(p.cod) > 0 ? "" : " hidden") + '><label>Abono rider fee</label><div class="chips">' + abonoOpts().map(function (f) { return '<button class="chip ' + ((p.abono || abonoFee()) === f ? "on" : "") + '" data-act="abfee" data-v="' + f + '">' + peso(f * 100) + "</button>"; }).join("") + "</div></div>" : "")
     + '</div></div><div class="foot"><button class="btn pri" data-act="saveplace">Save this stop</button></div>';
 }
 // ---------------- Vehicle pictures (original PasuyoBuddy drawings) ----------------
@@ -1855,13 +1863,13 @@ function quoteLines(q) {
   if (q.fare_speed_adj) L1 += '<div class="line"><span class="muted">' + (q.fare_speed_adj > 0 ? "Priority" : "Saver discount") + "</span><span>" + (q.fare_speed_adj < 0 ? "−" : "") + peso(Math.abs(q.fare_speed_adj)) + "</span></div>";
   L1 += '<div class="line b"><span>Delivery fare</span><span>' + peso(q.fare_total) + "</span></div>";
   if (q.promo_discount) L1 += '<div class="line" style="color:var(--good)"><span>&#127873; First delivery promo</span><span class="b">−' + peso(q.promo_discount) + "</span></div>";
-  if (q.cod_amount) L1 += '<div class="line"><span class="muted">COD items</span><span>' + peso(q.cod_amount) + '</span></div><div class="line"><span class="muted">Abono fee (' + (q.abono_payer === "seller" ? "you pay" : "receiver pays") + ")</span><span>" + peso(q.abono_fee) + "</span></div>";
+  if (q.cod_amount) L1 += '<div class="line"><span class="muted">Abono amount</span><span>' + peso(q.cod_amount) + '</span></div><div class="line"><span class="muted">Abono rider fee (' + (q.abono_payer === "seller" ? "pickup pays" : "drop-off pays") + ")</span><span>" + peso(q.abono_fee) + "</span></div>";
   if (q.tip_amount) L1 += '<div class="line"><span class="muted">Tip for the rider</span><span>' + peso(q.tip_amount) + "</span></div>";
   return L1;
 }
 function stopLines(q) {
   return q.stops.filter(function (s) { return s.kind === "dropoff"; }).map(function (s) {
-    return '<div class="line"><span class="sp"><span class="b">Drop-off ' + s.seq + '</span> <span class="muted small">' + h(s.area || s.address) + '</span><br><span class="small muted">Fare share ' + peso(s.fare_share) + " · " + (s.fare_payer === "receiver" ? "receiver pays" : "you pay") + (s.cod_amount ? " · COD " + peso(s.cod_amount) + (q.abono_payer === "buyer" ? " + abono " + peso(s.abono_fee) : "") : "") + '</span></span><span class="b">' + (s.collect_amount ? "Collect " + peso(s.collect_amount) : "Nothing to collect") + "</span></div>"; }).join("");
+    return '<div class="line"><span class="sp"><span class="b">Drop-off ' + s.seq + '</span> <span class="muted small">' + h(s.area || s.address) + '</span><br><span class="small muted">Fare share ' + peso(s.fare_share) + " · " + (s.fare_payer === "receiver" ? "drop-off pays" : "pickup pays") + (s.cod_amount ? " · Abono " + peso(s.cod_amount) + (q.abono_payer === "buyer" ? " + rider fee " + peso(s.abono_fee) : "") : "") + '</span></span><span class="b">' + (s.collect_amount ? "Collect " + peso(s.collect_amount) : "Nothing to collect") + "</span></div>"; }).join("");
 }
 function vReview() {
   var b = S.bk, q = b.quote, tips = [0, 20, 50, 100], tq = Math.round((Number(b.tip) || 0) * 100);
@@ -1873,7 +1881,7 @@ function vReview() {
     + '<div class="card"><h2>What are you sending?</h2><div class="chips">' + items + '</div><div class="field" style="margin-top:12px"><label for="r_note">Note to rider (optional)</label><textarea class="in" id="r_note" placeholder="e.g. Call when outside">' + h(b.note) + "</textarea></div>"
       + '<label class="bagopt' + (b.needsBag ? " on" : "") + '"><input type="checkbox" id="r_bag" data-act="bagtoggle"' + (b.needsBag ? " checked" : "") + '><span><b>&#127890; Ask the rider to bring a delivery bag</b><br><span class="small muted">For food, groceries or many small items. Riders see this before they accept.</span></span></label></div>'
     + '<div class="card"><h2>Tip for the rider</h2><div class="small muted" style="margin-bottom:8px">100% goes to the rider.</div><div class="chips">' + tipChips + '</div><div class="row" style="margin-top:10px"><input class="in sp" id="r_tip" type="number" inputmode="decimal" placeholder="Other amount (₱)" value="' + h(b.customTip) + '"><button class="btn sm" data-act="customtip">Apply</button></div></div>'
-    + (q.cod_amount ? '<div class="card"><h2>Who pays the abono fee (' + peso(q.abono_fee) + ')?</h2><div class="small muted" style="margin-bottom:8px">Abono is the fee for the rider advancing the COD item money to the seller.</div><div class="chips"><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Receiver</button><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">I pay</button></div></div>' : "")
+    + (q.cod_amount ? '<div class="card"><h2>Who pays the abono rider fee (' + peso(q.abono_fee) + ')?</h2><div class="chips"><button class="chip ' + (b.abonoPayer === "seller" ? "on" : "") + '" data-act="abono" data-v="seller">Pickup pays</button><button class="chip ' + (b.abonoPayer === "buyer" ? "on" : "") + '" data-act="abono" data-v="buyer">Drop-off pays</button></div></div>' : "")
     + (hasFavs() ? '<label class="bagopt' + (b.favFirst !== false ? " on" : "") + '"><input type="checkbox" data-act="favfirst"' + (b.favFirst !== false ? " checked" : "") + '><span><b>&#11088; Favorite riders first</b><br><span class="small muted">Your ' + S.favs.riders.length + " favorite rider" + (S.favs.riders.length > 1 ? "s get" : " gets") + " this booking first. If none accepts in " + S.favs.mins + " minutes, all riders get it.</span></span></label>" : "")
     + payChoice(q)
     + '</div><div class="foot"><button class="btn pri" data-act="book">' + bookLabel(q) + "</button></div>";
@@ -1968,6 +1976,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "account") { S.chgOpen = false; go("account"); loadChg(); supLoadUnread().then(function () { if (S.view === "account") render(); }); rpc("customer_me").then(function (m) { var ch = m.id_status !== S.me.id_status; S.me = m; if (ch && S.view === "account") render(); }).catch(function () {}); }
   else if (a === "orders") showOrders();
   else if (a === "wallet") { S.payMsg = S.view === "wallet" ? S.payMsg : ""; go("wallet"); loadWallet().then(function () { if (S.view === "wallet") render(); }); }
+  else if (a === "wtab") { S.wTab = d.v; render(); }
   else if (a === "wamt") { delete KEEP.w_amt; S.topAmt = +d.v; render(); }
   else if (a === "wtopup") topupWallet();
   else if (a === "favfirst") { readReview(); S.bk.favFirst = !(S.bk.favFirst !== false); render(); }
@@ -2007,6 +2016,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "myloc") useMyLocation();
   else if (a === "mecontact") { readPlace(); S.place.contact_name = S.me.name; S.place.contact_phone = S.me.phone; $("pl_contact_name").value = S.me.name; $("pl_contact_phone").value = phoneFmt(S.me.phone); }
   else if (a === "payer") { readPlace(); S.place.payer = d.v; render(); }
+  else if (a === "abfee") { readPlace(); S.place.abono = +d.v; render(); }
   else if (a === "saveplace") savePlace();
   else if (a === "tovehicle") toVehicle();
   else if (a === "swap") swapStops();

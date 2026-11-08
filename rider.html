@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.93" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.94" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -2223,8 +2223,12 @@ function jobCard(j) {
   if (j.fav) tags.unshift('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#11088; Your favorite customer</span>');
   if (j.hd_pct) tags.push('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#9889; High demand +' + j.hd_pct + "%</span>");
   if (j.needs_bag) tags.push('<span class="jtag jbad">&#127890; Bring a bag</span>');
-  if (j.advance > 0) tags.push('<span class="jtag jbad">COD advance ' + peso(j.advance) + "</span>");
-  if (j.receivers_pay) tags.push('<span class="jtag">Receiver pays</span>');
+  if (j.advance > 0) tags.push('<span class="jtag jbad">Abono ' + peso(j.advance) + "</span>");
+  // Where the rider collects cash: at pickup (sender) and/or at drop-off (receiver)
+  var cash = j.payment_method === "cash", pab = j.service_type === "pabili";
+  var atPick = !pab && cash && (j.sender_pays != null ? j.sender_pays > 0 : !j.receivers_pay);
+  var atDrop = pab ? cash : (j.receiver_pays != null ? j.receiver_pays > 0 : !!j.receivers_pay);
+  var pays = (cash ? "" : '<span class="jpay jon">&#128179; Paid online</span>') + (atPick ? '<span class="jpay jcash">&#128181; Cash at pickup</span>' : "") + (atDrop ? '<span class="jpay jcash">&#128181; Cash at drop-off</span>' : "");
   var drops = j.drop_areas || [];
   var route = '<div class="jrt"><div class="jst"><span class="jdot"></span>' + h(j.pickup_area || "Pickup") + "</div>"
     + drops.map(function (d, i) { return '<div class="jst"><span class="jpin">&#128205;</span>' + h(d) + (drops.length > 1 ? ' <span class="muted small">(' + (i + 1) + ")</span>" : "") + "</div>"; }).join("") + "</div>";
@@ -2234,7 +2238,7 @@ function jobCard(j) {
     + '<div class="jcb"><div class="chips" style="gap:6px">' + tags.join("") + "</div>"
     + '<div class="row" style="align-items:flex-start;margin-top:8px">' + route + '<div class="muted small" style="margin-left:auto;white-space:nowrap">' + h((rider() && rider().vehicle) || "") + "</div></div>"
     + (j.note ? '<div class="small muted" style="margin-top:6px">&#128221; ' + h(j.note) + "</div>" : "")
-    + '<div class="row" style="align-items:flex-end;margin-top:10px"><span class="jpay ' + (j.payment_method === "cash" ? "jcash" : "jon") + '">' + (j.payment_method === "cash" ? "&#128181; Cash" : "&#128179; Paid online") + "</span>"
+    + '<div class="row" style="align-items:flex-end;margin-top:10px"><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">' + (pays || '<span class="jpay jon">&#128179; Paid online</span>') + "</div>"
     + '<div style="margin-left:auto;text-align:right">' + (price ? '<div class="small">' + price + "</div>" : "") + '<div class="b" style="font-size:20px;color:var(--good)">You keep ' + peso(j.rider_earns) + "</div>" + (j.commission != null ? '<div class="small muted">commission &minus;' + peso(j.commission) + "</div>" : "") + "</div></div>"
     + '<div class="row" style="margin-top:10px"><button class="btn" style="flex:0 0 32%" data-act="hidejob" data-id="' + j.order_id + '">Hide</button><button class="btn pri" style="flex:1" data-act="accept" data-id="' + j.order_id + '">Accept</button></div></div></div>';
 }
@@ -2289,7 +2293,7 @@ function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
   if (cash && o.sender_pays > 0) { rows += '<div class="line"><span><span class="b">At pickup</span><br><span class="small muted">collect from the customer (sender)</span></span><span class="b">' + peso(o.sender_pays) + "</span></div>"; total += o.sender_pays; }
   o.stops.forEach(function (x) { if (x.kind !== "dropoff") return;
-    if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (COD " + peso(x.cod_amount) + (x.abono_fee > 0 && o.abono_payer === "buyer" ? " + abono " + peso(x.abono_fee) : "") + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
+    if (x.collect_amount > 0) { rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect from the receiver' + (x.cod_amount > 0 ? " (abono " + peso(x.cod_amount) + (x.abono_fee > 0 && o.abono_payer === "buyer" ? " + rider fee " + peso(x.abono_fee) : "") + (x.fare_payer === "receiver" ? " + fare " + peso(x.fare_share) : "") + ")" : " (delivery fare)") + '</span></span><span class="b">' + peso(x.collect_amount) + "</span></div>"; total += x.collect_amount; }
     else rows += '<div class="line"><span><span class="b">Drop-off ' + x.seq + '</span><br><span class="small muted">collect nothing here' + (cash && x.fare_payer === "sender" ? " (fare share " + peso(x.fare_share) + " is already paid by the sender)" : "") + '</span></span><span class="muted">' + peso(0) + "</span></div>"; });
   var promo = o.promo_discount ? '<div class="note n-good" style="margin-top:8px">&#127873; <b>Customer promo ' + peso(o.promo_discount) + ':</b> the customer pays ' + peso(o.promo_discount) + " less. PasuyoBuddy adds " + peso(o.promo_discount) + " to your wallet (earnings) when the delivery is completed.</div>" : "";
   if (cash && o.wallet_applied > 0) promo = '<div class="note n-good" style="margin-top:8px">&#128179; <b>The customer paid ' + peso(o.wallet_applied) + ' from their PasuyoBuddy Wallet.</b> Collect only the cash shown above. The ' + peso(o.wallet_applied) + " goes to your wallet earnings when the delivery is completed.</div>" + promo;
@@ -2299,7 +2303,7 @@ function cashPlan(o) {
 }
 function stopBlock(s, active) {
   return '<div class="card"' + (active ? ' style="border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)"' : "") + '><div class="row" style="align-items:flex-start"><span class="dot ' + (s.kind === "pickup" ? "pk" : "dr") + '">' + (s.kind === "pickup" ? "P" : s.seq) + '</span><div class="sp"><div class="b">' + (s.kind === "pickup" ? "Pickup" : "Drop-off " + s.seq) + " " + (s.status === "done" ? pill("Done", "good") : s.status === "failed" ? pill("Not delivered", "bad") : s.status === "arrived" ? pill("Arrived", "blue") : "") + '</div><div class="small">' + h(s.address) + '</div><div class="small muted">' + h(s.contact_name || "") + (s.contact_phone ? " · " + h(s.contact_phone) : "") + "</div>"
-    + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (COD " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : (s.fare_payer === "sender" && s.fare_share > 0 ? "Collect nothing here. Fare share " + peso(s.fare_share) + " was paid by the sender at pickup." : "Nothing to collect here")) + "</div>" : "") + "</div></div>"
+    + (s.kind === "dropoff" ? '<div class="small b" style="margin-top:4px">' + (s.collect_amount > 0 ? "Collect " + peso(s.collect_amount) + " cash" + (s.cod_amount > 0 ? " (abono " + peso(s.cod_amount) + (s.fare_payer === "receiver" ? " + fare " + peso(s.fare_share) : "") + ")" : " (fare share)") : (s.fare_payer === "sender" && s.fare_share > 0 ? "Collect nothing here. Fare share " + peso(s.fare_share) + " was paid by the sender at pickup." : "Nothing to collect here")) + "</div>" : "") + "</div></div>"
     + (active && s.status === "pending" ? '<div class="row" style="margin-top:10px">' + (s.contact_phone ? '<a class="btn sm" style="flex:1" href="tel:' + h(phoneDigits(s.contact_phone)) + '">Call</a>' : "") + '<a class="btn sm" style="flex:1;background:#33CCFF;border-color:#33CCFF;color:#0B1F33;font-weight:800" target="_blank" rel="noopener" href="' + wazeLink(s) + '">Waze</a><a class="btn sm" style="flex:1" target="_blank" rel="noopener" href="' + navLink(s) + '">Maps</a></div>' : "") + "</div>";
 }
 // Time limits: reach the pick-up in time, then deliver directly ("like normal")
@@ -2345,7 +2349,7 @@ function vJob() {
   if (st === "cancelled_by_customer") return topBar(o.order_no) + '<div class="body"><div class="note n-bad">The customer cancelled this booking.' + (o.cancel_reason ? " " + h(o.cancel_reason) : "") + '</div><button class="btn pri" data-act="home">Back to jobs</button></div>';
   if (st === "accepted") { foot = '<button class="btn pri" data-act="step" data-s="at_pickup">I have arrived at the pickup</button>'; extra = nearNote(pick, "pickup"); }
   else if (st === "at_pickup") {
-    extra = '<div class="card"><h2>At the pickup</h2>' + (o.cod_amount > 0 ? '<div class="line"><span>Pay the seller for the COD item</span><span class="b">' + peso(o.cod_amount) + "</span></div>" : "")
+    extra = '<div class="card"><h2>At the pickup</h2>' + (o.cod_amount > 0 ? '<div class="line"><span>Pay the seller (abono amount)</span><span class="b">' + peso(o.cod_amount) + "</span></div>" : "")
       + (o.payment_method === "cash" ? '<div class="line"><span>Collect from the sender (cash)</span><span class="b">' + peso(o.sender_pays) + "</span></div>" : '<div class="line"><span>Sender already paid online</span><span class="b">Collect ' + peso(0) + "</span></div>") + '<div class="small muted">Check the parcel before you leave.</div>'
       + (o.service_type !== "pabili" ? '<div class="field" style="margin-top:10px"><label>Photo of the parcel' + (o.pickup_photo_required ? " (required)" : "") + '</label><label class="btn sm' + (o.pickup_photo ? "" : " pri") + '" style="cursor:pointer;width:100%">' + (o.pickup_photo ? "&#9989; Photo saved. Tap to retake" : "&#128247; Take a photo of the parcel") + '<input type="file" accept="image/*" capture="environment" data-pick="1" hidden></label></div>' : "") + "</div>" + nearNote(pick, "pickup");
     foot = '<button class="btn pri" data-act="step" data-s="picked_up,in_transit">Parcel picked up, start delivery</button>';
