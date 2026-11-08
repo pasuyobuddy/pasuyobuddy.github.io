@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.90" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.91" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -809,8 +809,34 @@ function when(t) { if (!t) return ""; return new Date(t).toLocaleString("en-PH",
 function km(m) { return m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(1) + " km"; }
 var toastT;
 function toast(msg, isErr) { var t = $("toast"); t.textContent = msg; t.className = "toast" + (isErr ? " err" : ""); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, isErr ? 6000 : 2600); }
-async function rpc(name, params) { var r = await sb.rpc(name, params || {}); if (r.error) throw new Error(r.error.message || "Something went wrong"); return r.data; }
-async function run(fn) { if (S.busy) return; S.busy = true; try { await fn(); } catch (e) { toast(e.message || "Something went wrong", true); } finally { S.busy = false; } }
+var NET_MSG = "No internet connection. Check your mobile data or Wi-Fi, then try again.";
+function isNetErr(m) { return /failed to fetch|networkerror|load failed|network request failed|fetch failed|failed to send a request/i.test(String(m || "")); }
+// Read-only calls are tried again by themselves when the signal drops for a moment
+var RPC_RETRY = /^(rider_me|rider_wallet|rider_topups|topup_quote|rider_jobs|rider_history2?|rider_job_breakdown|rider_next_jobs|rider_order|customer_wallet|customer_topup_status|customer_orders|customer_order|customer_favs)$/;
+async function rpc(name, params) {
+  for (var i = 0; ; i++) {
+    var r; try { r = await sb.rpc(name, params || {}); } catch (e) { r = { error: e }; }
+    if (!r.error) return r.data;
+    var m = r.error.message || String(r.error);
+    if (isNetErr(m)) { if (i < 2 && RPC_RETRY.test(name)) { await new Promise(function (ok) { setTimeout(ok, 1500 * (i + 1)); }); continue; } throw new Error(NET_MSG); }
+    throw new Error(m || "Something went wrong");
+  }
+}
+async function run(fn) { if (S.busy) return; S.busy = true; try { await fn(); } catch (e) { toast(isNetErr(e && e.message) ? NET_MSG : (e.message || "Something went wrong"), true); } finally { S.busy = false; } }
+// Typed amounts stay in the box when the screen refreshes (they used to disappear)
+var KEEP = {}, KEEP_IDS = /^(w_amt|w_gcash|tu_amt|e2l_amt)$/;
+document.addEventListener("input", function (ev) { var t = ev.target; if (t && t.id && KEEP_IDS.test(t.id)) KEEP[t.id] = { v: t.value, view: S.view }; });
+function keepRestore() { Object.keys(KEEP).forEach(function (id) { var k = KEEP[id], el = document.getElementById(id); if (k.view !== S.view) { delete KEEP[id]; return; } if (el) el.value = k.v; }); }
+// Big "done" message (top-up successful, etc.)
+function okPop(title, body) {
+  var o = document.getElementById("okpop"); if (o) o.remove();
+  o = document.createElement("div"); o.id = "okpop";
+  o.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:24px";
+  o.innerHTML = '<div style="background:#fff;border-radius:18px;padding:24px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25)"><div style="width:64px;height:64px;border-radius:50%;background:#E3F6EA;color:#0A7A3B;font-size:36px;line-height:64px;margin:0 auto 10px">&#10003;</div><div style="font-size:20px;font-weight:800;margin-bottom:6px">' + title + '</div><div style="color:#444;font-size:15px;line-height:1.45">' + body + '</div><button class="btn pri" style="margin-top:16px" id="okpop_btn">OK</button></div>';
+  document.body.appendChild(o);
+  var close = function () { o.remove(); }; document.getElementById("okpop_btn").onclick = close; o.onclick = function (e) { if (e.target === o) close(); };
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
+}
 function phoneDigits(v) { var d = String(v || "").replace(/\D/g, ""); if (d.indexOf("63") === 0) d = "0" + d.slice(2); else if (d.charAt(0) === "9") d = "0" + d; return d.slice(0, 11); }
 function phoneFmt(v) { var d = phoneDigits(v); return [d.slice(0, 4), d.slice(4, 7), d.slice(7, 11)].filter(Boolean).join(" "); }
 function phoneOk(v) { return /^09\d{9}$/.test(phoneDigits(v)); }
@@ -1597,7 +1623,7 @@ async function cashOut() {
   var amt = Number(val("w_amt")), g = val("w_gcash");
   if (!phoneOk(g)) { toast("Enter the GCash number to send to (11 digits starting with 09)", true); return; }
   if (!(amt > 0)) { toast("Enter the amount to cash out", true); return; }
-  await run(async function () { await rpc("rider_set_prefs", { p_radius_m: null, p_gcash: phoneDigits(g) }); await rpc("request_payout", { p_amount: Math.round(amt * 100) }); S.wallet = await rpc("rider_wallet"); await reloadMe(); render(); toast("Cash-out requested"); });
+  await run(async function () { await rpc("rider_set_prefs", { p_radius_m: null, p_gcash: phoneDigits(g) }); await rpc("request_payout", { p_amount: Math.round(amt * 100) }); S.wallet = await rpc("rider_wallet"); await reloadMe(); delete KEEP.w_amt; render(); okPop("Cash-out requested", peso(Math.round(amt * 100)) + " will be sent to GCash " + h(g) + ". Cash-outs are sent weekly."); });
 }
 async function setRegion(id) { await run(async function () { await rpc("rider_set_region", { p_region: id }); await reloadMe(); S.jobs = null; render(); HERE.at = 0; regionCheck(); toast(id ? "Showing all jobs in your region. It follows your GPS." : "Showing nearby jobs only"); }); }
 async function setRadius(m) { await run(async function () { await rpc("rider_set_prefs", { p_radius_m: m, p_gcash: null }); await reloadMe(); render(); toast("Pickup distance saved"); }); }
@@ -1826,16 +1852,30 @@ async function payTopup() {
     await openCheckout(d.checkout_url);
   });
 }
-async function refreshTopups() { try { TOPUP.list = await rpc("rider_topups"); } catch (e) { TOPUP.list = null; } }
+async function refreshTopups() { try { TOPUP.list = await rpc("rider_topups"); } catch (e) { TOPUP.list = null; } if (!TOPUP.returning && TOPUP.list) topupAnnounce(true); }
+// First time: remember old top-ups as already announced, so only new ones show "Top-up successful"
+(function () { try { if (!localStorage.getItem("pb_tu_seen")) localStorage.setItem("pb_tu_seen", JSON.stringify({ _init: Date.now() })); } catch (e) {} })();
 // Back from PayMongo: wait for the webhook to add the load, then show it
 async function topupReturn(pv) {
   var p = pv || new URLSearchParams(location.search).get("topup"); if (!p) return;
   if (!pv) try { history.replaceState(null, "", location.pathname); } catch (e) {}
   if (p === "cancel") { toast("GCash payment cancelled", true); return; }
   toast(p === "check" ? "Checking your GCash payment…" : "Payment received. Adding your load…");
+  TOPUP.returning = true;
   for (var i = 0; i < 12; i++) { await new Promise(function (r) { setTimeout(r, 2500); }); await refreshTopups(); if ((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; })) break; }
   try { await reloadMe(); S.wallet = await rpc("rider_wallet"); } catch (e) {}
-  render(); toast((TOPUP.list || []).some(function (t) { return t.status === "paid" && Date.now() - new Date(t.paid_at).getTime() < 15 * 60000; }) ? "Load added to your wallet" : (p === "check" ? "No GCash payment found yet. If you paid, your load will appear in a minute." : "Payment is still being confirmed. Check your wallet in a minute."));
+  TOPUP.returning = false; render();
+  if (!topupAnnounce()) toast(p === "check" ? "No GCash payment found yet. If you paid, your load will appear in a minute." : "Payment is still being confirmed. Check your wallet in a minute.");
+}
+// Show "Top-up successful" once for each paid GCash top-up (also if it was confirmed while the app was closed)
+function topupAnnounce(noLoad) {
+  var seen = {}; try { seen = JSON.parse(localStorage.getItem("pb_tu_seen") || "{}") || {}; } catch (e) {}
+  var fresh = (TOPUP.list || []).filter(function (t) { return t.status === "paid" && t.paid_at && !seen[t.id] && Date.now() - new Date(t.paid_at).getTime() < 24 * 3600000; });
+  if (!fresh.length) return false;
+  fresh.forEach(function (t) { seen[t.id] = 1; }); try { localStorage.setItem("pb_tu_seen", JSON.stringify(seen)); } catch (e) {}
+  var amt = fresh.reduce(function (a, t) { return a + (t.amount || 0); }, 0);
+  okPop("Top-up successful", peso(amt) + " was added to your load." + (!noLoad && S.wallet && S.wallet.load != null ? "<br>Your load now: <b>" + peso(S.wallet.load) + "</b>" : ""));
+  return true;
 }
 
 // ---------------- Screens ----------------
@@ -2530,6 +2570,7 @@ function vAccount() {
 function render() {
   killMap(); var v = S.view;
   $("app").innerHTML = v === "report" ? vReport() : v === "chat" ? vChat() : v === "confirmed" ? vConfirmed() : v === "auth" ? vAuth() : v === "apply" ? vApply() : v === "docs" ? vDocs() : v === "loi" ? vLoi() : v === "owa" ? vOwa() : v === "job" ? vJob() : v === "done" ? vDone() : v === "wallet" ? vWallet() : v === "history" ? vHistory() : v === "account" ? vAccount() : v === "deleteacct" ? vDelete() : v === "support" ? vSupport() : v === "supticket" ? vSupTicket() : vHome();
+  keepRestore();
   if (v === "job") drawJobMap();
   if (typeof ADS !== "undefined" && ADS.plugin) adsSync();
   if (v === "loi") loiCanvas();
@@ -2550,7 +2591,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "verifyback") { try { localStorage.removeItem("pb_verify_email"); } catch (e) {} S.authMode = "signup"; S.authMsg = ""; render(); }
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "signout") signOut();
-  else if (a === "tuamt") { TOPUP.amount = +d.v; var inp = $("tu_amt"); if (inp) inp.value = d.v; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", b === t); }); TOPUP.quote = null; loadTopupQuote(); }
+  else if (a === "tuamt") { delete KEEP.tu_amt; TOPUP.amount = +d.v; var inp = $("tu_amt"); if (inp) inp.value = d.v; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", b === t); }); TOPUP.quote = null; loadTopupQuote(); }
   else if (a === "tupay") payTopup();
   else if (a === "tureopen") reopenTopup();
   else if (a === "e2l") earningsToLoad();
