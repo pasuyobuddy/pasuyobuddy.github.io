@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.64" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.65" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1806,7 +1806,6 @@ function vHome() {
     + '<div class="card"><h2>Pasuyo Delivery</h2><div class="muted small" style="margin-bottom:6px">Send a parcel from one place to up to ' + MAX_DROPS + " drop-offs.</div>" + rows
     + (st.length === 2 && (st[0].lat != null || st[1].lat != null) ? '<button class="chip" data-act="swap" style="margin-top:8px">&#8645; Swap pick-up and drop-off</button>' : "") + "</div>"
     + (drops < MAX_DROPS ? '<button class="btn" data-act="adddrop">+ Add another drop-off</button>' : '<div class="muted small">Maximum of ' + MAX_DROPS + " drop-offs reached.</div>")
-    + '<div class="note n-info">Pabili (we buy it for you) is coming in the next version.</div>'
     + '</div><div class="foot" style="bottom:58px"><button class="btn pri" data-act="tovehicle"' + (stopsReady() ? "" : " disabled") + ">Choose vehicle</button></div>" + nav("home");
 }
 function vPlace() {
