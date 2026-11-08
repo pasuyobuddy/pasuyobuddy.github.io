@@ -796,7 +796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.65" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.66" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1327,7 +1327,7 @@ function vWallet() {
   var HT = { pay: function (x) { return x.kind === "payment" || x.kind === "tip"; }, top: function (x) { return x.kind === "top_up"; } };
   HT.ref = function (x) { return !HT.pay(x) && !HT.top(x); };
   var wt = S.wTab || "pay", cnt = function (k) { return w.history.filter(HT[k]).length; };
-  var wtabs = '<div class="chips" style="gap:6px;margin-bottom:6px;flex-wrap:nowrap">' + [["pay", "Bookings paid"], ["top", "Top-ups"], ["ref", "Refunds"]].map(function (t) { var n = cnt(t[0]); return '<button class="chip' + (wt === t[0] ? " on" : "") + '" style="padding:0 11px;font-size:14px" data-act="wtab" data-v="' + t[0] + '">' + t[1] + (n ? " (" + n + ")" : "") + "</button>"; }).join("") + "</div>";
+  var wtabs = '<div class="chips" style="gap:6px;margin-bottom:6px;flex-wrap:nowrap">' + [["pay", "Bookings paid"], ["top", "Top-ups"], ["ref", "Refunds"]].map(function (t) { var n = cnt(t[0]); return '<button class="chip' + (wt === t[0] ? " on" : "") + '" style="padding:0 10px;font-size:13px;white-space:nowrap;flex:0 1 auto;min-width:0" data-act="wtab" data-v="' + t[0] + '">' + t[1] + (n ? " (" + n + ")" : "") + "</button>"; }).join("") + "</div>";
   var hl = w.history.filter(HT[wt]);
   var hist = !hl.length ? '<div class="muted small">' + (wt === "pay" ? "No bookings paid from your wallet yet." : wt === "top" ? "No top-ups yet." : "No refunds yet.") + "</div>" : hl.map(function (x) {
     var cls = x.kind === "top_up" ? "wtx-g" : (x.kind === "refund" || x.kind === "payment" || x.kind === "tip") ? "wtx-y" : "wtx-s";
@@ -1922,8 +1922,8 @@ function vOrders() {
       done = (list || []).filter(function (o) { return o.status === "completed"; }),
       canc = (list || []).filter(function (o) { return ENDED.indexOf(o.status) >= 0 && o.status !== "completed"; });
   var tab = S.otab || (cur.length ? "cur" : "done");
-  var chip = function (k, label, n) { return '<button class="chip' + (tab === k ? " on" : "") + '" data-act="otab" data-v="' + k + '">' + label + (n ? " (" + n + ")" : "") + "</button>"; };
-  var tabs = '<div class="chips" style="gap:6px">' + chip("cur", "Ongoing", cur.length) + chip("done", "Completed", done.length) + chip("canc", "Canceled", canc.length) + "</div>";
+  var chip = function (k, label, n) { return '<button class="chip' + (tab === k ? " on" : "") + '" style="padding:0 10px;font-size:14px;white-space:nowrap" data-act="otab" data-v="' + k + '">' + label + (n ? " (" + n + ")" : "") + "</button>"; };
+  var tabs = '<div class="chips" style="gap:6px;flex-wrap:nowrap">' + chip("cur", "Ongoing", cur.length) + chip("done", "Completed", done.length) + chip("canc", "Canceled", canc.length) + "</div>";
   var show = tab === "cur" ? cur : tab === "done" ? done : canc;
   var empty = tab === "cur" ? "No ongoing booking right now." : tab === "done" ? "No completed deliveries yet." : "No canceled bookings.";
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
