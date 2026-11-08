@@ -793,7 +793,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.95" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.96" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -1572,7 +1572,7 @@ async function pollJob() {
 // Anti-fake delivery: how far the rider is from a stop, and whether the buttons work yet
 function stopDist(stp) { if (!S.pos || !stp || typeof L === "undefined") return null; try { return L.latLng(S.pos.lat, S.pos.lng).distanceTo(L.latLng(stp.lat, stp.lng)); } catch (e) { return null; } }
 function nearNote(stp, what) {
-  var g = S.order && S.order.geofence_m, d = stopDist(stp); if (!g || d == null || d <= g) return "";
+  var o = S.order, g = o && (what === "drop-off" ? (o.geofence_drop_m != null ? o.geofence_drop_m : o.geofence_m) : (o.geofence_pickup_m != null ? o.geofence_pickup_m : o.geofence_m)), d = stopDist(stp); if (!g || d == null || d <= g) return "";
   return '<div class="note n-warn" style="font-size:14px">&#128205; You are <b>' + km(d) + "</b> from the " + what + " pin. The buttons work when you are within <b>" + g + " m</b> of the pin.</div>";
 }
 function pickNeedPhoto() { var o = S.order; return !!(o && o.pickup_photo_required && o.service_type !== "pabili" && !o.pickup_photo); }
