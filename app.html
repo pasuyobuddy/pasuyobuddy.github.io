@@ -718,6 +718,7 @@ textarea.in{padding:10px 12px;min-height:70px;resize:vertical}
 .veh.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-s)}
 .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
 .vc{position:relative;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:6px 8px 8px;font:inherit;color:inherit;cursor:pointer;width:100%}
+.vc.off{opacity:.45;filter:grayscale(1);background:#f4f4f4}.vc .vtag.vnone{background:#777;color:#fff}
 .vc.on{border-color:var(--accent);background:#fff;box-shadow:0 0 0 2px var(--accent-s)}
 .vc svg,.vc img{width:100%;height:48px;object-fit:contain;display:block;margin:0 auto 4px}
 .vc .vn{font-weight:800;font-size:13.5px;line-height:1.2}.vc .vk{font-size:11.5px;color:var(--muted)}.vc .vp{font-size:14.5px;font-weight:800;color:var(--accent);margin-top:1px}
@@ -797,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.67" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.68" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var MAX_DROPS = 4;
@@ -1146,7 +1147,7 @@ async function submitId() {
 
 // ---------------- Booking flow ----------------
 function go(view) { stopPoll(); S.view = view; render(); window.scrollTo(0, 0); }
-function openPlace(i) { var s = S.bk.stops[i]; S.editIdx = i; S.place = JSON.parse(JSON.stringify(s)); S.place.sug = []; go("place"); }
+function openPlace(i) { var s = S.bk.stops[i]; S.editIdx = i; S.place = JSON.parse(JSON.stringify(s)); S.place.sug = []; S.place.addrTyped = !!S.place.address; S.place.pinAddr = ""; go("place"); }
 function addDrop() { if (S.bk.stops.length - 1 >= MAX_DROPS) return; S.bk.stops.push(newStop("dropoff")); openPlace(S.bk.stops.length - 1); }
 function removeDrop(i) { if (S.bk.stops.length <= 2) return; S.bk.stops.splice(i, 1); render(); }
 function readPlace() { var p = S.place; ["address", "detail", "contact_name", "contact_phone", "cod"].forEach(function (k) { var e = $("pl_" + k); if (e) p[k] = e.value.trim(); }); }
@@ -1165,7 +1166,7 @@ function savePlace() {
   if (p.kind === "dropoff" && Number(p.cod) > 0 && needsId()) { toast("COD needs a verified account. Go to Account and tap Verify my account, or clear the COD amount.", true); return; }
   if (p.kind === "dropoff" && p.cod) { var c = Number(p.cod); if (!(c > 0)) { toast("Abono amount must be a number", true); return; } var cap = S.me.settings.advance_cap; if (c > cap) { toast("Abono amount can be up to " + peso(cap * 100) + " per booking", true); return; } }
   p.area = areaOf(p.address);
-  delete p.sug; S.bk.stops[S.editIdx] = p; S.bk.quote = null; S.bk.prices = null; go("home");
+  delete p.sug; delete p.addrTyped; delete p.pinAddr; locReq++; S.bk.stops[S.editIdx] = p; S.bk.quote = null; S.bk.prices = null; go("home");
 }
 var sugT, revT;
 function onSearch(q) { clearTimeout(sugT); if (q.trim().length < 3) { drawSug([]); return; }
@@ -1174,7 +1175,7 @@ function drawSug(list) { if (!S.place) return; S.place.sug = list; var box = $("
   box.hidden = !list.length; box.innerHTML = list.map(function (f, i) { return '<button data-act="pick" data-i="' + i + '">' + h(f.label) + "</button>"; }).join(""); }
 async function pickSug(i) { var f = S.place.sug[i]; if (!f) return;
   if (f.lat == null && f.pp) { try { f = await GEO_G.resolve(f); } catch (e) { toast("Could not get that place. Try again or move the map pin.", true); return; } if (!S.place) return; }
-  readPlace(); S.place.address = f.label; S.place.area = areaOf(f.label); S.place.hwOk = false; S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
+  readPlace(); locReq++; S.place.addrTyped = true; S.place.pinAddr = ""; S.place.address = f.label; S.place.area = areaOf(f.label); S.place.hwOk = false; S.place.lat = f.lat; S.place.lng = f.lng; S.place.sug = []; render(); }
 function drawPlaceMap() {
   var el = $("pmap"); if (!el || typeof L === "undefined") return; killMap(); var p = S.place;
   mapObj = L.map(el, { zoomControl: true, minZoom: 9 }).setView(p.lat != null ? [p.lat, p.lng] : MANILA, p.lat != null ? 17 : 12); tiles(mapObj);
@@ -1182,17 +1183,26 @@ function drawPlaceMap() {
     if (!S.place) return; var c = mapObj.getCenter();
     S.place.lat = +c.lat.toFixed(6); S.place.lng = +c.lng.toFixed(6);
     clearTimeout(revT); revT = setTimeout(async function () {
-      try { var a = await GEO.reverse(S.place.lat, S.place.lng); if (a && S.place) { S.place.address = a; S.place.area = areaOf(a); S.place.hwOk = false; var e = $("pl_address"); if (e) e.value = a; updHw(); } } catch (e) {}
+      try { var a = cleanAddr(await GEO.reverse(S.place.lat, S.place.lng)); if (a && S.place) {
+        if (S.place.addrTyped) { S.place.pinAddr = a; pinHint(); }   // keep what the customer typed or picked
+        else { S.place.address = a; S.place.area = areaOf(a); S.place.hwOk = false; var e = $("pl_address"); if (e) e.value = a; updHw(); } } } catch (e) {}
     }, 500);
   });
 }
+var locReq = 0;
+// Remove a Google "plus code" like "H23X+85C, " from the start of an address
+function cleanAddr(a) { return a ? String(a).replace(/^[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3},?\s*/i, "").trim() : a; }
+function pinHint() { var el = $("pinhint"); if (!el) return; var a = S.place && S.place.addrTyped && S.place.pinAddr;
+  el.hidden = !a || a === (($("pl_address") || {}).value || "");
+  if (a) el.innerHTML = '&#128205; Pin address: ' + h(a) + ' <button class="linkbtn" data-act="usepin">Use it</button>'; }
 function useMyLocation() {
   if (!navigator.geolocation) { toast("Location is not available on this device", true); return; }
   toast("Finding your location…");
-  var done = false, here = function (pos) { done = true; if (mapObj) mapObj.setView([pos.coords.latitude, pos.coords.longitude], 17); };
+  var my = ++locReq; if (S.place) { S.place.addrTyped = false; S.place.pinAddr = ""; pinHint(); }
+  var done = false, here = function (pos) { done = true; if (my !== locReq) return; if (mapObj) mapObj.setView([pos.coords.latitude, pos.coords.longitude], 17); };
   // Quick rough position first (wifi / cell), then the exact GPS fix when it arrives.
   navigator.geolocation.getCurrentPosition(here, function () {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
-  navigator.geolocation.getCurrentPosition(function (pos) { here(pos); toast("Location found. Move the pin if it is not exact."); },
+  navigator.geolocation.getCurrentPosition(function (pos) { if (my !== locReq) return; here(pos); toast("Location found. Move the pin if it is not exact."); },
     function (e) { if (done) return; toast(e.code === 1 ? "Location permission is off. Allow location for this site and try again." : "Could not get your location yet. Try again, or search for the address.", true); },
     { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
 }
@@ -1215,10 +1225,14 @@ async function toVehicle() {
     S.bk.legs = legs; S.bk.km = Math.round(legs.reduce(function (a, b) { return a + b; }, 0) * 10) / 10; S.bk.approx = approx;
     try { S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1, p_lat: st[0].lat, p_lng: st[0].lng }); }
     catch (e) { S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1 }); }   // server not updated yet
+    S.bk.avail = null;
+    try { var av = await rpc("vehicle_availability", {}); if (Array.isArray(av)) { S.bk.avail = {}; av.forEach(function (r) { S.bk.avail[r.vehicle_type_id] = r.riders; }); } } catch (e) {}   // server not updated yet: all stay open
+    if (vehNone(S.bk.vehicle)) { var fv = S.bk.prices.vehicles.filter(function (v) { return !vehNone(v.id); })[0]; if (fv) S.bk.vehicle = fv.id; }
     if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular";
     go("vehicle");
   });
 }
+function vehNone(id) { return !!(S.bk.avail && S.bk.avail[id] === 0); }
 function abonoOpts() { var b = abonoFee(); return [b, Math.round(b * 1.5), b * 2]; }
 function abonoFee() { return S.me && S.me.settings && S.me.settings.abono_fee != null ? Number(S.me.settings.abono_fee) : 50; }
 function hasCod() { return S.bk.stops.some(function (s) { return s.kind === "dropoff" && Number(s.cod) > 0; }); }
@@ -1816,7 +1830,7 @@ function vPlace() {
     + '<div class="map"><div id="pmap" style="height:100%"></div><div class="pin">📍</div></div>'
     + '<div class="row"><div class="sp small muted">Move the map so the pin is on the exact spot.</div><button class="btn sm yel" data-act="myloc">Use my location</button></div>' + hwNote()
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px">'
-    + '<div class="field"><label for="pl_address">Address (filled in from the pin, you can edit it)</label><input class="in" id="pl_address" placeholder="Search above or move the map" value="' + h(p.address) + '"></div>'
+    + '<div class="field"><label for="pl_address">Address (filled in from the pin, you can edit it)</label><input class="in" id="pl_address" placeholder="Search above or move the map" value="' + h(p.address) + '"><div id="pinhint" class="small muted" style="margin-top:4px" hidden></div></div>'
     + '<div class="field"><label for="pl_detail">Unit, floor or landmark (optional)</label><input class="in" id="pl_detail" value="' + h(p.detail) + '"></div>'
     + '<div class="field"><label for="pl_contact_name">' + (drop ? "Receiver's name" : "Contact name at pickup") + '</label><input class="in" id="pl_contact_name" value="' + h(p.contact_name) + '"></div>'
     + '<div class="field"><label for="pl_contact_phone">Mobile number</label><input class="in" id="pl_contact_phone" type="tel" inputmode="numeric" maxlength="13" placeholder="09XX XXX XXXX" value="' + h(p.contact_phone) + '"></div>'
@@ -1841,7 +1855,8 @@ function vVehicle() {
   var sel = null;
   var veh = pr.vehicles.map(function (v) { var price = v[b.level] != null ? v[b.level] : v.regular, k = vehKey(v), inf = VEH_INFO[k] || ["", "", ""];
     if (b.vehicle === v.id) sel = v;
-    return '<button class="vc ' + (b.vehicle === v.id ? "on" : "") + '" data-act="veh" data-id="' + v.id + '">' + (inf[2] ? '<span class="vtag">' + h(inf[2]) + "</span>" : "") + (VEH_ART[k] || "")
+    var none = vehNone(v.id);
+    return '<button class="vc ' + (none ? "off" : b.vehicle === v.id ? "on" : "") + '" data-act="' + (none ? "vehnone" : "veh") + '" data-id="' + v.id + '">' + (none ? '<span class="vtag vnone">No riders yet</span>' : inf[2] ? '<span class="vtag">' + h(inf[2]) + "</span>" : "") + (VEH_ART[k] || "")
       + '<div class="vn">' + h(v.name) + (v.hd_pct ? ' <span style="color:#B7791F;font-size:12px">&#9889;+' + v.hd_pct + "%</span>" : "") + '</div><div class="vk">Up to ' + Number(v.max_kg).toLocaleString("en-PH") + ' kg</div><div class="vp">' + peso(price) + "</div>"
       + '<div class="vm">' + (inf[0] ? "&#128230; Fits about " + h(inf[0]) + "<br>" : "") + (inf[1] ? "&#128077; " + h(inf[1]) : "") + "</div></button>"; }).join("");
   var help = S.vehHelp ? '<div class="card" style="padding:8px 10px"><table class="vhelp"><tr><th>Vehicle</th><th>Max</th><th>Fits about</th><th>Good for</th></tr>' + pr.vehicles.map(function (v) { var inf = VEH_INFO[vehKey(v)] || ["", ""]; return "<tr><td><b>" + h(v.name) + "</b></td><td>" + Number(v.max_kg).toLocaleString("en-PH") + " kg</td><td>" + h(inf[0]) + "</td><td>" + h(inf[1]) + "</td></tr>"; }).join("") + '</table><div class="small muted" style="margin-top:6px">Not sure? Choose the bigger vehicle. Items must fit inside the vehicle and be within the weight limit, or the rider may refuse them.</div></div>' : "";
@@ -2021,8 +2036,11 @@ document.addEventListener("click", function (ev) {
   else if (a === "tovehicle") toVehicle();
   else if (a === "swap") swapStops();
   else if (a === "vehhelp") { S.vehHelp = !S.vehHelp; render(); }
+  else if (a === "usepin") { if (S.place && S.place.pinAddr) { readPlace(); S.place.address = S.place.pinAddr; S.place.area = areaOf(S.place.pinAddr); S.place.hwOk = false; S.place.addrTyped = false; S.place.pinAddr = ""; render(); } }
+  else if (a === "vehnone") toast("No rider for this vehicle yet. Please choose another vehicle.", true);
   else if (a === "veh") { S.bk.vehicle = +d.id; if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular"; render(); }
   else if (a === "level") { S.bk.level = d.v; render(); }
+  else if (a === "toreview" && vehNone(S.bk.vehicle)) toast("No rider for this vehicle yet. Please choose another vehicle.", true);
   else if (a === "toreview") { loadWallet(); requote("review"); }
   else if (a === "vehicleback") { readReview(); go("vehicle"); }
   else if (a === "tip") setTip(+d.v);
@@ -2047,6 +2065,7 @@ document.addEventListener("change", function (ev) {
 document.addEventListener("input", function (ev) {
   var id = ev.target.id;
   if (id === "pl_q") onSearch(ev.target.value);
+  if (id === "pl_address" && S.place) { S.place.addrTyped = true; locReq++; pinHint(); }
   if (id === "w_amt") wAmtInput();
   if (id === "p_phone" || id === "pl_contact_phone" || id === "c_phone") ev.target.value = phoneFmt(ev.target.value);   // numbers only, auto-spaced
 });
@@ -2081,6 +2100,9 @@ boot();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan); else scan();
 })();
 </script>
-<script>document.addEventListener("gesturestart",function(e){e.preventDefault();},{passive:false});</script>
+<script>document.addEventListener("gesturestart",function(e){e.preventDefault();},{passive:false});
+// Block 2-finger page zoom (also when Chrome "Force enable zoom" is on). Maps can still be pinched.
+(function(){function g(e){if(e.touches&&e.touches.length>1&&!(e.target.closest&&e.target.closest(".leaflet-container"))){e.preventDefault();}}
+document.addEventListener("touchstart",g,{passive:false});document.addEventListener("touchmove",g,{passive:false});})();</script>
 </body>
 </html>
