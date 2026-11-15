@@ -1,34 +1,53 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "io.github.pasuyobuddy.twa",
-      "sha256_cert_fingerprints": ["FB:25:93:AC:B0:68:83:5E:00:B4:1E:45:8A:21:44:FD:A6:79:23:97:88:7A:83:98:D8:46:2E:A4:55:BA:0F:8B"]
+      "sha256_cert_fingerprints": [
+        "FB:25:93:AC:B0:68:83:5E:00:B4:1E:45:8A:21:44:FD:A6:79:23:97:88:7A:83:98:D8:46:2E:A4:55:BA:0F:8B"
+      ]
     }
   },
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "io.github.pasuyobuddy.rider",
-      "sha256_cert_fingerprints": ["5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"]
+      "sha256_cert_fingerprints": [
+        "5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"
+      ]
     }
   },
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.pasuyobuddy.app",
-      "sha256_cert_fingerprints": ["C4:D0:13:70:97:5C:60:4E:6C:B3:13:5E:EB:C8:B6:D0:DF:FD:E1:DB:90:29:8A:E3:A1:17:EB:27:2E:77:D3:8D"]
+      "sha256_cert_fingerprints": [
+        "C4:D0:13:70:97:5C:60:4E:6C:B3:13:5E:EB:C8:B6:D0:DF:FD:E1:DB:90:29:8A:E3:A1:17:EB:27:2E:77:D3:8D",
+        "A3:0B:5B:E5:2B:FC:95:CA:3D:09:33:13:A3:8E:96:D7:38:6C:5E:F5:87:0F:89:70:97:11:1E:04:E8:7D:F4:4F",
+        "07:EE:DE:81:6F:08:E4:56:8E:28:EA:79:28:9A:FF:B4:DC:77:7E:C3:93:F1:E7:FE:3E:A1:E4:2C:FF:19:A2:F1",
+        "49:2E:E7:56:15:6A:91:0A:3B:29:45:62:55:00:0D:07:5D:13:8D:2D:A3:D5:1A:95:46:C9:93:19:8D:4E:74:24"
+      ]
     }
   },
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.pasuyobuddy.rider",
-      "sha256_cert_fingerprints": ["5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"]
+      "sha256_cert_fingerprints": [
+        "5B:B6:1C:68:1A:04:65:02:99:2A:03:5F:08:BB:12:95:3A:4D:C4:F0:46:53:22:0F:C5:17:B4:28:CA:04:B0:5F"
+      ]
     }
   }
 ]
