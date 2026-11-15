@@ -792,7 +792,7 @@ function statusPill(s) { var x = STATUS[s] || [s, "soft"]; return pill(x[0], x[1
 var AREAS = [["overview", "Overview"], ["orders", "Orders"], ["reports", "Reports"], ["support", "Support"], ["riders", "Riders"], ["customers", "Customers"], ["money", "Money"], ["accounting", "Accounting"], ["pricing", "Settings"], ["staff", "Staff"]];
 var ROLE_NAME = { owner: "Owner", dispatcher: "Dispatcher", finance: "Finance", viewer: "Viewer (view only)" };
 // Viewer: sees every section except Staff, but every change is blocked (the server blocks it too)
-var VIEW_ONLY_ACTS = " acct-ask acct-on cash-block cpromo-block cwallet-adjust del-done doc gcash-connect id-review inv-done lift-susp load-open owner-confirm payout pchg pcorrect promo-give rates-save reoffer rider-phone rider-remind rider-status route-keep staff-remove sup-reply sup-close cancel-start ";
+var VIEW_ONLY_ACTS = " acct-ask acct-on tester-mark cash-block cpromo-block cwallet-adjust del-done doc gcash-connect id-review inv-done lift-susp load-open owner-confirm payout pchg pcorrect promo-give rates-save reoffer rider-phone rider-remind rider-status route-keep staff-remove sup-reply sup-close cancel-start ";
 var VIEW_ONLY_FORMS = " cancel-order load-add rep-resolve staff-add acct-do ";
 function isViewer() { return !!(S.me && S.me.staff_role === "viewer"); }
 
@@ -808,7 +808,7 @@ async function loadTab() {
   if (t === "money") S.money = await rpc("admin_money", { p_days: S.moneyDays });
   if (t === "money") { try { S.gcash = await rpc("admin_gcash_status"); } catch (e) { S.gcash = null; } try { S.promos = await rpc("admin_promos"); } catch (e) { S.promos = null; } try { S.cpromos = await rpc("admin_customer_promos"); } catch (e) { S.cpromos = null; } try { S.cwallets = await rpc("admin_customer_wallets"); } catch (e) { S.cwallets = null; } try { S.invs = await rpc("admin_invoice_requests"); } catch (e) { S.invs = null; } }   // customer wallets need the v2.29 update   // needs the v2.13 database update
   if (t === "accounting") { if (!S.accFrom) accRange("month"); S.acc = null; render(); S.acc = await rpc("admin_accounting", { p_from: S.accFrom, p_to: S.accTo }); }
-  if (t === "pricing") { S.rates = await rpc("admin_rates"); S.draft = makeDraft(S.rates); }
+  if (t === "pricing") { S.rates = await rpc("admin_rates"); S.draft = makeDraft(S.rates); try { S.testers = await rpc("admin_tester_list"); } catch (e) { S.testers = null; } }
   if (t === "staff") S.staff = await rpc("admin_staff");
   if (t === "support" || (t === "overview" && canSee("support"))) { try { var sl = await rpc("admin_support_list", { p_filter: t === "support" ? (S.supFilter || "open") : "open" }); S.openSupport = sl.open_count; if (t === "support") S.supList = sl.items; } catch (e) { S.supList = null; S.openSupport = 0; } }   // support needs the v2.36 update
   if (t === "reports" || (t === "overview" && canSee("reports"))) { try { var rr = await rpc("admin_reports", { p_status: t === "reports" ? (S.repFilter || "open") : "open" }); S.openReports = rr.open_count; if (t === "reports") S.reports = rr.items; } catch (e) { S.reports = null; S.openReports = 0; } }   // needs the v2.9 database update
@@ -1397,6 +1397,17 @@ function viewMoney() {
     "<div><h2>Daily sales</h2>" + (daily ? '<div class="tablewrap"><table><thead><tr><th>Day</th><th>Orders</th><th>Fares</th><th>Commission</th></tr></thead><tbody>' + daily + "</tbody></table></div>" : '<div class="card empty">No completed orders in this period.</div>') + "</div>";
 }
 
+function testersCard() {
+  var L = S.testers;
+  if (L && !Array.isArray(L)) L = [L];
+  if (L === null || L === undefined) return '<div class="card small muted">Tester sign-ups need the v2.61 database update.</div>';
+  var nw = L.filter(function (t) { return !t.added_at; });
+  var rows = L.map(function (t) { return '<tr><td>' + h(t.email) + '</td><td>' + h(t.name || "") + '</td><td class="small muted">' + when(t.created_at) + '</td><td>' + (t.added_at ? '<span class="small" style="color:var(--good);font-weight:700">Added</span>' : '<span class="small" style="color:var(--bad);font-weight:700">New</span>') + "</td></tr>"; }).join("");
+  return '<div class="card" style="display:flex;flex-direction:column;gap:10px"><h2 style="margin:0">&#129514; Tester sign-ups</h2>'
+    + '<div class="small muted">From pasuyobuddy.com/tester. <b>' + nw.length + '</b> new · ' + L.length + ' total. Copy the new emails, paste them into Play Console (Closed testing → Testers → your email list), then press "Mark as added".</div>'
+    + '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn dark" data-act="testers-copy"' + (nw.length ? "" : " disabled") + '>&#128203; Copy ' + nw.length + ' new email(s)</button><button class="btn" data-act="testers-copy-all"' + (L.length ? "" : " disabled") + '>Copy all</button><button class="btn" data-act="tester-mark"' + (nw.length ? "" : " disabled") + '>&#10003; Mark new as added</button></div>'
+    + (L.length ? '<div class="tablewrap"><table><thead><tr><th>Email</th><th>Name</th><th>Signed up</th><th>Status</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="small muted">No sign-ups yet.</div>') + "</div>";
+}
 function viewPricing() {
   if (!S.rates || !S.draft) return '<div class="empty">Loading…</div>';
   var o = makeDraft(S.rates), d = S.draft, diff = diffRates();
@@ -1439,7 +1450,7 @@ function viewPricing() {
   else if (cat === "loc") body = box("Location & geofencing", "<b>100</b> = strict (for launch) · <b>1000</b> = within 1 km (testing in the Philippines) · <b>0</b> = check off (testing from abroad).", inCat("loc"));
   else if (cat === "verify") body = box("Pickup & delivery verification", "1 = required, 0 = optional.", inCat("verify"));
   else if (cat === "promo") body = promoCard + box("Favorite riders", "", inCat("promo"));
-  else if (cat === "test") body = box("Testing", "Set these back before the public launch.", inCat("test"));
+  else if (cat === "test") body = box("Testing", "Set these back before the public launch.", inCat("test")) + testersCard();
   return '<div style="display:flex;flex-direction:column;gap:18px">' + body + "</div>" + '<div class="card row" style="position:sticky;bottom:12px;box-shadow:0 6px 24px rgba(0,0,0,.08)"><b style="flex:1">' + (diff.count ? diff.count + " change group(s) not saved · new bookings use them right away" : "No unsaved changes") + '</b><input type="text" id="rateNote" placeholder="Note for the log (optional)" value="' + h(S.rateNote) + '" style="width:260px" aria-label="Note for the change log"><button class="btn" data-act="rates-discard"' + (diff.count ? "" : " disabled") + '>Discard</button><button class="btn primary" data-act="rates-save"' + (diff.count ? "" : " disabled") + ">Save &amp; apply now</button></div>" + (cat === "price" ? '<div class="card" style="display:flex;flex-direction:column;gap:8px"><h2>Price change log</h2>' + (log || '<div class="small muted">No changes yet.</div>') + '<div class="small muted">Bookings already made keep the price they were booked at.</div></div>' : "");
 }
 
@@ -1546,6 +1557,9 @@ document.addEventListener("click", function (e) {
     else if (!confirm("Undo the owner confirmation?")) return;
     return void run(async function () { await rpc("admin_owner_confirm", { p_rider: d.id, p_ok: ok, p_note: note }); try { S.owners = await rpc("admin_rider_owner_info"); } catch (e) {} render(); toast(ok ? "Owner confirmed" : "Confirmation removed"); }); }
   if (a === "rider-remind") { if (!confirm((d.k === "owner_papers" ? "Send the 'owner papers needed' email" : "Send the 'finish your documents' reminder") + " to " + d.email + " now?")) return; return void run(async function () { var msg = await rpc("admin_rider_email", { p_rider: d.id, p_kind: d.k }); try { S.remind = await rpc("admin_rider_reminders"); } catch (e) {} render(); toast(msg || "Email sent"); }); }
+  if (a === "testers-copy" || a === "testers-copy-all") { var lst = [].concat(S.testers || []).filter(function (t) { return a === "testers-copy-all" || !t.added_at; }).map(function (t) { return t.email; }).join(", ");
+    (navigator.clipboard ? navigator.clipboard.writeText(lst) : Promise.reject()).then(function () { toast("Copied " + (lst ? lst.split(", ").length : 0) + " email(s)"); }, function () { window.prompt("Copy these emails:", lst); }); return; }
+  if (a === "tester-mark") { if (!confirm("Mark all NEW emails as added to Play Console?")) return; return void run(async function () { var n = await rpc("admin_tester_mark_added"); S.testers = await rpc("admin_tester_list"); render(); toast(n + " marked as added"); }); }
   if (a === "copy-email") { var em = d.email || ""; (navigator.clipboard ? navigator.clipboard.writeText(em) : Promise.reject()).then(function () { toast("Copied: " + em); }, function () { window.prompt("Copy this email:", em); }); return; }
   if (a === "go") { if (d.tab === "support") S.supT = null; if (d.tab === "pricing" && S.tab !== "pricing") S.setCat = "price"; return void go(d.tab); }
   if (a === "setcat") { S.setCat = d.c; render(); window.scrollTo(0, 0); return; }
