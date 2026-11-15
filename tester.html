@@ -54,19 +54,7 @@ footer a{margin:0 8px}
 <header><div class="wrap hd"><a class="home" href="index.html">PasuyoBuddy</a></div></header>
 <main class="wrap">
   <h1>Salamat sa pagtulong! &#128591;</h1>
-  <p class="lead">Help us test PasuyoBuddy. Join and install <b>both apps</b>, it only takes 2 minutes.</p>
-  <div class="card reg" id="reg">
-    <h2 style="margin:0 0 4px">&#9997; Step 0: Register your Gmail first</h2>
-    <p class="small" style="text-align:left;margin:0">We need your email to add you as a tester. We'll add you within 24 hours, then come back here and do Steps 1 and 2.</p>
-    <label for="t_email">Your Gmail</label>
-    <input id="t_email" type="email" inputmode="email" autocomplete="email" placeholder="yourname@gmail.com">
-    <label for="t_name">Your name (optional)</label>
-    <input id="t_name" type="text" autocomplete="name" placeholder="Juan Dela Cruz">
-    <div class="note" style="margin:12px 0">&#9888;&#65039; Use the <b>same Gmail that is signed in to Google Play Store</b> on your Android phone. Open Play Store &rarr; tap your profile picture to see it. Another email will not work.</div>
-    <button class="btn r" id="t_send" type="button">Register my email</button>
-    <div class="msg" id="t_msg" role="status"></div>
-  </div>
-
+  <p class="lead">Already registered as a tester? Join and install <b>both apps</b> below. It only takes 2 minutes.</p>
   <div class="grid">
     <div class="card">
       <div class="top"><img src="icon-192.png" alt=""><div><h2>PasuyoBuddy</h2><div class="sub">Customer app</div></div></div>
@@ -83,11 +71,29 @@ footer a{margin:0 8px}
         <a class="btn y" href="https://play.google.com/store/apps/details?id=com.pasuyobuddy.rider" target="_blank" rel="noopener">&#11015; Install from Google Play</a></div></div>
     </div>
   </div>
+  <div class="card" id="regAsk" style="margin-top:16px;text-align:center">
+    <h2 style="margin:0 0 4px">Not a tester yet?</h2>
+    <p class="small" style="margin:0 0 10px">Register your Gmail once. If you already registered, no need to do it again.</p>
+    <button class="btn y" id="t_open" type="button" style="border:0;cursor:pointer;width:100%">&#9997; I want to be a tester</button>
+  </div>
+  <div class="card reg" id="reg" hidden style="margin-top:16px">
+    <h2 style="margin:0 0 4px">&#9997; Register your Gmail</h2>
+    <p class="small" style="text-align:left;margin:0">We need your Gmail to add you to the tester list. Only do this once.</p>
+    <label for="t_email">Your Gmail</label>
+    <input id="t_email" type="email" inputmode="email" autocomplete="email" placeholder="yourname@gmail.com">
+    <label for="t_name">Your name (optional)</label>
+    <input id="t_name" type="text" autocomplete="name" placeholder="Juan Dela Cruz">
+    <div class="note" style="margin:12px 0 0">&#128205; This test is only for people in the <b>Philippines</b> or <b>UAE</b>. The app will not install in other countries.</div>
+    <div class="note" style="margin:12px 0">&#9888;&#65039; Use the <b>same Gmail that is signed in to Google Play Store</b> on your Android phone. Open Play Store &rarr; tap your profile picture to see it. Another email will not work.</div>
+    <button class="btn r" id="t_send" type="button">Register my email</button>
+    <div class="msg" id="t_msg" role="status"></div>
+  </div>
+
   <div class="steps">
     <h2>Important</h2>
     <ol>
       <li>Open the links on your <b>Android phone</b>, signed in with the <b>same Gmail</b> you gave us.</li>
-      <li>Do <b>Step 1 first</b>. If Step 2 says "not found", wait a few minutes after joining and try again.</li>
+      <li>Steps 1 and 2 only work <b>after we add you</b> (up to 24 hours after you register). Do <b>Step 1 first</b>. If Step 2 says "not found", wait a few minutes after joining and try again.</li>
       <li>Please <b>keep both apps installed for at least 14 days</b> and open them sometimes.</li>
       <li>You don't need to book or sign up as a rider. Just keeping the apps installed already helps a lot.</li>
     </ol>
@@ -99,6 +105,9 @@ footer a{margin:0 8px}
 (function () {
   var URL_ = "https://xqkxblhxnpeggonbdlrk.supabase.co/rest/v1/rpc/tester_signup", KEY = "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo";
   var btn = document.getElementById("t_send"), msg = document.getElementById("t_msg");
+  var ask = document.getElementById("regAsk"), reg = document.getElementById("reg");
+  document.getElementById("t_open").addEventListener("click", function () { ask.hidden = true; reg.hidden = false; document.getElementById("t_email").focus(); });
+  try { if (localStorage.getItem("pb_tester_reg")) ask.querySelector("p").innerHTML = "&#10003; You already registered on this phone. Please wait for our email, then do Steps 1 and 2."; } catch (e) {}
   function say(t, ok) { msg.textContent = t; msg.className = "msg " + (ok ? "ok" : "bad"); }
   btn.addEventListener("click", async function () {
     var em = document.getElementById("t_email").value.trim(), nm = document.getElementById("t_name").value.trim();
@@ -108,7 +117,8 @@ footer a{margin:0 8px}
       var r = await fetch(URL_, { method: "POST", headers: { "apikey": KEY, "Content-Type": "application/json" }, body: JSON.stringify({ p_email: em, p_name: nm || null }) });
       var j = await r.json().catch(function () { return null; });
       if (!r.ok) throw new Error((j && j.message) || "Something went wrong. Please try again.");
-      say(j === "already" ? "This email is already registered. Thank you!" : "Registered! We'll add you within 24 hours. Then come back and do Steps 1 and 2.", true);
+      say(j === "already" ? "This email is already registered. Please wait, we will email you once you are added." : "Registered! Please wait up to 24 hours. We will send you an email once you have been added as a tester. Then come back here and do Steps 1 and 2.", true);
+      try { localStorage.setItem("pb_tester_reg", "1"); } catch (e) {}
       document.getElementById("t_email").value = "";
     } catch (e) { say(e.message || "No connection. Please try again.", false); }
     btn.disabled = false; btn.textContent = "Register my email";
