@@ -5,7 +5,7 @@
 //|  Entry : Fast EMA crosses Slow EMA on a closed bar,              |
 //|          price on the right side of the Trend EMA (200),         |
 //|          RSI confirms momentum.                                  |
-//|  Exits : ATR-based SL/TP, optional breakeven + ATR trailing,     |
+//|  Exits : ATR SL, TP = SL x RR (1:2), breakeven, opt. trailing,  |
 //|          optional close on opposite signal.                      |
 //|  Risk  : % of balance per trade, max spread, session filter,     |
 //|          daily loss limit, margin check.                         |
@@ -18,7 +18,7 @@
 
 //--- Signal
 input group "Signal"
-input ENUM_TIMEFRAMES InpTF            = PERIOD_CURRENT; // Signal timeframe
+input ENUM_TIMEFRAMES InpTF            = PERIOD_M15;     // Signal timeframe
 input int             InpFastEMA       = 20;             // Fast EMA period
 input int             InpSlowEMA       = 50;             // Slow EMA period
 input int             InpTrendEMA      = 200;            // Trend filter EMA period (0 = off)
@@ -29,21 +29,21 @@ input bool            InpCloseOnOpposite = true;         // Close positions on o
 
 //--- Risk
 input group "Risk"
-input double InpRiskPercent     = 1.0;   // Risk per trade (% of balance)
+input double InpRiskPercent     = 0.5;   // Risk per trade (% of balance)
 input double InpFixedLot        = 0.0;   // Fixed lot (>0 overrides % risk)
 input int    InpATRPeriod       = 14;    // ATR period
 input double InpSLATR           = 1.5;   // Stop loss = ATR x
-input double InpTPATR           = 3.0;   // Take profit = ATR x (0 = no TP)
+input double InpRR              = 2.0;   // Reward:Risk (TP = SL x RR, 2.0 = 1:2; 0 = no TP)
 input int    InpMaxPositions    = 1;     // Max open positions (this EA, this symbol)
-input int    InpMaxSpreadPts    = 30;    // Max spread in points (0 = off)
+input int    InpMaxSpreadPts    = 20;    // Max spread in points (0 = off)
 input double InpMaxDailyLossPct = 3.0;   // Stop trading for the day after this % loss (0 = off)
 
 //--- Trade management
 input group "Trade management"
 input bool   InpUseBreakeven    = true;  // Move SL to breakeven
-input double InpBETriggerATR    = 1.0;   // Breakeven when profit >= ATR x
+input double InpBETriggerR      = 1.0;   // Breakeven when profit >= R x (1R = SL distance)
 input int    InpBEOffsetPts     = 10;    // Breakeven offset (points, locks small profit)
-input bool   InpUseTrailing     = true;  // Use ATR trailing stop
+input bool   InpUseTrailing     = false; // Use ATR trailing stop (off keeps full 1:2 target)
 input double InpTrailStartATR   = 1.5;   // Start trailing when profit >= ATR x
 input double InpTrailDistATR    = 1.0;   // Trailing distance = ATR x
 
@@ -250,7 +250,7 @@ void OpenTrade(int signal, double atr)
    double minStop  = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
 
    double slDist = MathMax(atr * InpSLATR, minStop + 2 * point);
-   double tpDist = (InpTPATR > 0) ? MathMax(atr * InpTPATR, minStop + 2 * point) : 0.0;
+   double tpDist = (InpRR > 0) ? MathMax(slDist * InpRR, minStop + 2 * point) : 0.0;
 
    double lots = CalcLots(slDist);
    if(lots <= 0) return;
@@ -377,7 +377,7 @@ void ManagePositions(double atr)
       if(type == POSITION_TYPE_BUY)
       {
          double profit = bid - open;
-         if(InpUseBreakeven && profit >= InpBETriggerATR * atr)
+         if(InpUseBreakeven && profit >= InpBETriggerR * InpSLATR * atr)
          {
             double be = open + InpBEOffsetPts * point;
             if(sl < be) newSL = be;
@@ -395,7 +395,7 @@ void ManagePositions(double atr)
       else if(type == POSITION_TYPE_SELL)
       {
          double profit = open - ask;
-         if(InpUseBreakeven && profit >= InpBETriggerATR * atr)
+         if(InpUseBreakeven && profit >= InpBETriggerR * InpSLATR * atr)
          {
             double be = open - InpBEOffsetPts * point;
             if(sl == 0 || sl > be) newSL = be;
