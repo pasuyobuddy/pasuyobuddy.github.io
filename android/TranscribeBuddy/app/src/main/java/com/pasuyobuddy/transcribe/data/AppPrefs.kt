@@ -68,6 +68,11 @@ class AppPrefs(ctx: Context) {
         get() = p.getString("liveLang", "en-US") ?: "en-US"
         set(v) = p.edit().putString("liveLang", v).apply()
 
+    /** Translate files & meetings to English (Whisper). */
+    var translateToEnglish: Boolean
+        get() = p.getBoolean("translate", false)
+        set(v) = p.edit().putBoolean("translate", v).apply()
+
     var showTimestamps: Boolean
         get() = p.getBoolean("timestamps", true)
         set(v) = p.edit().putBoolean("timestamps", v).apply()

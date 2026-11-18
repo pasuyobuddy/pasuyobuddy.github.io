@@ -13,7 +13,8 @@ data class Transcript(
     val language: String,
     val durationMs: Long,
     val segments: List<Segment>,
-    val audioPath: String? = null
+    val audioPath: String? = null,
+    val translated: Boolean = false   // text was translated to English by Whisper
 ) {
     val preview: String get() = segments.joinToString(" ") { it.text.trim() }.take(140)
 }
@@ -32,6 +33,7 @@ object TranscriptStore {
             .put("language", t.language)
             .put("durationMs", t.durationMs)
             .put("audioPath", t.audioPath ?: JSONObject.NULL)
+            .put("translated", t.translated)
         val arr = JSONArray()
         for (s in t.segments) {
             arr.put(JSONObject().put("s", s.startMs).put("e", s.endMs).put("t", s.text))
@@ -55,8 +57,6 @@ object TranscriptStore {
             ?: emptyList()
 
     fun delete(ctx: Context, id: String) {
-        val t = load(ctx, id)
-        t?.audioPath?.let { File(it).delete() }
         File(dir(ctx), "$id.json").delete()
     }
 
@@ -79,7 +79,8 @@ object TranscriptStore {
             language = o.optString("language", ""),
             durationMs = o.optLong("durationMs"),
             segments = segs,
-            audioPath = if (o.isNull("audioPath")) null else o.optString("audioPath")
+            audioPath = if (o.isNull("audioPath")) null else o.optString("audioPath"),
+            translated = o.optBoolean("translated", false)
         )
     }
 }

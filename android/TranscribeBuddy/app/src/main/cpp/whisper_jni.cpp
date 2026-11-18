@@ -48,7 +48,7 @@ Java_com_pasuyobuddy_transcribe_whisper_WhisperLib_setAbort(JNIEnv *, jobject, j
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_pasuyobuddy_transcribe_whisper_WhisperLib_transcribe(
         JNIEnv *env, jobject, jlong ptr, jfloatArray samples, jstring language,
-        jint threads, jboolean keepContext) {
+        jint threads, jboolean keepContext, jboolean translate) {
     auto *ctx = reinterpret_cast<whisper_context *>(ptr);
     if (ctx == nullptr) return nullptr;
 
@@ -61,7 +61,7 @@ Java_com_pasuyobuddy_transcribe_whisper_WhisperLib_transcribe(
     params.print_progress = false;
     params.print_timestamps = false;
     params.print_special = false;
-    params.translate = false;
+    params.translate = translate == JNI_TRUE;   // Whisper's built-in X -> English translation
     params.language = langStr.c_str();   // "auto" enables language detection
     params.n_threads = threads > 0 ? threads : 4;
     params.no_context = keepContext != JNI_TRUE;

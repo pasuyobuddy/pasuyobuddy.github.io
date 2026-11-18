@@ -24,7 +24,22 @@ object JobState {
     val status = MutableStateFlow(JobStatus())
 }
 
-data class RecordStatus(val recording: Boolean = false, val startedAt: Long = 0L, val path: String? = null, val error: String? = null)
+data class RecordStatus(
+    val recording: Boolean = false,
+    val startedAt: Long = 0L,
+    val path: String? = null,
+    val error: String? = null,
+    val paused: Boolean = false,
+    val pausedAt: Long = 0L,
+    val pausedTotalMs: Long = 0L
+) {
+    /** Recorded time, excluding pauses. */
+    fun elapsedMs(now: Long): Long {
+        if (!recording) return 0L
+        val end = if (paused) pausedAt else now
+        return (end - startedAt - pausedTotalMs).coerceAtLeast(0L)
+    }
+}
 
 object RecordState {
     val status = MutableStateFlow(RecordStatus())

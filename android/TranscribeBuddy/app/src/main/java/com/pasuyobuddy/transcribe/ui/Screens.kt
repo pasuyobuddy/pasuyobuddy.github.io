@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Save
@@ -59,6 +64,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -91,7 +97,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.pasuyobuddy.transcribe.MainActivity
+import com.pasuyobuddy.transcribe.audio.AudioPlayer
 import com.pasuyobuddy.transcribe.audio.RecordService
+import com.pasuyobuddy.transcribe.audio.Recording
+import com.pasuyobuddy.transcribe.audio.Recordings
 import com.pasuyobuddy.transcribe.data.AppPrefs
 import com.pasuyobuddy.transcribe.data.Formats
 import com.pasuyobuddy.transcribe.data.Lang
@@ -122,6 +131,7 @@ sealed class Screen {
     data object Record : Screen()
     data object Job : Screen()
     data object History : Screen()
+    data object Recordings : Screen()
     data object Settings : Screen()
     data class Detail(val id: String) : Screen()
 }
@@ -153,6 +163,7 @@ fun App(activity: MainActivity) {
         Screen.Record -> RecordScreen(activity, go)
         Screen.Job -> JobScreen(go)
         Screen.History -> HistoryScreen(go)
+        Screen.Recordings -> RecordingsScreen(go)
         Screen.Settings -> SettingsScreen(go)
         is Screen.Detail -> DetailScreen(s.id, go)
     }
@@ -224,7 +235,9 @@ private fun HomeScreen(activity: MainActivity, go: (Screen) -> Unit) {
             BigAction(Icons.Filled.RecordVoiceOver, "Record meeting", "Record now, transcribe with timestamps when you stop") {
                 go(Screen.Record)
             }
+            TranslateSwitchCard()
             BigAction(Icons.Filled.History, "History", "All your saved transcripts") { go(Screen.History) }
+            BigAction(Icons.Filled.LibraryMusic, "Recordings", "Listen to, share or transcribe your recordings") { go(Screen.Recordings) }
 
             Text(
                 "Tip: in WhatsApp, Messenger, Telegram or your Recorder app, tap Share → Transcribe Buddy.",
@@ -371,16 +384,31 @@ private fun RecordScreen(activity: MainActivity, go: (Screen) -> Unit) {
             LanguagePicker("Language of the meeting", Languages.whisper, lang, enabled = true) {
                 lang = it; prefs.whisperLang = it
             }
-            Spacer(Modifier.height(24.dp))
+            TranslateSwitchCard()
+            Spacer(Modifier.height(8.dp))
             if (rec.recording) {
-                Icon(Icons.Filled.FiberManualRecord, null, Modifier.size(56.dp), tint = Color(0xFFDC2626))
-                Text(Formats.clock(now - rec.startedAt), fontSize = 48.sp, fontWeight = FontWeight.Light)
-                Text("Recording… you can turn off the screen.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(
+                    if (rec.paused) Icons.Filled.Pause else Icons.Filled.FiberManualRecord, null, Modifier.size(56.dp),
+                    tint = if (rec.paused) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFDC2626)
+                )
+                Text(Formats.clock(rec.elapsedMs(now)), fontSize = 48.sp, fontWeight = FontWeight.Light)
+                Text(
+                    if (rec.paused) "Paused" else "Recording… you can turn off the screen.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = { if (rec.paused) RecordService.resume(ctx) else RecordService.pause(ctx) },
+                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                ) {
+                    Icon(if (rec.paused) Icons.Filled.FiberManualRecord else Icons.Filled.Pause, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (rec.paused) "Resume" else "Pause", fontSize = 17.sp)
+                }
                 Button(
                     onClick = { RecordService.stop(ctx, transcribe = true); go(Screen.Job) },
                     modifier = Modifier.fillMaxWidth().height(56.dp)
                 ) { Icon(Icons.Filled.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop & transcribe", fontSize = 18.sp) }
-                TextButton(onClick = { RecordService.stop(ctx, transcribe = false) }) { Text("Stop without transcribing (keep audio only)") }
+                TextButton(onClick = { RecordService.stop(ctx, transcribe = false); go(Screen.Recordings) }) { Text("Stop without transcribing (save to Recordings)") }
             } else {
                 Button(
                     onClick = { activity.startMeetingRecording() },
@@ -517,6 +545,9 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
     LaunchedEffect(id) { t = withContext(Dispatchers.IO) { TranscriptStore.load(ctx, id) } }
 
     val tr = t
+    val audioPath = tr?.audioPath?.takeIf { File(it).exists() }
+    val player = remember(audioPath) { audioPath?.let { AudioPlayer.create(it) } }
+    DisposableEffect(player) { onDispose { player?.release() } }
     Scaffold(topBar = {
         Bar(tr?.title ?: "Transcript", { go(Screen.History) }) {
             if (tr != null) {
@@ -543,7 +574,14 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No speech was found in this recording.") }
                 } else SelectionContainer {
                     LazyColumn(contentPadding = PaddingValues(12.dp)) {
-                        items(tr.segments) { Text(buildLine(it, timestamps), Modifier.padding(vertical = 3.dp), fontSize = 16.sp) }
+                        items(tr.segments) { seg ->
+                            val pos = player?.positionMs?.toLong() ?: -1L
+                            val current = player != null && player.playing && pos >= seg.startMs && pos < seg.endMs
+                            var mod = Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                            if (current) mod = mod.background(MaterialTheme.colorScheme.primaryContainer)
+                            if (player != null) mod = mod.clickable { player.seekTo(seg.startMs.toInt(), play = true) }
+                            Text(buildLine(seg, timestamps), mod.padding(vertical = 2.dp), fontSize = 16.sp)
+                        }
                     }
                 }
             }
@@ -559,8 +597,13 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
                     Icon(Icons.Filled.Subtitles, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(".srt")
                 }
             }
-            if (tr.audioPath != null && File(tr.audioPath).exists()) {
-                TextButton(onClick = { shareAudio(ctx, File(tr.audioPath)) }) { Text("Share the recording (.m4a)") }
+            if (player != null) {
+                PlayerBar(player)
+                Text("Tip: tap a line to play from that moment.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (audioPath != null) {
+                TextButton(onClick = { shareAudio(ctx, File(audioPath)) }) { Text("Share the recording (.m4a)") }
             }
         }
     }
@@ -601,10 +644,13 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
     }
 }
 
-private fun langName(t: Transcript): String = when {
-    t.language.isBlank() -> "auto"
-    t.source == "live" -> Languages.liveLabel(t.language)
-    else -> Languages.whisperLabel(t.language)
+private fun langName(t: Transcript): String {
+    val src = when {
+        t.language.isBlank() -> "auto"
+        t.source == "live" -> Languages.liveLabel(t.language)
+        else -> Languages.whisperLabel(t.language)
+    }
+    return if (t.translated) "$src → English" else src
 }
 
 // ---------------------------------------------------------------- Settings
@@ -665,6 +711,7 @@ private fun SettingsScreen(go: (Screen) -> Unit) {
                 whisperLang = it; prefs.whisperLang = it
             }
             Text("Auto-detect works for most recordings. For Taglish, try Tagalog or Auto.", style = MaterialTheme.typography.bodySmall)
+            TranslateSwitchCard()
             LanguagePicker("Language for Live", Languages.live, liveLang, true) {
                 liveLang = it; prefs.liveLang = it
             }
@@ -729,4 +776,147 @@ private fun shareAudio(ctx: Context, f: File) {
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     ctx.startActivity(Intent.createChooser(i, "Share recording"))
+}
+
+// ---------------------------------------------------------------- Translate switch
+
+@Composable
+private fun TranslateSwitchCard() {
+    val ctx = LocalContext.current
+    val prefs = remember { AppPrefs(ctx) }
+    var on by remember { mutableStateOf(prefs.translateToEnglish) }
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Translate, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Translate to English", fontWeight = FontWeight.SemiBold)
+                    Text("Hindi, Korean, Tagalog & more → English (files & meetings)",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = on, onCheckedChange = { on = it; prefs.translateToEnglish = it })
+            }
+            if (on && prefs.model != WhisperModel.SMALL.id) {
+                Text("Tip: choose the Small model in Settings for better translations.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Audio player
+
+@Composable
+private fun PlayerBar(player: AudioPlayer) {
+    LaunchedEffect(player, player.playing) {
+        while (player.playing) { player.tick(); delay(250) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        IconButton(onClick = { player.toggle() }) {
+            Icon(if (player.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (player.playing) "Pause" else "Play")
+        }
+        Slider(
+            value = player.positionMs.toFloat().coerceIn(0f, player.durationMs.toFloat().coerceAtLeast(1f)),
+            onValueChange = { player.seekTo(it.toInt(), play = false) },
+            valueRange = 0f..player.durationMs.toFloat().coerceAtLeast(1f),
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text("${Formats.clock(player.positionMs.toLong())} / ${Formats.clock(player.durationMs.toLong())}",
+            style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+// ---------------------------------------------------------------- Recordings
+
+@Composable
+private fun RecordingsScreen(go: (Screen) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<Recording>?>(null) }
+    var transcriptByPath by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var openPath by remember { mutableStateOf<String?>(null) }
+    var toDelete by remember { mutableStateOf<Recording?>(null) }
+    val job by JobState.status.collectAsState()
+
+    LaunchedEffect(refresh) {
+        withContext(Dispatchers.IO) {
+            items = Recordings.list(ctx)
+            transcriptByPath = TranscriptStore.list(ctx).mapNotNull { t -> t.audioPath?.let { it to t.id } }.toMap()
+        }
+    }
+
+    Scaffold(topBar = { Bar("Recordings", { go(Screen.Home) }) }) { pad ->
+        val list = items
+        when {
+            list == null -> Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            list.isEmpty() -> Box(Modifier.padding(pad).fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text("No recordings yet. Use Record meeting on the home screen.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(list, key = { it.file.path }) { rec ->
+                    val path = rec.file.path
+                    val transcriptId = transcriptByPath[path]
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                                openPath = if (openPath == path) null else path
+                            }) {
+                                Icon(Icons.Filled.RecordVoiceOver, null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(rec.title, fontWeight = FontWeight.SemiBold)
+                                    Text(Formats.clock(rec.durationMs) + " · " +
+                                        (if (transcriptId != null) "transcribed" else "not transcribed yet"),
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Icon(if (openPath == path) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play")
+                            }
+                            if (openPath == path) {
+                                val player = remember(path) { AudioPlayer.create(path) }
+                                DisposableEffect(player) {
+                                    player?.toggle()
+                                    onDispose { player?.release() }
+                                }
+                                if (player != null) PlayerBar(player) else Text("Cannot play this file.")
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (transcriptId != null) {
+                                    TextButton(onClick = { go(Screen.Detail(transcriptId)) }) { Text("Open text") }
+                                }
+                                TextButton(enabled = !job.isRunning, onClick = {
+                                    openPath = null
+                                    TranscribeService.start(ctx, path, rec.title, "meeting", keepAudio = true)
+                                    go(Screen.Job)
+                                }) { Text(if (transcriptId != null) "Transcribe again" else "Transcribe") }
+                                IconButton(onClick = { shareAudio(ctx, rec.file) }) { Icon(Icons.Filled.Share, "Share") }
+                                IconButton(onClick = { toDelete = rec }) { Icon(Icons.Filled.Delete, "Delete") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    toDelete?.let { rec ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            title = { Text("Delete recording?") },
+            text = { Text("The audio file \"${rec.title}\" will be deleted. Transcripts made from it stay in History.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    toDelete = null
+                    if (openPath == rec.file.path) openPath = null
+                    scope.launch {
+                        withContext(Dispatchers.IO) { rec.file.delete() }
+                        refresh++
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancel") } }
+        )
+    }
 }

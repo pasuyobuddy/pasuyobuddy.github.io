@@ -17,9 +17,6 @@ import com.pasuyobuddy.transcribe.whisper.RecordState
 import com.pasuyobuddy.transcribe.whisper.RecordStatus
 import com.pasuyobuddy.transcribe.whisper.TranscribeService
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Records a meeting to an .m4a file in the background (screen can be off), then hands it to TranscribeService. */
 class RecordService : Service() {
@@ -27,11 +24,21 @@ class RecordService : Service() {
     companion object {
         private const val ACTION_START = "start"
         private const val ACTION_STOP = "stop"
+        private const val ACTION_PAUSE = "pause"
+        private const val ACTION_RESUME = "resume"
         private const val EXTRA_TRANSCRIBE = "transcribe"
         private const val NOTIF_ID = 51
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, RecordService::class.java).setAction(ACTION_START))
+        }
+
+        fun pause(ctx: Context) {
+            ctx.startService(Intent(ctx, RecordService::class.java).setAction(ACTION_PAUSE))
+        }
+
+        fun resume(ctx: Context) {
+            ctx.startService(Intent(ctx, RecordService::class.java).setAction(ACTION_RESUME))
         }
 
         fun stop(ctx: Context, transcribe: Boolean) {
@@ -49,6 +56,8 @@ class RecordService : Service() {
         when (intent?.action) {
             ACTION_START -> startRecording()
             ACTION_STOP -> stopRecording(intent.getBooleanExtra(EXTRA_TRANSCRIBE, true))
+            ACTION_PAUSE -> pauseRecording()
+            ACTION_RESUME -> resumeRecording()
         }
         return START_NOT_STICKY
     }
@@ -59,10 +68,9 @@ class RecordService : Service() {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
         ServiceCompat.startForeground(this, NOTIF_ID, notification(), type)
 
-        val stamp = SimpleDateFormat("yyyy-MM-dd HH.mm", Locale.US).format(Date())
-        title = "Meeting $stamp"
-        val dir = File(filesDir, "recordings").apply { mkdirs() }
-        val f = File(dir, "meeting_${System.currentTimeMillis()}.m4a")
+        val ts = System.currentTimeMillis()
+        title = Recordings.titleFor(ts)
+        val f = File(Recordings.dir(this), "meeting_$ts.m4a")
         file = f
         try {
             val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
@@ -81,6 +89,35 @@ class RecordService : Service() {
             RecordState.status.value = RecordStatus(false, error = "Could not start recording: ${e.message}")
             stopSelfSafely()
         }
+    }
+
+    private fun pauseRecording() {
+        val r = recorder ?: return
+        val st = RecordState.status.value
+        if (st.paused) return
+        try {
+            r.pause()
+            RecordState.status.value = st.copy(paused = true, pausedAt = System.currentTimeMillis())
+            updateNotification()
+        } catch (_: Exception) { }
+    }
+
+    private fun resumeRecording() {
+        val r = recorder ?: return
+        val st = RecordState.status.value
+        if (!st.paused) return
+        try {
+            r.resume()
+            RecordState.status.value = st.copy(
+                paused = false,
+                pausedTotalMs = st.pausedTotalMs + (System.currentTimeMillis() - st.pausedAt)
+            )
+            updateNotification()
+        } catch (_: Exception) { }
+    }
+
+    private fun updateNotification() {
+        getSystemService(android.app.NotificationManager::class.java).notify(NOTIF_ID, notification())
     }
 
     private fun stopRecording(transcribe: Boolean) {
@@ -124,13 +161,20 @@ class RecordService : Service() {
             Intent(this, RecordService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_TRANSCRIBE, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val paused = RecordState.status.value.paused
+        val toggle = PendingIntent.getService(
+            this, 3,
+            Intent(this, RecordService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
         return NotificationCompat.Builder(this, "jobs")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Recording meeting…")
+            .setContentTitle(if (paused) "Recording paused" else "Recording meeting…")
             .setContentText("Tap Stop & transcribe when finished")
             .setOngoing(true)
-            .setUsesChronometer(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
+            .addAction(0, if (paused) "Resume" else "Pause", toggle)
             .addAction(0, "Stop & transcribe", stop)
             .build()
     }

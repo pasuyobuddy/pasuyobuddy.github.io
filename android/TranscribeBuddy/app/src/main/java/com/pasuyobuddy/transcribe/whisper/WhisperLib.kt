@@ -12,7 +12,7 @@ object WhisperLib {
     external fun setAbort(value: Boolean)
 
     /**
-     * Transcribes 16 kHz mono float samples.
+     * Transcribes 16 kHz mono float samples. With [translate] the output is English text.
      * Result: [0] = "LANG|xx", then "t0ms|t1ms|text" per segment. Null on failure/abort.
      */
     external fun transcribe(
@@ -20,7 +20,8 @@ object WhisperLib {
         samples: FloatArray,
         language: String,
         threads: Int,
-        keepContext: Boolean
+        keepContext: Boolean,
+        translate: Boolean
     ): Array<String>?
 
     external fun systemInfo(): String

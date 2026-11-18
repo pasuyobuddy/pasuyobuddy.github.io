@@ -134,6 +134,7 @@ class TranscribeService : Service() {
         val prefs = AppPrefs(this)
         val model = WhisperModel.byId(prefs.model)
         val lang = prefs.whisperLang
+        val translate = prefs.translateToEnglish && lang != "en"
         val pcm = File(cacheDir, "job_${System.currentTimeMillis()}.pcm")
         var ctxPtr = 0L
         try {
@@ -185,7 +186,7 @@ class TranscribeService : Service() {
 
                     if (rms(chunk) > 0.003f) { // skip pure silence (Whisper may "hallucinate" on it)
                         val chunkLang = if (lang == "auto" && detectedLang.isNotEmpty()) detectedLang else lang
-                        val lines = WhisperLib.transcribe(ctxPtr, chunk, chunkLang, threads, true)
+                        val lines = WhisperLib.transcribe(ctxPtr, chunk, chunkLang, threads, true, translate)
                         coroutineContext.ensureActive()
                         if (lines == null) throw IllegalStateException("Transcription failed.")
                         for ((i, line) in lines.withIndex()) {
@@ -214,7 +215,8 @@ class TranscribeService : Service() {
                     language = detectedLang,
                     durationMs = totalSamples * 1000 / PcmUtils.TARGET_RATE,
                     segments = segments,
-                    audioPath = if (keepAudio) input.path else null
+                    audioPath = if (keepAudio) input.path else null,
+                    translated = translate && detectedLang != "en"
                 )
             )
             JobState.status.value = JobState.status.value.copy(phase = Phase.DONE, progress = 1f, segments = segments, transcriptId = id)
@@ -251,7 +253,7 @@ class TranscribeService : Service() {
             val label = when (phase) {
                 Phase.DOWNLOADING_MODEL -> "Downloading speech model (one time)… $pct%"
                 Phase.DECODING -> "Reading audio… $pct%"
-                Phase.TRANSCRIBING -> "Transcribing… $pct%"
+                Phase.TRANSCRIBING -> (if (AppPrefs(this).translateToEnglish) "Translating to English… " else "Transcribing… ") + "$pct%"
                 else -> "Preparing…"
             }
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(label, pct, false))
