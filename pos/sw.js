@@ -1,5 +1,5 @@
 // Buddy POS service worker: makes the app open and work without internet.
-const CACHE = "buddypos-v1";
+const CACHE = "buddypos-v2";
 const SHELL = [
   "./",
   "./index.html",

@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>POS Admin</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0F172A">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{ --brand:#1E3A8A; --bg:#F1F5F9; --card:#fff; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --ok:#16A34A; --bad:#DC2626; --warn:#B45309 }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#0B1220; --card:#111A2E; --ink:#E2E8F0; --muted:#94A3B8; --line:#1E293B } }
+:root[data-theme="dark"]{ --bg:#0B1220; --card:#111A2E; --ink:#E2E8F0; --muted:#94A3B8; --line:#1E293B }
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}.muted{color:var(--muted)}.small{font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.grow{flex:1;min-width:0}
+.btn{border:0;border-radius:10px;padding:9px 14px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer}
+.btn.secondary{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.ok{background:var(--ok)}.btn.bad{background:var(--bad)}
+.btn:disabled{opacity:.5}
+.input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+label.f{display:block;margin:10px 0 4px;font-size:13px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+header{background:#0F172A;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px}
+header b{font-size:17px}
+nav{display:flex;gap:4px;padding:10px 16px;overflow-x:auto}
+nav button{border:0;background:none;padding:8px 14px;border-radius:999px;color:var(--muted);font-weight:600;cursor:pointer;white-space:nowrap}
+nav button.on{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px 40px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:6px 0 14px}
+.stat{padding:12px}.stat .v{font-size:22px;font-weight:800}
+.it{display:flex;gap:12px;padding:12px;border-bottom:1px solid var(--line);align-items:flex-start}
+.it:last-child{border-bottom:0}
+.it img.logo{width:40px;height:40px;border-radius:10px;object-fit:cover;background:var(--bg)}
+.proof{width:96px;height:96px;object-fit:cover;border-radius:8px;cursor:zoom-in;border:1px solid var(--line)}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--line);color:var(--muted);font-weight:600;white-space:nowrap}
+.b-ok{background:#DCFCE7;color:#166534}.b-bad{background:#FEE2E2;color:#B91C1C}.b-warn{background:#FEF3C7;color:#92400E}.b-info{background:#DBEAFE;color:#1E3A8A}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+.sheet{background:var(--card);border-radius:16px;padding:16px;max-width:520px;width:100%;max-height:92vh;overflow:auto}
+.auth{max-width:400px;margin:60px auto;padding:0 16px}
+.err{color:var(--bad);font-size:14px;margin-top:6px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:#0F172A;color:#fff;padding:10px 16px;border-radius:10px;z-index:50}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="config.js"></script>
+<script src="vendor/supabase-2.45.4.js"></script>
+<script>
+"use strict";
+/* Buddy POS – platform admin: approve subscription payments, manage stores, set prices. */
+const CFG = window.POS_CONFIG || {};
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const peso = (n) => "₱" + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDate = (t) => t ? new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
+const A = { sb: null, user: null, tab: "payments", stores: [], q: "", filter: "all" };
+
+function toast(m, ms = 2500) { const t = document.createElement("div"); t.className = "toast"; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
+function openModal(html) { closeModal(); const m = document.createElement("div"); m.className = "modal"; m.id = "modal"; m.innerHTML = `<div class="sheet">${html}</div>`; m.onclick = (e) => { if (e.target === m) closeModal(); }; document.body.appendChild(m); }
+function closeModal() { const m = $("#modal"); if (m) m.remove(); }
+
+function storeStatus(s) {
+  const now = Date.now();
+  const end = Math.max(s.trial_ends_at ? Date.parse(s.trial_ends_at) : 0, s.paid_until ? Date.parse(s.paid_until) : 0);
+  if (s.plan === "suspended") return { key: "suspended", label: "Suspended", cls: "b-bad", end };
+  if (end <= now) return { key: "expired", label: "Expired", cls: "b-bad", end };
+  if (s.paid_until && Date.parse(s.paid_until) > now) return { key: "paid", label: "Paid", cls: "b-ok", end };
+  return { key: "trial", label: "Trial", cls: "b-info", end };
+}
+
+async function boot() {
+  if (!CFG.supabaseUrl || !CFG.supabaseAnonKey) { $("#app").innerHTML = `<div class="auth"><h2>Setup needed</h2><p>Fill in pos/config.js first.</p></div>`; return; }
+  A.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "buddypos-auth" } });
+  const { data } = await A.sb.auth.getSession();
+  if (!data.session) return showLogin();
+  A.user = data.session.user;
+  const { data: isAdmin } = await A.sb.rpc("pos_is_admin");
+  if (isAdmin !== true) {
+    $("#app").innerHTML = `<div class="auth"><h2>Not an admin</h2><p class="muted">${esc(A.user.email)} is not a platform admin.</p>
+      <p class="small muted">Make yourself admin in Supabase › SQL Editor:<br><code>insert into public.pos_admins(user_id) select id from auth.users where email = '${esc(A.user.email)}';</code></p>
+      <button class="btn secondary" id="out">Sign out</button> <a href="./">Open POS</a></div>`;
+    $("#out").onclick = () => A.sb.auth.signOut().then(() => location.reload());
+    return;
+  }
+  render();
+}
+
+function showLogin() {
+  $("#app").innerHTML = `<div class="auth"><h2>POS Admin</h2>
+    <div class="card" style="padding:16px"><form id="lf">
+      <label class="f">Email</label><input class="input" id="em" type="email" required>
+      <label class="f">Password</label><input class="input" id="pw" type="password" required>
+      <div id="lerr" class="err"></div>
+      <button class="btn" style="width:100%;margin-top:12px">Sign in</button></form></div></div>`;
+  $("#lf").onsubmit = async (e) => {
+    e.preventDefault();
+    const { error } = await A.sb.auth.signInWithPassword({ email: $("#em").value.trim(), password: $("#pw").value });
+    if (error) { $("#lerr").textContent = error.message; return; }
+    location.reload();
+  };
+}
+
+function render() {
+  $("#app").innerHTML = `
+    <header><b class="grow">${esc(CFG.appName || "Buddy POS")} · Admin</b><span class="small">${esc(A.user.email)}</span>
+      <button class="btn secondary" id="out" style="color:#fff;border-color:#334155">Sign out</button></header>
+    <nav>${[["payments", "Payments"], ["stores", "Subscribers"], ["settings", "Prices & payment details"]].map(([k, l]) =>
+      `<button data-t="${k}" class="${A.tab === k ? "on" : ""}">${l}</button>`).join("")}</nav>
+    <div class="wrap" id="main"></div>`;
+  $("#out").onclick = () => A.sb.auth.signOut().then(() => location.reload());
+  document.querySelectorAll("nav button").forEach((b) => b.onclick = () => { A.tab = b.dataset.t; render(); });
+  ({ payments: renderPayments, stores: renderStores, settings: renderSettings })[A.tab]();
+}
+
+/* ---------------------------------------------------------------- payments */
+async function renderPayments() {
+  const m = $("#main");
+  m.innerHTML = `<p class="muted">Loading…</p>`;
+  const [pend, recent, stores] = await Promise.all([
+    A.sb.from("pos_payments").select("*, pos_stores(name, slug, logo, trial_ends_at, paid_until, plan)").eq("status", "pending").order("created_at"),
+    A.sb.from("pos_payments").select("id, store_id, period, amount, status, note, reference, created_at, reviewed_at, pos_stores(name)").neq("status", "pending").order("reviewed_at", { ascending: false }).limit(30),
+    A.sb.rpc("pos_admin_stores")
+  ]);
+  if (pend.error) { m.innerHTML = `<p class="err">${esc(pend.error.message)}</p>`; return; }
+  A.stores = stores.data || [];
+  const counts = { paid: 0, trial: 0, expired: 0, suspended: 0 };
+  A.stores.forEach((s) => counts[storeStatus(s).key]++);
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const collected = (recent.data || []).filter((p) => p.status === "approved" && Date.parse(p.reviewed_at) >= monthStart).reduce((a, p) => a + Number(p.amount), 0);
+  m.innerHTML = `
+    <div class="stats">
+      <div class="card stat"><div class="small muted">Waiting for approval</div><div class="v" style="color:${pend.data.length ? "var(--warn)" : "inherit"}">${pend.data.length}</div></div>
+      <div class="card stat"><div class="small muted">Paying stores</div><div class="v">${counts.paid}</div></div>
+      <div class="card stat"><div class="small muted">On free trial</div><div class="v">${counts.trial}</div></div>
+      <div class="card stat"><div class="small muted">Expired</div><div class="v">${counts.expired}</div></div>
+      <div class="card stat"><div class="small muted">Approved this month*</div><div class="v">${peso(collected)}</div></div>
+    </div>
+    <h3>Waiting for approval</h3>
+    <div class="card">${pend.data.length ? pend.data.map((p) => {
+      const st = p.pos_stores || {};
+      return `<div class="it">
+        ${p.proof ? `<img class="proof" src="${esc(p.proof)}" data-proof="${p.id}" alt="proof">` : `<div class="proof muted small" style="display:flex;align-items:center;justify-content:center">no image</div>`}
+        <div class="grow">
+          <div style="font-weight:700">${esc(st.name || "?")} <span class="small muted">?s=${esc(st.slug || "")}</span></div>
+          <div><b>${peso(p.amount)}</b> · ${p.period === "yearly" ? "1 year" : "1 month"} · ${esc(p.method)}${p.reference ? ` · Ref <b>${esc(p.reference)}</b>` : ""}</div>
+          <div class="small muted">Submitted ${new Date(p.created_at).toLocaleString()} · current plan ends ${fmtDate(Math.max(Date.parse(st.trial_ends_at || 0) || 0, Date.parse(st.paid_until || 0) || 0))}</div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn ok" data-ok="${p.id}">Approve & extend</button>
+            <button class="btn secondary" data-no="${p.id}">Reject</button>
+          </div>
+        </div></div>`;
+    }).join("") : `<div class="it muted">No payments waiting. 🎉</div>`}</div>
+    <h3 style="margin-top:22px">Recently reviewed</h3>
+    <div class="card">${(recent.data || []).length ? recent.data.map((p) => `<div class="it small">
+      <div class="grow"><b>${esc(p.pos_stores?.name || "?")}</b> · ${peso(p.amount)} · ${p.period === "yearly" ? "1 year" : "1 month"}${p.reference ? " · Ref " + esc(p.reference) : ""}
+      ${p.note ? `<div class="muted">${esc(p.note)}</div>` : ""}</div>
+      <span class="badge ${p.status === "approved" ? "b-ok" : "b-bad"}">${p.status}</span><span class="muted">${fmtDate(p.reviewed_at)}</span></div>`).join("") : `<div class="it muted">Nothing yet.</div>`}</div>
+    <p class="small muted">* from the last 30 reviewed payments.</p>`;
+  m.querySelectorAll("[data-proof]").forEach((img) => img.onclick = () => openModal(`<img src="${img.src}" style="width:100%;border-radius:8px" alt="proof"><button class="btn" style="width:100%;margin-top:10px" onclick="closeModal()">Close</button>`));
+  m.querySelectorAll("[data-ok]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Approve this payment? Make sure the money arrived in your GCash/bank.")) return;
+    b.disabled = true;
+    const { data, error } = await A.sb.rpc("pos_admin_review_payment", { p_id: b.dataset.ok, p_approve: true, p_note: null });
+    if (error) { toast(error.message, 4000); b.disabled = false; return; }
+    toast(`Approved · ${data?.name || "store"} paid until ${fmtDate(data?.paid_until)}`, 3500);
+    renderPayments();
+  });
+  m.querySelectorAll("[data-no]").forEach((b) => b.onclick = async () => {
+    const note = prompt("Reason for rejecting (the store owner will see this):", "Payment not received. Please check the reference number.");
+    if (note === null) return;
+    const { error } = await A.sb.rpc("pos_admin_review_payment", { p_id: b.dataset.no, p_approve: false, p_note: note });
+    if (error) return toast(error.message, 4000);
+    toast("Rejected"); renderPayments();
+  });
+}
+
+/* ---------------------------------------------------------------- stores */
+async function renderStores() {
+  const m = $("#main");
+  if (!A.stores.length) {
+    m.innerHTML = `<p class="muted">Loading…</p>`;
+    const { data, error } = await A.sb.rpc("pos_admin_stores");
+    if (error) { m.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+    A.stores = data || [];
+  }
+  const q = A.q.toLowerCase();
+  const list = A.stores.filter((s) => (A.filter === "all" || storeStatus(s).key === A.filter) &&
+    (!q || (s.name + " " + s.slug + " " + (s.owner_email || "")).toLowerCase().includes(q)));
+  m.innerHTML = `
+    <div class="row" style="margin:6px 0 12px">
+      <input class="input grow" id="sq" placeholder="Search name, link or email…" value="${esc(A.q)}" style="max-width:360px">
+      <select class="input" id="sf" style="width:160px">${[["all", "All"], ["paid", "Paid"], ["trial", "Trial"], ["expired", "Expired"], ["suspended", "Suspended"]].map(([k, l]) =>
+        `<option value="${k}" ${A.filter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <button class="btn secondary" id="sr">Refresh</button>
+    </div>
+    <div class="card">${list.length ? list.map((s) => {
+      const st = storeStatus(s);
+      return `<div class="it">
+        <img class="logo" src="${esc(s.logo || "icon-192.png")}" alt="">
+        <div class="grow">
+          <div style="font-weight:700">${esc(s.name)} <span class="badge ${st.cls}">${st.label}</span></div>
+          <div class="small muted">${esc(s.owner_email || "")} · <a href="./?s=${esc(s.slug)}" target="_blank">?s=${esc(s.slug)}</a> · ${s.staff}/${s.max_staff} staff</div>
+          <div class="small">${st.key === "trial" ? "Trial ends" : st.key === "paid" ? "Paid until" : "Ended"} <b>${fmtDate(st.end)}</b> · Sales 30 days: ${peso(s.sales_30d)} · Last sale: ${s.last_sale_at ? fmtDate(s.last_sale_at) : "none"} · Joined ${fmtDate(s.created_at)}</div>
+        </div>
+        <button class="btn secondary" data-edit="${s.id}">Manage</button></div>`;
+    }).join("") : `<div class="it muted">No stores found.</div>`}</div>`;
+  $("#sq").oninput = (e) => { A.q = e.target.value; const pos = e.target.selectionStart; renderStores(); const i = $("#sq"); i.focus(); i.setSelectionRange(pos, pos); };
+  $("#sf").onchange = (e) => { A.filter = e.target.value; renderStores(); };
+  $("#sr").onclick = () => { A.stores = []; renderStores(); };
+  m.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => manageStore(A.stores.find((s) => s.id === b.dataset.edit)));
+}
+
+function manageStore(s) {
+  const st = storeStatus(s);
+  const base = Math.max(Date.now(), st.end);
+  const plus = (months) => { const d = new Date(base); d.setMonth(d.getMonth() + months); return d; };
+  const dateVal = (d) => d ? new Date(d).toISOString().slice(0, 10) : "";
+  openModal(`<h2 style="margin-top:0">${esc(s.name)}</h2>
+    <div class="small muted">${esc(s.owner_email || "")} · current: ${st.label}, ends ${fmtDate(st.end)}</div>
+    <label class="f">Plan</label>
+    <select class="input" id="mp">${["trial", "pro", "suspended"].map((p) => `<option value="${p}" ${s.plan === p ? "selected" : ""}>${p === "pro" ? "Pro (paid)" : p[0].toUpperCase() + p.slice(1)}</option>`).join("")}</select>
+    <label class="f">Paid until</label>
+    <input class="input" id="md" type="date" value="${dateVal(s.paid_until)}">
+    <div class="row" style="margin-top:6px">
+      <button class="btn secondary" data-add="1">+1 month</button><button class="btn secondary" data-add="3">+3 months</button><button class="btn secondary" data-add="12">+1 year</button>
+    </div>
+    <label class="f">Max staff (owner included)</label>
+    <input class="input" id="ms" type="number" min="1" max="100" value="${s.max_staff}" style="width:120px">
+    <div class="row" style="margin-top:16px"><button class="btn secondary grow" onclick="closeModal()">Cancel</button><button class="btn grow" id="msave">Save</button></div>`);
+  document.querySelectorAll("[data-add]").forEach((b) => b.onclick = () => { $("#md").value = dateVal(plus(Number(b.dataset.add))); $("#mp").value = "pro"; });
+  $("#msave").onclick = async () => {
+    const d = $("#md").value ? new Date($("#md").value + "T23:59:59").toISOString() : null;
+    const { error } = await A.sb.rpc("pos_admin_set_plan", { p_store: s.id, p_plan: $("#mp").value, p_paid_until: d, p_max_staff: Number($("#ms").value) || s.max_staff });
+    if (error) return toast(error.message, 4000);
+    closeModal(); toast("Saved"); A.stores = []; renderStores();
+  };
+}
+
+/* ---------------------------------------------------------------- settings */
+async function renderSettings() {
+  const m = $("#main");
+  const { data: s, error } = await A.sb.from("pos_settings").select("*").eq("id", 1).single();
+  if (error) { m.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  let qr = s.gcash_qr;
+  m.innerHTML = `<div class="card" style="padding:16px;max-width:620px">
+    <h3 style="margin-top:0">Prices</h3>
+    <div class="row">
+      <div class="grow"><label class="f">Monthly price (₱)</label><input class="input" id="pm" type="number" min="0" step="1" value="${s.price_monthly}"></div>
+      <div class="grow"><label class="f">Yearly price (₱)</label><input class="input" id="py" type="number" min="0" step="1" value="${s.price_yearly}"></div>
+      <div class="grow"><label class="f">Free trial (days)</label><input class="input" id="pt" type="number" min="0" max="365" value="${s.trial_days}"></div>
+    </div>
+    <h3>Where sellers send payment</h3>
+    <div class="row">
+      <div class="grow"><label class="f">GCash number</label><input class="input" id="gn" value="${esc(s.gcash_number || "")}"></div>
+      <div class="grow"><label class="f">GCash account name</label><input class="input" id="ga" value="${esc(s.gcash_name || "")}"></div>
+    </div>
+    <label class="f">GCash QR code (screenshot from your GCash app › Receive › QR)</label>
+    <div class="row"><img id="qrp" src="${esc(qr || "")}" class="${qr ? "" : "hidden"}" style="width:120px;border-radius:8px" alt="">
+      <input type="file" id="qrf" accept="image/*"> ${qr ? `<a href="#" id="qrx" class="small">Remove</a>` : ""}</div>
+    <label class="f">Bank details (optional)</label>
+    <textarea class="input" id="bd" rows="3" placeholder="BDO · Juan Dela Cruz · 0012 3456 7890">${esc(s.bank_details || "")}</textarea>
+    <label class="f">Support contact shown to sellers</label>
+    <input class="input" id="sc" value="${esc(s.support_contact || "")}" placeholder="Messenger: m.me/yourpage · 0917…">
+    <label class="f">App name (shown before a seller has a store)</label>
+    <input class="input" id="an" value="${esc(s.app_name || "")}">
+    <button class="btn" id="ssave" style="margin-top:16px;width:100%">Save</button>
+    <p class="small muted">New prices apply to new payments. New trial length applies to stores created from now on.</p></div>`;
+  $("#qrf").onchange = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, 700 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      qr = c.toDataURL("image/jpeg", 0.85); $("#qrp").src = qr; $("#qrp").classList.remove("hidden");
+    };
+    img.src = URL.createObjectURL(f);
+  };
+  const x = $("#qrx"); if (x) x.onclick = (e) => { e.preventDefault(); qr = null; $("#qrp").classList.add("hidden"); };
+  $("#ssave").onclick = async () => {
+    const row = {
+      price_monthly: Number($("#pm").value) || 0, price_yearly: Number($("#py").value) || 0, trial_days: Number($("#pt").value) || 0,
+      gcash_number: $("#gn").value.trim() || null, gcash_name: $("#ga").value.trim() || null, gcash_qr: qr || null,
+      bank_details: $("#bd").value.trim() || null, support_contact: $("#sc").value.trim() || null, app_name: $("#an").value.trim() || "Buddy POS",
+      updated_at: new Date().toISOString()
+    };
+    const { error: e2 } = await A.sb.from("pos_settings").update(row).eq("id", 1);
+    toast(e2 ? e2.message : "Saved", 3000);
+  };
+}
+
+boot().catch((e) => { $("#app").innerHTML = `<div class="auth"><p class="err">${esc(e.message || e)}</p></div>`; });
+</script>
+</body>
+</html>

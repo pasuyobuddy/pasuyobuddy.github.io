@@ -10,9 +10,29 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Buddy POS">
-<link rel="manifest" href="manifest.webmanifest">
+<link rel="manifest" id="manifestLink" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link id="appleIcon" rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="config.js"></script>
+<script>
+// Store link (?s=my-store): show that store's name/logo right away and give it its own installable app.
+(function () {
+  var s = (new URLSearchParams(location.search).get("s") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+  window.POS_SLUG = s;
+  if (!s) return;
+  var cfg = window.POS_CONFIG || {};
+  if (cfg.brandedApps && cfg.supabaseUrl) document.getElementById("manifestLink").href = cfg.supabaseUrl + "/functions/v1/pos-manifest?s=" + s;
+  try {
+    var b = JSON.parse(localStorage.getItem("buddypos_brand_" + s) || "null");
+    if (b) {
+      window.POS_BRAND = b;
+      document.title = b.name;
+      if (b.logo) document.getElementById("appleIcon").href = b.logo;
+      document.querySelector('meta[name="apple-mobile-web-app-title"]').content = b.name;
+    }
+  } catch (e) {}
+})();
+</script>
 <style>
 :root{
   --brand:#1E3A8A; --brand-ink:#fff; --accent:#F59E0B;
@@ -132,6 +152,12 @@ nav.tabs svg{width:22px;height:22px}
   #print{display:block;position:absolute;left:0;top:0}
   #print .receipt{border:0;border-radius:0;padding:2mm}
 }
+.banner{padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer}
+.banner.info{background:#DBEAFE;color:#1E3A8A}.banner.warn{background:#FEF3C7;color:#92400E}.banner.bad{background:#FEE2E2;color:#B91C1C}
+.plan{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.plan label{border:2px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;display:block}
+.plan input{display:none}.plan input:checked+label{border-color:var(--brand)}
+.code{font:700 34px/1 ui-monospace,Menlo,monospace;letter-spacing:6px;text-align:center;padding:14px;border:2px dashed var(--brand);border-radius:12px;margin:10px 0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + var(--safe-b));background:#0F172A;color:#fff;padding:10px 16px;border-radius:10px;z-index:50;max-width:90vw}
 </style>
 </head>
@@ -139,7 +165,6 @@ nav.tabs svg{width:22px;height:22px}
 <div id="app"></div>
 <div id="print"></div>
 
-<script src="config.js"></script>
 <script src="vendor/supabase-2.45.4.js"></script>
 <script>
 "use strict";
@@ -203,7 +228,8 @@ const IDB = {
 
 /* ---------------------------------------------------------------- state */
 const S = {
-  sb: null, user: null, store: null,
+  sb: null, user: null, store: null, member: null, settings: null,
+  slug: window.POS_SLUG || "", pubBrand: window.POS_BRAND || null,
   products: [], cart: [], discount: { value: 0, pct: false },
   tab: "sell", cat: "All", q: "",
   online: navigator.onLine, syncing: false, syncError: null, pending: 0,
@@ -224,39 +250,86 @@ function toast(msg, ms = 2200) {
 }
 
 /* ---------------------------------------------------------------- branding */
-function applyBrand() {
-  const st = S.store;
+function applyBrand(brand) {
+  const st = brand || S.store;
   const color = (st && /^#[0-9a-f]{6}$/i.test(st.theme_color)) ? st.theme_color : "#1E3A8A";
   document.documentElement.style.setProperty("--brand", color);
   // readable text on the brand color
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.substr(i, 2), 16));
   document.documentElement.style.setProperty("--brand-ink", (r * 299 + g * 587 + b * 114) / 1000 > 160 ? "#0F172A" : "#fff");
   document.querySelector('meta[name="theme-color"]').setAttribute("content", color);
-  document.title = st?.name ? `${st.name} · POS` : "Buddy POS";
+  document.title = st?.name || CFG.appName || "Buddy POS";
   document.querySelector('meta[name="apple-mobile-web-app-title"]').setAttribute("content", st?.name || "Buddy POS");
-  if (st?.logo) $("#appleIcon").setAttribute("href", st.logo);
+  $("#appleIcon").setAttribute("href", st?.logo || "apple-touch-icon.png");
+  if (st?.slug) {
+    // Each store has its own link (?s=slug) so "Install / Add to Home Screen" gives an app with ITS name and logo.
+    S.slug = st.slug;
+    localStorage.setItem("buddypos_brand_" + st.slug, JSON.stringify({ name: st.name, logo: st.logo, theme_color: st.theme_color, slug: st.slug }));
+    const want = "?s=" + st.slug;
+    if (location.search !== want) history.replaceState(null, "", location.pathname + want);
+    setManifest(st.slug, st.logo ? st.logo.length : 0);
+  }
+}
+function setManifest(slug, v) {
+  if (!CFG.brandedApps) return;      // needs the pos-manifest edge function
+  const href = `${CFG.supabaseUrl}/functions/v1/pos-manifest?s=${encodeURIComponent(slug)}&v=${v || 0}`;
+  const link = document.getElementById("manifestLink");
+  if (link.href !== href) link.href = href;
 }
 
 /* ---------------------------------------------------------------- sync */
-async function queue(table, row) {
-  await IDB.put("outbox", { table, row });
+// op "upsert": new/edited rows · "insert": append-only (sales; duplicates ignored) · "update": change an existing row
+async function queue(table, row, op = "upsert") {
+  await IDB.put("outbox", { table, row, op });
   S.pending++;
   renderSync();
   sync();
+}
+
+async function sendRows(table, op, rows) {
+  if (op === "update") {
+    for (const r of rows) {
+      const { id, ...rest } = r;
+      const { error } = await S.sb.from(table).update(rest).eq("id", id);
+      if (error) return error;
+    }
+    return null;
+  }
+  const { error } = await S.sb.from(table).upsert(rows, op === "insert" ? { ignoreDuplicates: true } : undefined);
+  return error;
 }
 
 async function flushOutbox() {
   const items = await IDB.all("outbox");
   S.pending = items.length;
   if (!items.length) return;
-  const byTable = {};
-  for (const it of items) (byTable[it.table] ||= []).push(it);
-  for (const [table, list] of Object.entries(byTable)) {
+  const groups = {};
+  for (const it of items) (groups[it.table + "|" + (it.op || "upsert")] ||= []).push(it);
+  for (const [key, list] of Object.entries(groups)) {
+    const [table, op] = key.split("|");
     for (let i = 0; i < list.length; i += 200) {
       const chunk = list.slice(i, i + 200);
       const dedup = new Map();
       chunk.forEach((it) => dedup.set(it.row.id, it.row)); // keep the latest version of each row
-      const { error } = await S.sb.from(table).upsert([...dedup.values()]);
+      let error = await sendRows(table, op, [...dedup.values()]);
+      if (error && error.code === "42501") {
+        // The server refused some rows (e.g. a sale made after the subscription ended):
+        // send one by one, set refused rows aside so they never block the rest.
+        error = null;
+        for (const it of chunk) {
+          const e = await sendRows(table, op, [it.row]);
+          if (e && e.code !== "42501") { error = e; break; }
+          if (e) {
+            const rej = (await IDB.get("kv", "rejected")) || [];
+            rej.push({ table, row: it.row, at: new Date().toISOString(), reason: e.message });
+            await IDB.put("kv", rej, "rejected");
+          }
+          await IDB.del("outbox", it.seq);
+          S.pending--;
+        }
+        if (error) throw error;
+        continue;
+      }
       if (error) throw error;
       for (const it of chunk) await IDB.del("outbox", it.seq);
       S.pending -= chunk.length;
@@ -283,7 +356,7 @@ async function pullTable(table, localStore) {
 }
 
 async function pullStore() {
-  const { data, error } = await S.sb.from("pos_stores").select("*").eq("owner_id", S.user.id).maybeSingle();
+  const { data, error } = await S.sb.from("pos_stores").select("*").eq("id", S.member.store_id).maybeSingle();
   if (error) throw error;
   if (data) {
     const pendingStore = (await IDB.all("outbox")).some((o) => o.table === "pos_stores");
@@ -292,20 +365,42 @@ async function pullStore() {
   return data;
 }
 
+// membership (role) + platform settings (prices, GCash details)
+async function pullMeta() {
+  const [mem, set] = await Promise.all([
+    S.sb.from("pos_members").select("store_id, role, name").eq("user_id", S.user.id).maybeSingle(),
+    S.sb.from("pos_settings").select("*").eq("id", 1).maybeSingle()
+  ]);
+  if (mem.error) throw mem.error;
+  if (!mem.data) {
+    await IDB.put("kv", null, "member");
+    toast("This account no longer has access to the store.", 4000);
+    setTimeout(() => S.sb.auth.signOut(), 2500);
+    throw new Error("removed from store");
+  }
+  const roleChanged = !S.member || mem.data.role !== S.member.role;
+  S.member = mem.data;
+  await IDB.put("kv", mem.data, "member");
+  if (set.data) { S.settings = set.data; await IDB.put("kv", set.data, "settings"); }
+  if (roleChanged) renderShell();
+}
+
 let syncTimer = null;
 async function sync() {
-  if (!S.sb || !S.user || !S.store) return;
+  if (!S.sb || !S.user || !S.store || !S.member) return;
   if (S.syncing) { S.resync = true; return; }
   if (!navigator.onLine) { S.online = false; renderSync(); return; }
   S.syncing = true; S.syncError = null; renderSync();
   try {
     await flushOutbox();
+    await pullMeta();
     await pullStore();
     await pullTable("pos_products", "products");
     await pullTable("pos_sales", "sales");
     S.products = (await IDB.all("products")).filter((p) => !p.deleted);
     S.online = true;
     await IDB.put("kv", new Date().toISOString(), "last_sync");
+    renderBanner();
     refreshView();
   } catch (e) {
     console.warn("sync", e);
@@ -336,6 +431,39 @@ function renderSync() {
   el.title = S.syncError || "";
 }
 
+/* ---------------------------------------------------------------- subscription status */
+function subInfo() {
+  const st = S.store || {};
+  const now = Date.now();
+  const trial = st.trial_ends_at ? Date.parse(st.trial_ends_at) : 0;
+  const paid = st.paid_until ? Date.parse(st.paid_until) : 0;
+  const end = Math.max(trial, paid);
+  const days = Math.ceil((end - now) / 864e5);
+  const suspended = st.plan === "suspended";
+  const graceEnd = end + 3 * 864e5;                       // same 3-day grace as the server
+  const canSell = !suspended && graceEnd > now;
+  const kind = suspended ? "suspended" : end <= now ? "expired" : paid > now ? "pro" : "trial";
+  return { end, days, canSell, kind, graceDays: Math.max(0, Math.ceil((graceEnd - now) / 864e5)) };
+}
+const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+
+function renderBanner() {
+  const el = $("#subBanner");
+  if (!el || !S.store) return;
+  const s = subInfo(), owner = S.member?.role === "owner";
+  let txt = "", cls = "info";
+  if (s.kind === "trial") txt = `Free trial · ${s.days} day${s.days === 1 ? "" : "s"} left` + (owner ? " · Subscribe" : "");
+  else if (s.kind === "pro" && s.days <= 7) { txt = `Subscription ends in ${s.days} day${s.days === 1 ? "" : "s"}` + (owner ? " · Renew" : ""); cls = "warn"; }
+  else if (s.kind === "expired") {
+    cls = "bad";
+    txt = s.canSell ? `Subscription expired · ${s.graceDays} day${s.graceDays === 1 ? "" : "s"} left before selling locks` : "Subscription expired · selling is locked";
+    txt += owner ? " · Renew now" : " · Ask the owner to renew";
+  } else if (s.kind === "suspended") { cls = "bad"; txt = "This store is suspended. Please contact support."; }
+  el.className = "banner " + cls + (txt ? "" : " hidden");
+  el.textContent = txt;
+  el.onclick = owner && s.kind !== "suspended" ? () => { S.tab = "settings"; S.scrollTo = "subCard"; renderShell(); } : null;
+}
+
 /* ---------------------------------------------------------------- boot */
 async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -352,6 +480,7 @@ async function boot() {
     if (event === "SIGNED_OUT") { localStorage.removeItem("buddypos_last_user"); location.reload(); }
     if (session?.user) S.user = session.user;
   });
+  if (S.slug) loadPublicBrand();
   const { data } = await S.sb.auth.getSession();
   if (!data.session) {
     // Offline with an expired token: keep selling with the data on this device; sync resumes when online.
@@ -362,18 +491,56 @@ async function boot() {
   await enter(data.session.user);
 }
 
+// Store branding for a store link (?s=slug), before anyone signs in.
+async function loadPublicBrand() {
+  try {
+    const { data } = await S.sb.rpc("pos_public_brand", { p_slug: S.slug });
+    const b = Array.isArray(data) ? data[0] : null;
+    if (!b) return;
+    S.pubBrand = b;
+    localStorage.setItem("buddypos_brand_" + S.slug, JSON.stringify(b));
+    if (!S.store) applyBrand(b);
+    const logo = $("#authLogo"), name = $("#authName");
+    if (logo) logo.src = b.logo || "icon-192.png";
+    if (name) name.textContent = b.name;
+  } catch (e) { console.warn(e); }
+}
+
+async function loadSettings() {
+  if (S.settings) return S.settings;
+  try {
+    const { data } = await S.sb.from("pos_settings").select("*").eq("id", 1).maybeSingle();
+    if (data) S.settings = data;
+  } catch { /* offline */ }
+  return S.settings || {};
+}
+
 async function enter(user) {
   S.user = user;
   localStorage.setItem("buddypos_last_user", JSON.stringify({ id: user.id, email: user.email }));
   await IDB.open("buddypos_" + user.id);
+  S.member = (await IDB.get("kv", "member")) || null;
   S.store = (await IDB.get("kv", "store")) || null;
+  S.settings = (await IDB.get("kv", "settings")) || null;
   S.pending = (await IDB.all("outbox")).length;
-  if (!S.store && navigator.onLine) {
-    try { await pullStore(); } catch (e) { console.warn(e); }
+  if (navigator.onLine) {
+    try {
+      const { data: mem, error } = await S.sb.from("pos_members").select("store_id, role, name").eq("user_id", user.id).maybeSingle();
+      if (error) throw error;
+      S.member = mem || null;
+      await IDB.put("kv", S.member, "member");
+      if (mem) await pullStore();
+    } catch (e) { console.warn(e); }
   }
-  if (!S.store) return showOnboarding();
+  if (!S.member) return showChooseStore();
+  if (!S.store) {
+    $("#app").innerHTML = `<div class="auth"><h1>Almost there</h1><p class="muted" style="text-align:center">Connect to the internet once to download your store.</p>
+      <button class="btn big" onclick="location.reload()">Try again</button></div>`;
+    return;
+  }
   applyBrand();
   S.products = (await IDB.all("products")).filter((p) => !p.deleted);
+  if (S.member.role !== "owner" && !["sell", "sales", "settings"].includes(S.tab)) S.tab = "sell";
   renderShell();
   startSyncLoop();
   sync();
@@ -382,11 +549,14 @@ async function enter(user) {
 /* ---------------------------------------------------------------- auth screens */
 function showAuth(mode = "signin", msg = "") {
   const signup = mode === "signup";
+  const b = S.pubBrand;
   $("#app").innerHTML = `
   <div class="auth">
-    <img class="logo" src="icon-192.png" alt="">
-    <h1>Buddy POS</h1>
-    <p class="muted" style="text-align:center;margin-top:0">${signup ? "Create your store account" : "Sign in to your store"}</p>
+    <img class="logo" id="authLogo" src="${esc(b?.logo || "icon-192.png")}" alt="">
+    <h1 id="authName">${esc(b?.name || CFG.appName || "Buddy POS")}</h1>
+    <p class="muted" style="text-align:center;margin-top:0">${signup
+      ? (b ? "New staff? Create an account, then enter your invite code." : "Create an account, then set up your store or join one with an invite code.")
+      : (b ? "Sign in" : "Sign in to your store")}</p>
     <div class="card" style="padding:16px">
       <form id="authForm">
         <label class="f">Email</label>
@@ -398,15 +568,15 @@ function showAuth(mode = "signin", msg = "") {
       </form>
       ${signup ? "" : `<p style="text-align:center;margin:12px 0 0"><a href="#" id="forgot" class="small">Forgot password?</a></p>`}
     </div>
-    <p style="text-align:center">${signup ? "Already have an account?" : "New seller?"}
-      <a href="#" id="switchMode">${signup ? "Sign in" : "Create your store"}</a></p>
+    <p style="text-align:center">${signup ? "Already have an account?" : (b ? "New staff member?" : "New here?")}
+      <a href="#" id="switchMode">${signup ? "Sign in" : (b ? "Create account" : "Create your store — free trial")}</a></p>
   </div>`;
   $("#switchMode").onclick = (e) => { e.preventDefault(); showAuth(signup ? "signin" : "signup"); };
   if (!signup) $("#forgot").onclick = async (e) => {
     e.preventDefault();
     const email = $("#email").value.trim();
     if (!email) { $("#authMsg").textContent = "Type your email first, then tap Forgot password."; return; }
-    const { error } = await S.sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    const { error } = await S.sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname + location.search });
     $("#authMsg").className = error ? "err" : "okmsg";
     $("#authMsg").textContent = error ? error.message : "✓ Check your email for a reset link.";
   };
@@ -416,7 +586,7 @@ function showAuth(mode = "signin", msg = "") {
     const email = $("#email").value.trim(), password = $("#pw").value;
     try {
       if (signup) {
-        const { data, error } = await S.sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+        const { data, error } = await S.sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname + location.search } });
         if (error) throw error;
         if (!data.session) return showAuth("signin", "✓ Account created. Check your email to confirm, then sign in.");
         await enter(data.session.user);
@@ -445,12 +615,56 @@ function showResetPassword() {
   };
 }
 
+// Signed in but not part of any store yet: create one, or join with an invite code.
+async function showChooseStore() {
+  const set = await loadSettings();
+  const trial = set.trial_days ?? 14;
+  const joinFirst = !!S.slug;
+  const createCard = `<div class="card" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 4px">Create my store</h3>
+      <p class="small muted" style="margin:0 0 12px">Your own POS app with your store name and logo.${trial ? ` <b>${trial}-day free trial</b>, no payment needed to start.` : ""}</p>
+      <button class="btn big" id="goCreate">Create my store</button></div>`;
+  const joinCard = `<div class="card" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 4px">Join a store</h3>
+      <p class="small muted" style="margin:0 0 8px">Got an invite code from the store owner? Enter it here.</p>
+      <label class="f">Invite code</label><input class="input" id="joinCode" maxlength="6" autocapitalize="characters" placeholder="ABC123" style="text-transform:uppercase;letter-spacing:3px;font-weight:700">
+      <label class="f">Your name (shown on receipts)</label><input class="input" id="joinName" maxlength="40">
+      <div id="joinMsg" class="err"></div>
+      <button class="btn big" id="goJoin" style="margin-top:12px">Join store</button></div>`;
+  $("#app").innerHTML = `<div class="auth">
+    <h1>Welcome!</h1>
+    <p class="muted" style="text-align:center;margin-top:0">Signed in as ${esc(S.user.email || "")}</p>
+    ${joinFirst ? joinCard + createCard : createCard + joinCard}
+    <p class="small muted" style="text-align:center"><a href="#" id="chOut">Sign out</a></p></div>`;
+  $("#chOut").onclick = (e) => { e.preventDefault(); S.sb.auth.signOut(); };
+  $("#goCreate").onclick = () => showOnboarding();
+  $("#goJoin").onclick = async () => {
+    const code = $("#joinCode").value.trim().toUpperCase();
+    if (code.length !== 6) { $("#joinMsg").textContent = "The code has 6 characters."; return; }
+    if (!navigator.onLine) { $("#joinMsg").textContent = "Connect to the internet to join."; return; }
+    $("#goJoin").disabled = true;
+    const { error } = await S.sb.rpc("pos_accept_invite", { p_code: code, p_name: $("#joinName").value.trim() || null });
+    if (error) { $("#joinMsg").textContent = error.message; $("#goJoin").disabled = false; return; }
+    if ($("#joinName").value.trim()) { S.device.cashier = $("#joinName").value.trim(); saveDevice(); }
+    toast("Welcome to the team!");
+    await enter(S.user);
+  };
+}
+
 /* ---------------------------------------------------------------- onboarding / branding form */
-function brandingForm(st) {
+const slugify = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/['’]/g, "")
+  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+const appLink = (slug) => `${location.origin}${location.pathname}?s=${slug}`;
+
+function brandingForm(st, withSlug = false) {
   return `
     <label class="f">Store name *</label>
     <input class="input" id="bName" maxlength="80" required value="${esc(st?.name || "")}" placeholder="e.g. Aling Nena's Store">
-    <label class="f">Logo</label>
+    ${withSlug ? `<label class="f">Your app link</label>
+      <div class="row"><span class="small muted" style="white-space:nowrap">${esc(location.host + location.pathname)}?s=</span>
+      <input class="input grow" id="bSlug" maxlength="40" autocapitalize="none" placeholder="nenas-store"></div>
+      <div id="slugMsg" class="small muted">Letters, numbers and dashes. This can't be changed later.</div>` : ""}
+    <label class="f">Logo (also your app icon)</label>
     <div class="row">
       <img id="bLogoPrev" class="logoprev" src="${esc(st?.logo || "icon-192.png")}" alt="">
       <div class="grow">
@@ -477,7 +691,7 @@ function wireBrandingForm(state) {
     const f = e.target.files[0];
     if (!f) return;
     try {
-      state.logo = await resizeImage(f, 256);
+      state.logo = await resizeImage(f, 512, true);
       $("#bLogoPrev").src = state.logo;
     } catch { toast("Could not read that image"); }
   };
@@ -500,16 +714,20 @@ function readBrandingForm(state, base) {
   };
 }
 
-function resizeImage(file, max) {
+// square = pad to a square (for the app icon); otherwise keep the aspect ratio
+function resizeImage(file, max, square = false, quality = 0.85) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => {
       const scale = Math.min(1, max / Math.max(img.width, img.height));
       const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-      const c = document.createElement("canvas"); c.width = w; c.height = h;
-      c.getContext("2d").drawImage(img, 0, 0, w, h);
-      let url = c.toDataURL("image/png");
-      if (url.length > 200000) url = c.toDataURL("image/jpeg", 0.85);
+      const c = document.createElement("canvas");
+      c.width = square ? Math.max(w, h) : w; c.height = square ? Math.max(w, h) : h;
+      const ctx = c.getContext("2d");
+      if (square) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height); }
+      ctx.drawImage(img, (c.width - w) / 2, (c.height - h) / 2, w, h);
+      let url = square ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", quality);
+      if (url.length > 300000) url = c.toDataURL("image/jpeg", quality);
       URL.revokeObjectURL(img.src);
       res(url);
     };
@@ -518,30 +736,54 @@ function resizeImage(file, max) {
   });
 }
 
-function showOnboarding() {
+async function showOnboarding() {
   const state = {};
+  const set = await loadSettings();
   $("#app").innerHTML = `
   <div class="auth">
     <h1>Set up your store</h1>
-    <p class="muted" style="text-align:center;margin-top:0">This is what your customers see on receipts. You can change it anytime.</p>
+    <p class="muted" style="text-align:center;margin-top:0">Your name and logo appear on the app icon and on receipts. You can change them anytime.</p>
     <div class="card" style="padding:16px">
-      ${brandingForm(null)}
-      <button class="btn big" id="obSave" style="margin-top:16px">Create my store</button>
-      <p class="small muted" style="text-align:center"><a href="#" id="obOut">Sign out</a></p>
+      ${brandingForm(null, true)}
+      <button class="btn big" id="obSave" style="margin-top:16px">Create my store${set.trial_days ? ` · ${set.trial_days}-day free trial` : ""}</button>
+      <p class="small muted" style="text-align:center"><a href="#" id="obBack">Back</a> · <a href="#" id="obOut">Sign out</a></p>
     </div>
   </div>`;
   wireBrandingForm(state);
+  let slugTouched = false, slugOk = false, timer = null;
+  const check = () => {
+    clearTimeout(timer);
+    const v = slugify($("#bSlug").value);
+    const msg = $("#slugMsg");
+    if (v.length < 3) { slugOk = false; msg.className = "small err"; msg.textContent = "At least 3 letters or numbers."; return; }
+    msg.className = "small muted"; msg.textContent = "Checking…";
+    timer = setTimeout(async () => {
+      const { data, error } = await S.sb.rpc("pos_slug_available", { p_slug: v });
+      if ($("#bSlug") && slugify($("#bSlug").value) !== v) return;
+      slugOk = !error && data === true;
+      msg.className = "small " + (slugOk ? "okmsg" : "err");
+      msg.textContent = error ? "Could not check (offline?)" : slugOk ? `✓ ${location.host}${location.pathname}?s=${v} is yours` : "Already taken — try another.";
+    }, 400);
+  };
+  $("#bName").oninput = () => { if (!slugTouched) { $("#bSlug").value = slugify($("#bName").value); check(); } };
+  $("#bSlug").oninput = () => { slugTouched = true; check(); };
+  $("#bSlug").onblur = () => { $("#bSlug").value = slugify($("#bSlug").value); };
+  $("#obBack").onclick = (e) => { e.preventDefault(); showChooseStore(); };
   $("#obOut").onclick = (e) => { e.preventDefault(); S.sb.auth.signOut(); };
   $("#obSave").onclick = async () => {
     const row = readBrandingForm(state, {});
     if (!row) return;
+    const slug = slugify($("#bSlug").value);
+    if (!slugOk) { toast("Please choose an available app link"); return; }
     if (!navigator.onLine) { toast("Connect to the internet to create your store"); return; }
     $("#obSave").disabled = true;
-    const { data, error } = await S.sb.from("pos_stores").insert({ ...row, owner_id: S.user.id }).select().single();
+    const { data, error } = await S.sb.from("pos_stores").insert({ ...row, slug, owner_id: S.user.id }).select().single();
     if (error) { toast(error.message, 4000); $("#obSave").disabled = false; return; }
     S.store = data;
     await IDB.put("kv", data, "store");
+    S.tab = "products";
     await enter(S.user);
+    toast("Your store is ready! Add your products.", 3500);
   };
 }
 
@@ -556,7 +798,7 @@ const ICONS = {
 function renderShell() {
   $("#app").innerHTML = `
     <nav class="tabs">
-      ${["sell", "products", "sales", "settings"].map((t) =>
+      ${tabsForRole().map((t) =>
         `<button data-tab="${t}" class="${S.tab === t ? "on" : ""}">${ICONS[t]}<span>${t[0].toUpperCase() + t.slice(1)}</span></button>`).join("")}
     </nav>
     <div class="col" style="display:flex;flex-direction:column;flex:1;min-height:0">
@@ -565,14 +807,17 @@ function renderShell() {
         <div class="name grow">${esc(S.store.name)}</div>
         <div class="sync" id="syncState"></div>
       </header>
+      <div id="subBanner" class="banner hidden"></div>
       <main id="main"></main>
     </div>`;
   // on phones the tab bar goes at the bottom
   if (innerWidth < 900) $("#app").appendChild($("nav.tabs"));
   document.querySelectorAll("nav.tabs button").forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; renderShell(); });
   renderSync();
+  renderBanner();
   refreshView();
 }
+const tabsForRole = () => S.member?.role === "owner" ? ["sell", "products", "sales", "settings"] : ["sell", "sales", "settings"];
 let lastWide = innerWidth >= 900;
 window.addEventListener("resize", () => {
   const wide = innerWidth >= 900;
@@ -582,6 +827,7 @@ window.addEventListener("resize", () => {
 function refreshView() {
   const m = $("#main");
   if (!m) return;
+  if (!tabsForRole().includes(S.tab)) S.tab = "sell";
   if (S.tab === "sell") renderSell(m);
   else if (S.tab === "products") renderProducts(m);
   else if (S.tab === "sales") renderSales(m);
@@ -682,7 +928,9 @@ function cartHTML() {
       <div class="t"><span>Subtotal</span><span>${money(fromCents(t.sub))}</span></div>
       <div class="t"><a href="#" class="discBtn">Discount${S.discount.value ? ` (${S.discount.pct ? S.discount.value + "%" : money(S.discount.value)})` : ""}</a><span>−${money(fromCents(t.disc))}</span></div>
       <div class="t grand"><span>Total</span><span>${money(fromCents(t.total))}</span></div>
-      <button class="btn big chargeBtn" style="margin-top:8px" ${S.cart.length ? "" : "disabled"}>Charge ${money(fromCents(t.total))}</button>
+      ${subInfo().canSell
+        ? `<button class="btn big chargeBtn" style="margin-top:8px" ${S.cart.length ? "" : "disabled"}>Charge ${money(fromCents(t.total))}</button>`
+        : `<button class="btn big chargeBtn" style="margin-top:8px" disabled>Selling locked · subscription expired</button>`}
     </div>`;
 }
 
@@ -740,6 +988,7 @@ function openDiscount() {
 }
 
 function openPayment() {
+  if (!subInfo().canSell) { toast("Subscription expired – renew to continue selling", 3500); return; }
   const t = cartTotals();
   let method = "Cash";
   const total = fromCents(t.total);
@@ -801,7 +1050,7 @@ async function completeSale(method, received, change) {
     payment_method: method.toLowerCase(),
     cash_received: received,
     change_due: change,
-    cashier: S.device.cashier || null,
+    cashier: S.device.cashier || S.member?.name || null,
     device: S.device.code,
     sold_at: new Date().toISOString(),
     voided: false,
@@ -810,7 +1059,7 @@ async function completeSale(method, received, change) {
   await IDB.put("sales", sale);
   S.cart = []; S.discount = { value: 0, pct: false };
   renderCart();
-  queue("pos_sales", sale);
+  queue("pos_sales", sale, "insert");
   return sale;
 }
 
@@ -871,7 +1120,7 @@ function showReceipt(sale, fresh = false) {
     <div class="row" style="margin-top:14px;flex-wrap:wrap">
       <button class="btn secondary grow" id="rPrint">Print</button>
       <button class="btn secondary grow" id="rShare">Share</button>
-      ${!fresh && !sale.voided ? `<button class="btn danger grow" id="rVoid">Void</button>` : ""}
+      ${!fresh && !sale.voided && S.member?.role === "owner" ? `<button class="btn danger grow" id="rVoid">Void</button>` : ""}
     </div>
     <button class="btn big" id="rDone" style="margin-top:10px">${fresh ? "New sale" : "Close"}</button>`);
   $("#rPrint").onclick = () => { $("#print").innerHTML = receiptHTML(sale); window.print(); };
@@ -888,7 +1137,7 @@ function showReceipt(sale, fresh = false) {
     if (!confirm(`Void receipt ${sale.receipt_no}? It will no longer count in sales.`)) return;
     sale.voided = true; sale.voided_at = new Date().toISOString();
     await IDB.put("sales", sale);
-    queue("pos_sales", sale);
+    queue("pos_sales", { id: sale.id, voided: true, voided_at: sale.voided_at }, "update");
     closeModal(); refreshView(); toast("Sale voided");
   };
 }
@@ -999,17 +1248,55 @@ async function renderSettings(m) {
   const state = {};
   const last = await IDB.get("kv", "last_sync");
   if (S.tab !== "settings") return;
-  m.innerHTML = `<div class="view" style="max-width:640px">
+  const owner = S.member?.role === "owner";
+  const sub = subInfo();
+  const set = S.settings || {};
+  const link = appLink(S.store.slug);
+  const statusLine = {
+    trial: `<b>Free trial</b> · ${sub.days} day${sub.days === 1 ? "" : "s"} left (ends ${fmtDate(sub.end)})`,
+    pro: `<b>Active</b> · paid until ${fmtDate(sub.end)}`,
+    expired: `<b style="color:var(--bad)">Expired</b> on ${fmtDate(sub.end)}${sub.canSell ? ` · selling locks in ${sub.graceDays} day${sub.graceDays === 1 ? "" : "s"}` : " · selling is locked"}`,
+    suspended: `<b style="color:var(--bad)">Suspended</b> · please contact support`
+  }[sub.kind];
+  m.innerHTML = `<div class="view" style="max-width:680px">
+    ${owner ? `
+    <div class="card" id="subCard" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 6px">Subscription</h3>
+      <div>${statusLine}</div>
+      <div class="plan" style="margin-top:12px">
+        <div class="card stat"><div class="small muted">Monthly</div><div class="v" style="font-size:20px">${money(set.price_monthly ?? 0)}</div></div>
+        <div class="card stat"><div class="small muted">Yearly</div><div class="v" style="font-size:20px">${money(set.price_yearly ?? 0)}</div>
+          ${set.price_monthly && set.price_yearly < set.price_monthly * 12 ? `<div class="small" style="color:var(--ok)">Save ${Math.round(100 - set.price_yearly / (set.price_monthly * 12) * 100)}%</div>` : ""}</div>
+      </div>
+      <button class="btn big" id="payBtn" ${sub.kind === "suspended" ? "disabled" : ""}>${sub.kind === "pro" ? "Renew / extend" : "Subscribe now"}</button>
+      <div id="payList" class="small" style="margin-top:12px"></div>
+      ${set.support_contact ? `<div class="small muted" style="margin-top:8px">Questions? ${esc(set.support_contact)}</div>` : ""}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 6px">Your app</h3>
+      <div class="small muted">Open this link on any phone, tablet or computer and install it. It shows <b>your</b> name and logo.</div>
+      <div class="row" style="margin-top:8px">
+        <input class="input grow" readonly value="${esc(link)}" id="myLink">
+        <button class="btn secondary" id="copyLink">Copy</button>
+        ${navigator.share ? `<button class="btn secondary" id="shareLink">Share</button>` : ""}
+      </div>
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 6px">Staff</h3>
+      <div class="small muted">Cashiers can sell and see sales. Only you can change products, prices, branding and void sales.</div>
+      <div id="staffList" class="list" style="margin-top:8px"><div class="it muted small">${navigator.onLine ? "Loading…" : "Connect to the internet to manage staff."}</div></div>
+      <button class="btn secondary" id="inviteBtn" style="margin-top:10px">+ Invite a cashier</button>
+    </div>
     <div class="card" style="padding:16px;margin-bottom:12px">
       <h3 style="margin:0 0 4px">Store branding</h3>
       <div class="small muted">Name, logo and receipt details for <b>${esc(S.store.name)}</b>.</div>
       ${brandingForm(S.store)}
       <button class="btn big" id="bSave" style="margin-top:14px">Save branding</button>
-    </div>
+    </div>` : ""}
     <div class="card" style="padding:16px;margin-bottom:12px">
       <h3 style="margin:0 0 4px">This device</h3>
       <label class="f">Cashier name (printed on receipts)</label>
-      <input class="input" id="dCashier" maxlength="40" value="${esc(S.device.cashier)}">
+      <input class="input" id="dCashier" maxlength="40" value="${esc(S.device.cashier || S.member?.name || "")}">
       <label class="f">Receipt paper width</label>
       <select class="input" id="dPaper" style="width:160px">
         <option value="58" ${S.device.paper !== 80 ? "selected" : ""}>58 mm</option>
@@ -1019,12 +1306,13 @@ async function renderSettings(m) {
     </div>
     <div class="card" style="padding:16px;margin-bottom:12px">
       <h3 style="margin:0 0 4px">Account</h3>
-      <div>${esc(S.user.email || "")}</div>
-      <div class="small muted">Plan: <b>${esc(cap(S.store.plan || "free"))}</b> · Last sync: ${last ? new Date(last).toLocaleString() : "never"}${S.pending ? ` · ${S.pending} waiting to upload` : ""}</div>
+      <div>${esc(S.user.email || "")} <span class="badge">${owner ? "Owner" : "Cashier"}</span></div>
+      <div class="small muted">Last sync: ${last ? new Date(last).toLocaleString() : "never"}${S.pending ? ` · ${S.pending} waiting to upload` : ""}</div>
       ${S.syncError ? `<div class="err small">Sync problem: ${esc(S.syncError)}</div>` : ""}
-      <div class="row" style="margin-top:12px">
+      <div class="row" style="margin-top:12px;flex-wrap:wrap">
         <button class="btn secondary" id="syncNow">Sync now</button>
         <button class="btn secondary" id="signOut">Sign out</button>
+        <a class="btn secondary hidden" id="adminLink" href="admin.html" style="text-decoration:none">Admin dashboard</a>
       </div>
     </div>
     <div class="card" style="padding:16px">
@@ -1032,9 +1320,48 @@ async function renderSettings(m) {
       <div class="small">
         <b>Android:</b> Chrome menu ⋮ → <i>Add to Home screen / Install app</i>.<br>
         <b>iPhone / iPad:</b> Safari → Share → <i>Add to Home Screen</i>.<br>
-        <b>Mac:</b> Safari → File → <i>Add to Dock</i>, or Chrome → ⋮ → <i>Cast, save and share → Install page as app</i>.
+        <b>Windows PC:</b> Chrome or Edge → ⋮ → <i>Install ${esc(S.store.name)}</i> (or the install icon in the address bar).<br>
+        <b>Mac:</b> Safari → File → <i>Add to Dock</i>, or Chrome → install icon in the address bar.
       </div>
     </div></div>`;
+
+  if (S.scrollTo) { const el = document.getElementById(S.scrollTo); if (el) el.scrollIntoView(); S.scrollTo = null; }
+  $("#dCashier").onchange = (e) => { S.device.cashier = e.target.value.trim(); saveDevice(); };
+  $("#dPaper").onchange = (e) => { S.device.paper = Number(e.target.value); saveDevice(); };
+  $("#syncNow").onclick = async () => { await sync(); refreshView(); toast(S.syncError ? "Sync problem: " + S.syncError : "Synced"); };
+  $("#signOut").onclick = async () => {
+    if (S.pending && !confirm(`${S.pending} changes are not uploaded yet. Sign out anyway? They stay on this device and upload next time you sign in.`)) return;
+    await S.sb.auth.signOut();
+  };
+  if (navigator.onLine) S.sb.rpc("pos_is_admin").then(({ data }) => { if (data === true && $("#adminLink")) $("#adminLink").classList.remove("hidden"); });
+  if (!owner) return;
+
+  // ---- subscription
+  $("#payBtn").onclick = () => openSubscribe();
+  loadPayments();
+  // ---- app link
+  $("#copyLink").onclick = async () => { try { await navigator.clipboard.writeText(link); toast("Link copied"); } catch { $("#myLink").select(); } };
+  const sh = $("#shareLink");
+  if (sh) sh.onclick = () => navigator.share({ title: S.store.name, text: `${S.store.name} POS`, url: link }).catch(() => {});
+  // ---- staff
+  loadStaff();
+  $("#inviteBtn").onclick = async () => {
+    if (!navigator.onLine) return toast("Connect to the internet to invite staff");
+    const { data: code, error } = await S.sb.rpc("pos_create_invite");
+    if (error) return toast(error.message, 4000);
+    const msg = `You're invited to join ${S.store.name} as a cashier.\n1) Open ${link}\n2) Tap "Create account"\n3) Enter invite code: ${code}\n(The code works once and expires in 7 days.)`;
+    openModal(`<h2>Invite a cashier</h2>
+      <p class="small muted" style="margin:0">Give this code to your cashier. It works once and expires in 7 days.</p>
+      <div class="code">${esc(code)}</div>
+      <pre class="small" style="white-space:pre-wrap;background:var(--bg);padding:10px;border-radius:8px">${esc(msg)}</pre>
+      <div class="row"><button class="btn secondary grow" id="invCopy">Copy message</button>
+      ${navigator.share ? `<button class="btn grow" id="invShare">Share</button>` : ""}</div>`);
+    $("#invCopy").onclick = async () => { try { await navigator.clipboard.writeText(msg); toast("Copied"); } catch { /* ignore */ } };
+    const s2 = $("#invShare");
+    if (s2) s2.onclick = () => navigator.share({ title: `Join ${S.store.name}`, text: msg }).catch(() => {});
+    loadStaff();
+  };
+  // ---- branding
   wireBrandingForm(state);
   $("#bSave").onclick = async () => {
     const row = readBrandingForm(state, S.store);
@@ -1042,16 +1369,100 @@ async function renderSettings(m) {
     S.store = row;
     await IDB.put("kv", row, "store");
     applyBrand();
-    const { id, owner_id, name, logo, address, phone, receipt_footer, currency, theme_color } = row;
-    queue("pos_stores", { id, owner_id, name, logo, address, phone, receipt_footer, currency, theme_color });
+    const { id, name, logo, address, phone, receipt_footer, currency, theme_color } = row;
+    queue("pos_stores", { id, name, logo, address, phone, receipt_footer, currency, theme_color }, "update");
     renderShell(); toast("Branding saved");
   };
-  $("#dCashier").onchange = (e) => { S.device.cashier = e.target.value.trim(); saveDevice(); };
-  $("#dPaper").onchange = (e) => { S.device.paper = Number(e.target.value); saveDevice(); };
-  $("#syncNow").onclick = async () => { await sync(); refreshView(); toast(S.syncError ? "Sync problem: " + S.syncError : "Synced"); };
-  $("#signOut").onclick = async () => {
-    if (S.pending && !confirm(`${S.pending} changes are not uploaded yet. Sign out anyway? They stay on this device and upload next time you sign in.`)) return;
-    await S.sb.auth.signOut();
+}
+
+async function loadPayments() {
+  const el = $("#payList");
+  if (!el || !navigator.onLine) return;
+  const { data, error } = await S.sb.from("pos_payments").select("id, period, amount, method, reference, status, note, created_at")
+    .eq("store_id", S.store.id).order("created_at", { ascending: false }).limit(10);
+  if (error || !data?.length || !$("#payList")) return;
+  const badge = { pending: '<span class="badge">Waiting for approval</span>', approved: '<span class="badge" style="background:#DCFCE7;color:#166534">Approved</span>', rejected: '<span class="badge bad">Rejected</span>' };
+  el.innerHTML = `<b>Your payments</b>` + data.map((p) => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <span class="grow">${fmtDate(p.created_at)} · ${p.period === "yearly" ? "1 year" : "1 month"} · ${money(p.amount)}${p.reference ? " · Ref " + esc(p.reference) : ""}
+      ${p.note ? `<br><span class="muted">${esc(p.note)}</span>` : ""}</span>${badge[p.status] || ""}</div>`).join("");
+}
+
+async function loadStaff() {
+  const el = $("#staffList");
+  if (!el || !navigator.onLine) return;
+  const [mem, inv] = await Promise.all([
+    S.sb.from("pos_members").select("user_id, role, name, email").eq("store_id", S.store.id).order("created_at"),
+    S.sb.from("pos_invites").select("code, expires_at").eq("store_id", S.store.id).is("used_by", null).gt("expires_at", new Date().toISOString())
+  ]);
+  if (!$("#staffList")) return;
+  if (mem.error) { el.innerHTML = `<div class="it err small">${esc(mem.error.message)}</div>`; return; }
+  el.innerHTML = mem.data.map((u) => `<div class="it">
+      <div class="grow"><div style="font-weight:600">${esc(u.name || u.email)}</div><div class="small muted">${esc(u.email || "")}</div></div>
+      <span class="badge">${u.role === "owner" ? "Owner" : "Cashier"}</span>
+      ${u.role === "cashier" ? `<button class="btn secondary small" data-rm="${u.user_id}" style="padding:6px 10px">Remove</button>` : ""}
+    </div>`).join("") + (inv.data || []).map((i) => `<div class="it">
+      <div class="grow"><div style="font-weight:600;letter-spacing:2px">${esc(i.code)}</div><div class="small muted">Invite · expires ${fmtDate(i.expires_at)}</div></div>
+      <button class="btn secondary small" data-inv="${esc(i.code)}" style="padding:6px 10px">Cancel</button></div>`).join("");
+  el.querySelectorAll("[data-rm]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Remove this cashier? They will lose access to the store.")) return;
+    const { error } = await S.sb.from("pos_members").delete().eq("user_id", b.dataset.rm).eq("store_id", S.store.id);
+    if (error) toast(error.message); else loadStaff();
+  });
+  el.querySelectorAll("[data-inv]").forEach((b) => b.onclick = async () => {
+    await S.sb.from("pos_invites").delete().eq("code", b.dataset.inv);
+    loadStaff();
+  });
+}
+
+async function openSubscribe() {
+  if (!navigator.onLine) return toast("Connect to the internet to subscribe");
+  const { data } = await S.sb.from("pos_settings").select("*").eq("id", 1).maybeSingle();
+  const set = data || S.settings || {};
+  S.settings = set;
+  let proof = null;
+  openModal(`<h2>Subscribe</h2>
+    <div class="plan">
+      <div><input type="radio" name="per" id="perM" value="monthly" checked><label for="perM"><b>Monthly</b><br>${money(set.price_monthly)}</label></div>
+      <div><input type="radio" name="per" id="perY" value="yearly"><label for="perY"><b>Yearly</b><br>${money(set.price_yearly)}</label></div>
+    </div>
+    <div class="card" style="padding:12px;background:var(--bg)">
+      <b>1. Send <span id="payAmt">${money(set.price_monthly)}</span> to:</b>
+      ${set.gcash_number ? `<div style="margin-top:6px">GCash: <b>${esc(set.gcash_number)}</b>${set.gcash_name ? ` (${esc(set.gcash_name)})` : ""}</div>` : ""}
+      ${set.gcash_qr ? `<img src="${esc(set.gcash_qr)}" alt="GCash QR" style="max-width:220px;width:100%;display:block;margin:8px auto;border-radius:8px">` : ""}
+      ${set.bank_details ? `<div style="margin-top:6px;white-space:pre-wrap">${esc(set.bank_details)}</div>` : ""}
+      ${!set.gcash_number && !set.bank_details ? `<div class="muted">Payment details coming soon. ${esc(set.support_contact || "")}</div>` : ""}
+    </div>
+    <b style="display:block;margin-top:12px">2. Tell us about your payment</b>
+    <label class="f">Paid with</label>
+    <select class="input" id="payMethod"><option value="gcash">GCash</option><option value="bank">Bank transfer</option><option value="other">Other</option></select>
+    <label class="f">Reference number</label>
+    <input class="input" id="payRef" maxlength="80" placeholder="e.g. 1234 567 890123">
+    <label class="f">Screenshot of the payment *</label>
+    <input type="file" id="payProof" accept="image/*">
+    <img id="payProofPrev" class="hidden" style="max-width:160px;margin-top:8px;border-radius:8px" alt="">
+    <div id="payErr" class="err"></div>
+    <button class="btn big" id="paySubmit" style="margin-top:14px">Submit payment</button>
+    <p class="small muted" style="text-align:center">Your plan is extended as soon as the payment is confirmed.</p>`);
+  document.querySelectorAll('input[name=per]').forEach((r) => r.onchange = () => {
+    $("#payAmt").textContent = money(r.value === "yearly" ? set.price_yearly : set.price_monthly);
+  });
+  $("#payProof").onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { proof = await resizeImage(f, 1280, false, 0.7); $("#payProofPrev").src = proof; $("#payProofPrev").classList.remove("hidden"); }
+    catch { toast("Could not read that image"); }
+  };
+  $("#paySubmit").onclick = async () => {
+    if (!proof) { $("#payErr").textContent = "Please attach the screenshot of your payment."; return; }
+    $("#paySubmit").disabled = true;
+    const period = document.querySelector('input[name=per]:checked').value;
+    const { error } = await S.sb.from("pos_payments").insert({
+      store_id: S.store.id, period, method: $("#payMethod").value, reference: $("#payRef").value.trim() || null, proof
+    });
+    if (error) { $("#payErr").textContent = error.message; $("#paySubmit").disabled = false; return; }
+    closeModal();
+    toast("Payment submitted! You'll be activated once it's confirmed.", 4000);
+    loadPayments();
   };
 }
 
