@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Remote Screen Viewer</title>
+<meta name="description" content="Share your computer screen and watch it live from your phone or another laptop. Peer-to-peer, no install.">
+<meta name="robots" content="noindex">
+<style>
+:root{
+  --bg:#f4f6fb; --card:#ffffff; --ink:#111827; --muted:#5b6475; --line:#e3e7ef;
+  --brand:#2563eb; --brand-ink:#ffffff; --ok:#16a34a; --bad:#dc2626; --warn:#b45309;
+  --soft:#eef2ff; --shadow:0 6px 24px rgba(17,24,39,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0f17; --card:#121826; --ink:#e7ebf3; --muted:#9aa4b6; --line:#232c3d;
+    --brand:#3b82f6; --brand-ink:#ffffff; --ok:#22c55e; --bad:#f87171; --warn:#fbbf24;
+    --soft:#172036; --shadow:0 6px 24px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0f17; --card:#121826; --ink:#e7ebf3; --muted:#9aa4b6; --line:#232c3d;
+  --brand:#3b82f6; --brand-ink:#ffffff; --ok:#22c55e; --bad:#f87171; --warn:#fbbf24;
+  --soft:#172036; --shadow:0 6px 24px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:1.6rem;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.card h2{margin:0 0 6px;font-size:1.15rem}
+.card p{margin:0 0 12px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+button,.btn{appearance:none;border:0;border-radius:12px;padding:12px 16px;font:600 1rem system-ui,sans-serif;cursor:pointer;
+  background:var(--brand);color:var(--brand-ink);display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.danger{background:var(--bad);color:#fff}
+button.ok{background:var(--ok);color:#fff}
+button:disabled{opacity:.5;cursor:not-allowed}
+.full{width:100%}
+input,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+input.code{font:700 1.6rem/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.3em;text-align:center;text-transform:uppercase}
+label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 6px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.hidden{display:none !important}
+.bigcode{font:800 2.6rem/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.25em;text-align:center;padding:16px;background:var(--soft);border-radius:14px;margin:8px 0 12px;user-select:all}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--ok)} .dot.wait{background:var(--warn)} .dot.off{background:var(--bad)}
+#qr{display:flex;justify-content:center;margin:8px 0}
+#qr img,#qr canvas{background:#fff;padding:10px;border-radius:12px}
+.viewers{list-style:none;padding:0;margin:8px 0 0}
+.viewers li{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.preview{width:100%;border-radius:12px;background:#000;max-height:240px}
+.note{font-size:.85rem;color:var(--muted);background:var(--soft);border-radius:12px;padding:12px 14px;margin-top:12px}
+.note b{color:var(--ink)}
+/* Viewer stage */
+#stage{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
+#viewport{flex:1;position:relative;overflow:hidden;touch-action:none}
+#remote{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;background:#000}
+#bar{display:flex;gap:8px;align-items:center;padding:8px max(12px,env(safe-area-inset-left));padding-bottom:max(8px,env(safe-area-inset-bottom));
+  background:rgba(18,24,38,.92);color:#e7ebf3;flex-wrap:wrap}
+#bar button{padding:8px 12px;font-size:.9rem;border-radius:10px}
+#bar .ghost{color:#e7ebf3;border-color:#334155}
+#bar .grow{flex:1;min-width:80px;font-size:.85rem;color:#9aa4b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#waiting{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;text-align:center;padding:16px}
+/* Chat */
+.chat{display:flex;flex-direction:column;gap:8px}
+.msgs{max-height:200px;overflow:auto;display:flex;flex-direction:column;gap:6px;font-size:.92rem}
+.msg{padding:6px 10px;border-radius:10px;background:var(--soft);align-self:flex-start;max-width:85%;word-wrap:break-word}
+.msg.me{background:var(--brand);color:var(--brand-ink);align-self:flex-end}
+.msg small{display:block;opacity:.7;font-size:.72rem}
+#chatPanel{position:absolute;right:12px;bottom:12px;width:min(340px,calc(100% - 24px));background:var(--card);color:var(--ink);
+  border-radius:14px;padding:12px;box-shadow:var(--shadow);border:1px solid var(--line)}
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal .card{max-width:380px;width:100%}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;z-index:200;font-size:.92rem;max-width:calc(100% - 32px)}
+.back{background:none;border:0;color:var(--brand);padding:0;margin-bottom:12px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HOME -->
+  <section id="home">
+    <h1>Remote Screen Viewer</h1>
+    <p class="sub">Watch your computer's screen live from your phone or another laptop. Direct peer-to-peer, nothing to install.</p>
+    <div class="grid">
+      <div class="card">
+        <h2>🖥️ Share this screen</h2>
+        <p>Use this on the computer you want to see. You'll get a code to enter on your other device.</p>
+        <button class="full" id="goHost">Start sharing</button>
+      </div>
+      <div class="card">
+        <h2>📱 View a screen</h2>
+        <p>Use this on your phone or other laptop. Enter the code shown on the sharing computer.</p>
+        <button class="full" id="goView">Connect to a screen</button>
+      </div>
+    </div>
+    <div class="note">
+      <b>How it works:</b> open this page on both devices. On the computer, press <b>Start sharing</b> and pick a screen or window.
+      On your phone/laptop, enter the 6‑letter code (or scan the QR). The computer must press <b>Allow</b> before anyone can see anything.
+      Video goes directly between the two devices, encrypted (WebRTC).
+    </div>
+  </section>
+
+  <!-- HOST -->
+  <section id="host" class="hidden">
+    <button class="back" data-home>← Back</button>
+    <div class="card" id="hostSetup">
+      <h2>Share this screen</h2>
+      <p>Choose quality, then pick which screen or window to share.</p>
+      <div class="grid">
+        <div>
+          <label for="fps">Smoothness</label>
+          <select id="fps">
+            <option value="10">Low (10 fps) – slow internet</option>
+            <option value="24" selected>Normal (24 fps)</option>
+            <option value="30">Smooth (30 fps)</option>
+            <option value="60">Very smooth (60 fps)</option>
+          </select>
+        </div>
+        <div>
+          <label for="res">Max resolution</label>
+          <select id="res">
+            <option value="720">720p</option>
+            <option value="1080" selected>1080p</option>
+            <option value="1440">1440p</option>
+            <option value="0">Full / native</option>
+          </select>
+        </div>
+      </div>
+      <label class="row" style="color:var(--ink);margin-top:14px"><input type="checkbox" id="audio" style="width:auto"> Also share computer audio (Chrome/Edge)</label>
+      <div style="margin-top:14px"><button class="full" id="startShare">Pick screen &amp; start</button></div>
+      <p id="noShare" class="note hidden">This browser can't share its screen. Phones and tablets usually can't — open this page on a <b>laptop or desktop</b> with Chrome, Edge or Firefox to share, and use the phone to <b>view</b>.</p>
+    </div>
+
+    <div class="card hidden" id="hostLive">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">You're sharing</h2>
+        <span class="status"><span class="dot wait" id="hostDot"></span><span id="hostStatus">Connecting…</span></span>
+      </div>
+      <p style="margin-top:8px">On your other device open this page, tap <b>Connect to a screen</b>, and enter:</p>
+      <div class="bigcode" id="code">······</div>
+      <div id="qr"></div>
+      <div class="row">
+        <button class="ghost" id="copyLink" style="flex:1">Copy link</button>
+        <button class="danger" id="stopShare" style="flex:1">Stop sharing</button>
+      </div>
+      <label class="row" style="color:var(--ink);margin-top:14px"><input type="checkbox" id="autoAllow" style="width:auto"> Allow viewers without asking (not recommended)</label>
+      <video id="preview" class="preview" muted autoplay playsinline style="margin-top:12px"></video>
+      <h2 style="margin-top:16px;font-size:1rem">Viewers</h2>
+      <ul class="viewers" id="viewerList"><li style="color:var(--muted)">No one yet</li></ul>
+    </div>
+
+    <div class="card hidden" id="hostChatCard">
+      <h2 style="font-size:1rem">Messages</h2>
+      <div class="chat">
+        <div class="msgs" id="hostMsgs"></div>
+        <form class="row" id="hostChatForm"><input id="hostChatIn" placeholder="Send a message to viewers" style="flex:1"><button>Send</button></form>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEWER -->
+  <section id="viewer" class="hidden">
+    <button class="back" data-home>← Back</button>
+    <div class="card">
+      <h2>Connect to a screen</h2>
+      <p>Enter the 6‑letter code shown on the computer that is sharing.</p>
+      <form id="joinForm">
+        <input id="joinCode" class="code" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" inputmode="text">
+        <label for="myName">Your device name (shown to the computer)</label>
+        <input id="myName" maxlength="30" placeholder="My phone">
+        <div style="margin-top:14px"><button class="full" id="joinBtn">Connect</button></div>
+      </form>
+      <p class="status" style="margin-top:12px"><span class="dot" id="joinDot"></span><span id="joinStatus">Not connected</span></p>
+    </div>
+  </section>
+</div>
+
+<!-- Fullscreen viewer stage -->
+<div id="stage" class="hidden">
+  <div id="viewport">
+    <video id="remote" autoplay playsinline></video>
+    <div id="waiting">Waiting for the computer to press <b>&nbsp;Allow&nbsp;</b>…</div>
+    <div id="chatPanel" class="hidden">
+      <div class="chat">
+        <div class="msgs" id="viewMsgs"></div>
+        <form class="row" id="viewChatForm"><input id="viewChatIn" placeholder="Message" style="flex:1"><button>Send</button></form>
+      </div>
+    </div>
+  </div>
+  <div id="bar">
+    <span class="grow" id="viewInfo">Connecting…</span>
+    <button class="ghost" id="zoomOut" title="Zoom out">−</button>
+    <button class="ghost" id="zoomFit" title="Fit to screen">Fit</button>
+    <button class="ghost" id="zoomIn" title="Zoom in">+</button>
+    <button class="ghost" id="muteBtn">🔇</button>
+    <button class="ghost" id="chatBtn">💬</button>
+    <button class="ghost" id="fsBtn">⛶</button>
+    <button class="danger" id="leaveBtn">Leave</button>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const PREFIX = "pbrv-v1-";                          // keeps our codes separate from other PeerJS users
+  const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";    // no 0/O/1/I to avoid typos
+  const ICE = { iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" }
+  ]};
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  const makeCode = () => { const a = new Uint32Array(6); crypto.getRandomValues(a); return [...a].map(n => ALPHA[n % ALPHA.length]).join(""); };
+  const guessDevice = () => /iPhone|Android.+Mobile/i.test(navigator.userAgent) ? "Phone" : /iPad|Android|Tablet/i.test(navigator.userAgent) ? "Tablet" : "Laptop";
+
+  function toast(t, ms = 2600){ const d = document.createElement("div"); d.className = "toast"; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), ms); }
+  function show(id){ ["home","host","viewer"].forEach(s => $(s).classList.toggle("hidden", s !== id)); }
+  document.querySelectorAll("[data-home]").forEach(b => b.onclick = () => { if (hostPeer) stopHost(); show("home"); history.replaceState(null, "", location.pathname); });
+  $("goHost").onclick = () => show("host");
+  $("goView").onclick = () => { show("viewer"); $("joinCode").focus(); };
+
+  function addMsg(box, who, text, me){
+    const el = document.createElement("div"); el.className = "msg" + (me ? " me" : "");
+    el.innerHTML = `<small>${esc(who)}</small>${esc(text)}`; box.appendChild(el); box.scrollTop = box.scrollHeight;
+  }
+
+  // ───────────────────────────── HOST ─────────────────────────────
+  let hostPeer = null, stream = null, code = "";
+  const viewers = new Map();   // peerId -> { name, conn, call, allowed }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    $("startShare").disabled = true; $("noShare").classList.remove("hidden");
+  }
+
+  $("startShare").onclick = async () => {
+    const fps = +$("fps").value, h = +$("res").value;
+    const video = { frameRate: { ideal: fps, max: fps } };
+    if (h) video.height = { ideal: h, max: h };
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: $("audio").checked });
+    } catch (e) { toast("Screen sharing was cancelled"); return; }
+    const vt = stream.getVideoTracks()[0];
+    if (vt && "contentHint" in vt) vt.contentHint = fps >= 30 ? "motion" : "detail";
+    vt.addEventListener("ended", stopHost);   // user pressed the browser's own "Stop sharing"
+    $("preview").srcObject = stream;
+    $("hostSetup").classList.add("hidden"); $("hostLive").classList.remove("hidden"); $("hostChatCard").classList.remove("hidden");
+    startHostPeer();
+  };
+
+  function setHostStatus(txt, cls){ $("hostStatus").textContent = txt; $("hostDot").className = "dot " + cls; }
+
+  function startHostPeer(tries = 0){
+    code = makeCode();
+    $("code").textContent = "······"; setHostStatus("Connecting…", "wait");
+    hostPeer = new Peer(PREFIX + code, { config: ICE });
+    hostPeer.on("open", () => {
+      $("code").textContent = code;
+      setHostStatus("Ready – waiting for a viewer", "on");
+      const link = `${location.origin}${location.pathname}?join=${code}`;
+      $("qr").innerHTML = "";
+      if (window.QRCode) new QRCode($("qr"), { text: link, width: 170, height: 170, correctLevel: QRCode.CorrectLevel.M });
+    });
+    hostPeer.on("error", (err) => {
+      if (err.type === "unavailable-id" && tries < 5) { hostPeer.destroy(); startHostPeer(tries + 1); return; }
+      if (err.type === "peer-unavailable") return;
+      setHostStatus("Problem: " + err.type, "off");
+    });
+    hostPeer.on("disconnected", () => { if (hostPeer && !hostPeer.destroyed) { setHostStatus("Reconnecting…", "wait"); hostPeer.reconnect(); } });
+    hostPeer.on("connection", onViewerConn);
+  }
+
+  function onViewerConn(conn){
+    const name = String((conn.metadata && conn.metadata.name) || "Unknown device").slice(0, 30);
+    const v = { name, conn, call: null, allowed: false };
+    viewers.set(conn.peer, v);
+    conn.on("open", () => {
+      if ($("autoAllow").checked) allowViewer(conn.peer);
+      else askAllow(conn.peer);
+      renderViewers();
+    });
+    conn.on("data", (d) => {
+      if (!v.allowed || !d || d.type !== "chat") return;
+      const text = String(d.text || "").slice(0, 500);
+      addMsg($("hostMsgs"), v.name, text, false);
+      broadcast({ type: "chat", from: v.name, text }, conn.peer);   // let other viewers see it too
+    });
+    conn.on("close", () => dropViewer(conn.peer));
+    conn.on("error", () => dropViewer(conn.peer));
+  }
+
+  function askAllow(id){
+    const v = viewers.get(id); if (!v) return;
+    const m = document.createElement("div"); m.className = "modal";
+    m.innerHTML = `<div class="card"><h2>Let this device watch your screen?</h2>
+      <p><b style="color:var(--ink)">${esc(v.name)}</b> is asking to view your screen.</p>
+      <p>Only allow it if it's your own device or someone you trust.</p>
+      <div class="row"><button class="ghost" style="flex:1" data-a="deny">Deny</button><button class="ok" style="flex:1" data-a="allow">Allow</button></div></div>`;
+    m.querySelector("[data-a=allow]").onclick = () => { m.remove(); allowViewer(id); };
+    m.querySelector("[data-a=deny]").onclick = () => { m.remove(); try { v.conn.send({ type: "denied" }); } catch(e){} setTimeout(() => v.conn.close(), 300); viewers.delete(id); renderViewers(); };
+    $("modalRoot").appendChild(m);
+    try { new Notification && document.hidden && Notification.permission === "granted" && new Notification("Someone wants to view your screen"); } catch(e){}
+    document.title = "🔔 Viewer waiting – Remote Screen";
+    setTimeout(() => document.title = "Remote Screen Viewer", 8000);
+  }
+
+  function allowViewer(id){
+    const v = viewers.get(id); if (!v || !stream) return;
+    v.allowed = true;
+    v.conn.send({ type: "accepted", audio: stream.getAudioTracks().length > 0 });
+    v.call = hostPeer.call(id, stream);
+    tuneSender(v.call);
+    v.call.on("close", () => dropViewer(id));
+    renderViewers();
+    toast(`${v.name} is now viewing`);
+  }
+
+  // Ask the browser for a higher bitrate so text stays readable.
+  function tuneSender(call){
+    const tryTune = () => {
+      const pc = call.peerConnection; if (!pc) return setTimeout(tryTune, 200);
+      pc.getSenders().forEach(s => {
+        if (!s.track || s.track.kind !== "video") return;
+        const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = 4_000_000; p.degradationPreference = "maintain-resolution";
+        s.setParameters(p).catch(() => {});
+      });
+    };
+    setTimeout(tryTune, 800);
+  }
+
+  function dropViewer(id){
+    const v = viewers.get(id); if (!v) return;
+    viewers.delete(id);
+    try { v.call && v.call.close(); } catch(e){}
+    try { v.conn.close(); } catch(e){}
+    if (v.allowed) toast(`${v.name} left`);
+    renderViewers();
+  }
+
+  function renderViewers(){
+    const list = $("viewerList"); const allowed = [...viewers.entries()].filter(([,v]) => v.allowed);
+    if (!allowed.length) { list.innerHTML = `<li style="color:var(--muted)">No one yet</li>`; if (hostPeer && hostPeer.open) setHostStatus("Ready – waiting for a viewer", "on"); return; }
+    setHostStatus(`${allowed.length} watching`, "on");
+    list.innerHTML = "";
+    allowed.forEach(([id, v]) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span>👁️ ${esc(v.name)}</span>`;
+      const b = document.createElement("button"); b.className = "ghost"; b.textContent = "Kick"; b.style.padding = "6px 12px";
+      b.onclick = () => { try { v.conn.send({ type: "kicked" }); } catch(e){} setTimeout(() => dropViewer(id), 200); };
+      li.appendChild(b); list.appendChild(li);
+    });
+  }
+
+  function broadcast(msg, exceptId){ viewers.forEach((v, id) => { if (v.allowed && id !== exceptId) try { v.conn.send(msg); } catch(e){} }); }
+
+  $("hostChatForm").onsubmit = (e) => {
+    e.preventDefault(); const t = $("hostChatIn").value.trim(); if (!t) return;
+    broadcast({ type: "chat", from: "Computer", text: t }); addMsg($("hostMsgs"), "You", t, true); $("hostChatIn").value = "";
+  };
+
+  $("copyLink").onclick = async () => {
+    const link = `${location.origin}${location.pathname}?join=${code}`;
+    try { await navigator.clipboard.writeText(link); toast("Link copied"); } catch(e) { prompt("Copy this link:", link); }
+  };
+  $("stopShare").onclick = stopHost;
+
+  function stopHost(){
+    broadcast({ type: "ended" });
+    setTimeout(() => {
+      viewers.forEach((_, id) => dropViewer(id));
+      if (hostPeer) { hostPeer.destroy(); hostPeer = null; }
+    }, 250);
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    $("preview").srcObject = null; $("hostMsgs").innerHTML = "";
+    $("hostLive").classList.add("hidden"); $("hostChatCard").classList.add("hidden"); $("hostSetup").classList.remove("hidden");
+  }
+
+  window.addEventListener("beforeunload", (e) => { if (stream) { e.preventDefault(); e.returnValue = ""; } });
+
+  // ───────────────────────────── VIEWER ─────────────────────────────
+  let viewPeer = null, viewConn = null, viewCall = null;
+  try { $("myName").value = localStorage.getItem("rv-name") || guessDevice(); } catch(e) { $("myName").value = guessDevice(); }
+  $("joinCode").addEventListener("input", (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); });
+
+  function setJoin(txt, cls){ $("joinStatus").textContent = txt; $("joinDot").className = "dot " + (cls || ""); }
+
+  $("joinForm").onsubmit = (e) => {
+    e.preventDefault();
+    const c = $("joinCode").value.trim().toUpperCase();
+    if (c.length !== 6) { toast("The code has 6 letters/numbers"); return; }
+    const name = $("myName").value.trim() || guessDevice();
+    try { localStorage.setItem("rv-name", name); } catch(e){}
+    join(c, name);
+  };
+
+  function join(c, name){
+    leave(true);
+    $("joinBtn").disabled = true; setJoin("Connecting…", "wait");
+    viewPeer = new Peer({ config: ICE });
+    viewPeer.on("open", () => {
+      viewConn = viewPeer.connect(PREFIX + c, { metadata: { name }, reliable: true });
+      viewConn.on("open", () => {
+        setJoin("Waiting for the computer to allow you…", "wait");
+        openStage(); $("viewInfo").textContent = `Code ${c} · waiting for approval`;
+      });
+      viewConn.on("data", onHostData);
+      viewConn.on("close", () => { if (viewPeer) { toast("Disconnected"); leave(); } });
+    });
+    viewPeer.on("call", (call) => {
+      viewCall = call;
+      call.answer();
+      call.on("stream", (s) => {
+        const v = $("remote"); v.srcObject = s; v.muted = true; $("muteBtn").textContent = "🔇";
+        v.play().catch(() => {});
+        $("waiting").classList.add("hidden");
+        $("viewInfo").textContent = `Code ${c} · live`;
+        setJoin("Connected", "on");
+      });
+      call.on("close", () => { if (viewPeer) leave(); });
+    });
+    viewPeer.on("error", (err) => {
+      $("joinBtn").disabled = false;
+      if (err.type === "peer-unavailable") { setJoin("No screen found with that code. Check the code and that sharing is still on.", "off"); closeStage(); }
+      else setJoin("Problem: " + err.type, "off");
+    });
+  }
+
+  function onHostData(d){
+    if (!d || typeof d !== "object") return;
+    if (d.type === "accepted") { $("waiting").innerHTML = "Allowed! Starting video…"; if (d.audio) toast("Sound is available – tap 🔇 to unmute"); }
+    else if (d.type === "denied") { toast("The computer said no"); setJoin("Request was denied", "off"); leave(); }
+    else if (d.type === "kicked") { toast("You were removed by the computer"); leave(); }
+    else if (d.type === "ended") { toast("The computer stopped sharing"); setJoin("Sharing ended", "off"); leave(); }
+    else if (d.type === "chat") { addMsg($("viewMsgs"), d.from || "Computer", String(d.text || "").slice(0, 500), false); $("chatPanel").classList.remove("hidden"); }
+  }
+
+  function openStage(){ $("stage").classList.remove("hidden"); $("waiting").classList.remove("hidden"); $("waiting").innerHTML = "Waiting for the computer to press <b>&nbsp;Allow&nbsp;</b>…"; document.body.style.overflow = "hidden"; }
+  function closeStage(){ $("stage").classList.add("hidden"); document.body.style.overflow = ""; if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}); }
+
+  function leave(silent){
+    const p = viewPeer; viewPeer = null;
+    try { viewCall && viewCall.close(); } catch(e){}
+    try { viewConn && viewConn.close(); } catch(e){}
+    try { p && p.destroy(); } catch(e){}
+    viewCall = viewConn = null;
+    $("remote").srcObject = null; $("viewMsgs").innerHTML = ""; $("chatPanel").classList.add("hidden");
+    $("joinBtn").disabled = false;
+    if (!silent) { closeStage(); if ($("joinDot").className.indexOf("off") < 0) setJoin("Not connected", ""); }
+  }
+  $("leaveBtn").onclick = () => leave();
+
+  $("viewChatForm").onsubmit = (e) => {
+    e.preventDefault(); const t = $("viewChatIn").value.trim(); if (!t || !viewConn) return;
+    viewConn.send({ type: "chat", text: t }); addMsg($("viewMsgs"), "You", t, true); $("viewChatIn").value = "";
+  };
+  $("chatBtn").onclick = () => $("chatPanel").classList.toggle("hidden");
+  $("muteBtn").onclick = () => { const v = $("remote"); v.muted = !v.muted; $("muteBtn").textContent = v.muted ? "🔇" : "🔊"; v.play().catch(()=>{}); };
+  $("fsBtn").onclick = () => {
+    const st = $("stage");
+    if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+    else if (st.requestFullscreen) st.requestFullscreen().catch(()=>{});
+    else toast("Rotate your phone sideways for a bigger view");
+  };
+
+  // ── Zoom & pan (pinch, mouse wheel, drag) ──
+  const vp = $("viewport"), rv = $("remote");
+  let scale = 1, fitScale = 1, tx = 0, ty = 0;
+  function vw(){ return rv.videoWidth || 1280; } function vh(){ return rv.videoHeight || 720; }
+  function clamp(){
+    const W = vp.clientWidth, H = vp.clientHeight, w = vw() * scale, h = vh() * scale;
+    tx = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, tx));
+    ty = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, ty));
+  }
+  function apply(){ clamp(); rv.style.width = vw() + "px"; rv.style.height = vh() + "px"; rv.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; }
+  function fit(){ fitScale = Math.min(vp.clientWidth / vw(), vp.clientHeight / vh()); scale = fitScale; apply(); }
+  function zoomAt(f, cx, cy){
+    const ns = Math.min(Math.max(scale * f, fitScale * 0.5), Math.max(4, fitScale * 8));
+    tx = cx - (cx - tx) * (ns / scale); ty = cy - (cy - ty) * (ns / scale); scale = ns; apply();
+  }
+  rv.addEventListener("loadedmetadata", fit); rv.addEventListener("resize", fit); window.addEventListener("resize", fit);
+  $("zoomFit").onclick = fit;
+  $("zoomIn").onclick = () => zoomAt(1.4, vp.clientWidth / 2, vp.clientHeight / 2);
+  $("zoomOut").onclick = () => zoomAt(1 / 1.4, vp.clientWidth / 2, vp.clientHeight / 2);
+  vp.addEventListener("wheel", (e) => { e.preventDefault(); const r = vp.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+  const ptrs = new Map(); let lastDist = 0, lastTap = 0;
+  vp.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("#chatPanel")) return;
+    vp.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) { const now = Date.now(); if (now - lastTap < 300) { const r = vp.getBoundingClientRect(); scale > fitScale * 1.05 ? fit() : zoomAt(2.5, e.clientX - r.left, e.clientY - r.top); } lastTap = now; }
+  });
+  vp.addEventListener("pointermove", (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) { tx += e.clientX - prev.x; ty += e.clientY - prev.y; apply(); }
+    else if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const r = vp.getBoundingClientRect();
+      if (lastDist) zoomAt(d / lastDist, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+      lastDist = d;
+    }
+  });
+  const up = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) lastDist = 0; };
+  vp.addEventListener("pointerup", up); vp.addEventListener("pointercancel", up);
+
+  // Open straight to the viewer when a shared link / QR is used
+  const q = new URLSearchParams(location.search).get("join");
+  if (q) { show("viewer"); $("joinCode").value = q.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); }
+})();
+</script>
+</body>
+</html>
