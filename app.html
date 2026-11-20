@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.70" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.71" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1202,12 +1202,25 @@ function useMyLocation() {
   if (!navigator.geolocation) { toast("Location is not available on this device", true); return; }
   toast("Finding your location…");
   var my = ++locReq; if (S.place) { S.place.addrTyped = false; S.place.pinAddr = ""; pinHint(); }
-  var done = false, here = function (pos) { done = true; if (my !== locReq) return; if (mapObj) mapObj.setView([pos.coords.latitude, pos.coords.longitude], 17); };
-  // Quick rough position first (wifi / cell), then the exact GPS fix when it arrives.
-  navigator.geolocation.getCurrentPosition(here, function () {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
-  navigator.geolocation.getCurrentPosition(function (pos) { if (my !== locReq) return; here(pos); toast("Location found. Move the pin if it is not exact."); },
-    function (e) { if (done) return; toast(e.code === 1 ? "Location permission is off. Allow location for this site and try again." : "Could not get your location yet. Try again, or search for the address.", true); },
-    { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 });
+  var got = false, best = null, wid = null, denied = false;
+  var here = function (pos) {
+    if (my !== locReq) return;
+    if (best && pos.coords.accuracy >= best.coords.accuracy) return;   // keep the most exact fix
+    best = pos; if (mapObj) mapObj.setView([pos.coords.latitude, pos.coords.longitude], 17);
+    if (!got) { got = true; toast("Location found. Move the pin if it is not exact."); }
+    if (pos.coords.accuracy <= 30) stop();                              // good enough
+  };
+  var stop = function () { if (wid != null) { navigator.geolocation.clearWatch(wid); wid = null; } };
+  var fail = function (e) { if (e && e.code === 1) denied = true; };
+  // 1) quick rough or recent position (wifi / cell, up to 10 minutes old)
+  navigator.geolocation.getCurrentPosition(here, fail, { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
+  // 2) keep listening for the exact GPS fix for up to 45 seconds (indoors GPS can be slow)
+  try { wid = navigator.geolocation.watchPosition(here, fail, { enableHighAccuracy: true, timeout: 45000, maximumAge: 0 }); } catch (e) {}
+  setTimeout(function () {
+    stop(); if (my !== locReq || got) return;
+    toast(denied ? "Location permission is off. Allow location for PasuyoBuddy in your phone settings and try again."
+                 : "Could not get your location. Turn on Location (GPS) and Google Location Accuracy, go near a window, or search for the address.", true);
+  }, 45000);
 }
 function stopsReady() { return S.bk.stops.every(function (s) { return s.lat != null; }); }
 // Swap pick-up and drop-off (only the place and contact; COD and who-pays stay with the drop-off)
