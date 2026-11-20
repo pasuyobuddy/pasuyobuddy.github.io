@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.97" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.00" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -1552,7 +1552,7 @@ async function setOnline(on) {
 }
 async function accept(id) {
   await run(async function () { var ok = await rpc("rider_accept", { p_order: id }); S.busy = false;
-    if (!ok) { toast("Another rider got this job first", true); await loadJobs(); return; } await openJob(id); toast("Job accepted"); });
+    if (!ok) { toast("Another rider got this job first", true); await loadJobs(); return; } await openJob(id); okPop("Job accepted!", "Go to the pickup now. The customer can see you on the map."); });
 }
 async function openJob(id) {
   var same = S.order && S.order.id === id && S.view === "job";
@@ -1610,7 +1610,8 @@ async function finishStop(failed) {
 }
 async function finishJob() {
   await run(async function () { var o = S.order; await rpc("complete_order", { p_order: o.id }); stopTimers(); await reloadMe();
-    S.done = { id: o.id, order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0); });
+    S.done = { id: o.id, order_no: o.order_no, earns: o.rider_earns, commission: o.commission, wallet: rider().wallet, fare: o.fare_total, tip: o.tip || 0, abono: o.abono_fee || 0 }; S.order = null; S.view = "done"; render(); window.scrollTo(0, 0);
+    okPop("Pasuyo delivered successfully!", "Job " + (o.order_no || "") + " is complete." + (o.rider_earns != null ? " You earned " + peso(o.rider_earns) + "." : "") + " Salamat, Buddy!"); });
 }
 // Wallet opens at once with the last numbers seen (if any), then refreshes. All parts load at the same time.
 async function showWallet() { stopTimers(); S.view = "wallet"; render(); window.scrollTo(0, 0);
@@ -2224,6 +2225,7 @@ function jobCard(j) {
     '<span class="jtag">' + (j.service_level === "priority" ? "&#9889; Priority" : j.service_level === "pooling" ? "Saver" : "Regular") + "</span>"];
   if (j.fav) tags.unshift('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#11088; Your favorite customer</span>');
   if (j.hd_pct) tags.push('<span class="jtag" style="background:#FFF3CD;color:#7A5A00">&#9889; High demand +' + j.hd_pct + "%</span>");
+  var rec = j.cust_done == null ? "" : '<div class="small" style="margin-top:6px;font-weight:700;color:' + (j.cust_done ? "#0B6B45" : "#7A5A00") + '">' + (j.cust_done ? "&#9989; Customer: " + j.cust_done + " completed booking" + (j.cust_done === 1 ? "" : "s") + " &middot; " + (j.cust_abono || 0) + " Abono" : "&#127381; New customer: first booking") + "</div>";
   if (j.needs_bag) tags.push('<span class="jtag jbad">&#127890; Bring a bag</span>');
   if (j.advance > 0) tags.push('<span class="jtag jbad">Abono ' + peso(j.advance) + "</span>");
   // Where the rider collects cash: at pickup (sender) and/or at drop-off (receiver)
@@ -2236,8 +2238,11 @@ function jobCard(j) {
     + drops.map(function (d, i) { return '<div class="jst"><span class="jpin">&#128205;</span>' + h(d) + (drops.length > 1 ? ' <span class="muted small">(' + (i + 1) + ")</span>" : "") + "</div>"; }).join("") + "</div>";
   var extra = (j.tip || 0) + (j.abono || 0);
   var price = j.fare_total != null ? peso(j.fare_total) + (extra ? ' <span class="muted">+ ' + peso(extra) + (j.tip && !j.abono ? " tip" : j.abono && !j.tip ? " abono" : " tip/abono") + "</span>" : "") : "";
-  return '<div class="jc"><div class="jch"><span>(~' + km(j.pickup_distance_m) + ") " + pu + "</span>" + (j.show_km && j.total_km != null ? '<span style="font-weight:600;opacity:.9">' + Number(j.total_km).toFixed(1) + " km trip</span>" : "") + "</div>"
-    + '<div class="jcb"><div class="chips" style="gap:6px">' + tags.join("") + "</div>"
+  var dist = '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px;font-size:13px;font-weight:700">'
+    + '<span style="background:#EEF4FF;color:#1D4ED8;border-radius:8px;padding:4px 8px">&#128757; You: ' + km(j.pickup_distance_m) + " away</span>"
+    + (j.show_km && j.total_km != null ? '<span style="background:#F3F4F6;color:#374151;border-radius:8px;padding:4px 8px">&#128230; Job distance: ' + Number(j.total_km).toFixed(1) + " km</span>" : "") + "</div>";
+  return '<div class="jc"><div class="jch"><span>' + pu + "</span></div>"
+    + '<div class="jcb"><div class="chips" style="gap:6px">' + tags.join("") + "</div>" + dist + rec
     + '<div class="row" style="align-items:flex-start;margin-top:8px">' + route + '<div class="muted small" style="margin-left:auto;white-space:nowrap">' + h((rider() && rider().vehicle) || "") + "</div></div>"
     + (j.note ? '<div class="small muted" style="margin-top:6px">&#128221; ' + h(j.note) + "</div>" : "")
     + '<div class="row" style="align-items:flex-end;margin-top:10px"><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">' + (pays || '<span class="jpay jon">&#128179; Paid online</span>') + "</div>"
@@ -2332,19 +2337,25 @@ function nextLoad(force) {
 }
 function nextCard() {
   var o = S.order; if (!o || ["picked_up", "in_transit", "bought"].indexOf(o.status) < 0) return "";
+  if (o.service_level === "priority") return '<div class="note n-warn">&#9889; <b>Priority job.</b> No other jobs until this delivery is done.</div>';
   var nx = S.me && S.me.next_order;
-  if (nx && nx.order_no) return '<div class="note n-good">&#9989; <b>Next job ' + h(nx.order_no) + "</b> (pickup in " + h(nx.pickup_area || "") + ") is waiting for you. Finish this delivery first, then go straight there.</div>";
+  var nxNote = nx && nx.order_no ? '<div class="note n-good">&#9989; <b>Next job ' + h(nx.order_no) + "</b> (pickup in " + h(nx.pickup_area || "") + ") is waiting for you. Finish this delivery first, then go straight there.</div>" : "";
   nextLoad(false);
-  var d = NEXT.data; if (!d || d.on === false) return "";
-  if (!d.ok) return '<div class="small muted" style="text-align:center">&#128284; When you are within ' + (d.near_km || 2) + " km of your last drop-off, you can accept your next job near there.</div>";
-  if (!d.jobs || !d.jobs.length) return '<div class="small muted" style="text-align:center">&#128284; No next job near your drop-off right now.</div>';
-  return '<div class="card" style="border-color:#FFC629"><h2 style="margin:0 0 6px">&#128284; Next job near your drop-off</h2><div class="small muted" style="margin-bottom:8px">Accept now, finish this delivery first, then go straight to the pickup. No empty trip back.</div>'
+  var d = NEXT.data; if (!d || d.on === false) return nxNote;
+  if (!d.ok) {
+    if (nxNote) return nxNote;
+    var why = d.reason === "new_rider" ? "&#128274; Next jobs unlock after " + (d.min_jobs || 10) + " completed jobs with a " + (d.min_rating || 4.5) + "+ rating."
+      : d.reason === "max" ? "" : "&#128284; When you are within " + (d.near_km || 2) + " km of your last drop-off, you can accept your next job near there.";
+    return why ? '<div class="small muted" style="text-align:center">' + why + "</div>" : "";
+  }
+  if (!d.jobs || !d.jobs.length) return nxNote || '<div class="small muted" style="text-align:center">&#128284; No next job near your drop-off right now.</div>';
+  return nxNote + '<div class="card" style="border-color:#FFC629"><h2 style="margin:0 0 6px">&#128284; ' + (nxNote ? "Add another Saver job (same direction)" : "Next job near your drop-off") + '</h2><div class="small muted" style="margin-bottom:8px">' + (nxNote ? "Saver jobs can be done one after another. Finish each delivery in order." : "Accept now, finish this delivery first, then go straight to the pickup. No empty trip back.") + "</div>"
     + d.jobs.slice(0, 3).map(function (j) { return jobCard(j).replace('data-act="accept"', 'data-act="nextacc"').replace(/<button class="btn" style="flex:0 0 32%" data-act="hidejob"[^>]*>Hide<\/button>/, ""); }).join("") + "</div>";
 }
 async function acceptNext(id) {
   await run(async function () { var ok = await rpc("rider_accept", { p_order: id }); S.busy = false;
     if (!ok) { toast("Another rider got this job first", true); nextLoad(true); return; }
-    await reloadMe(); NEXT.data = null; render(); toast("Next job accepted. Finish this delivery first."); });
+    await reloadMe(); NEXT.data = null; render(); okPop("Next job accepted!", "Finish this delivery first, then go straight to the next pickup."); });
 }
 function vJob() {
   var o = S.order, st = o.status, pick = o.stops[0], next = nextStop(), foot = "", extra = "";

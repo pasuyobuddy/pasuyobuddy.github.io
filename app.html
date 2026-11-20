@@ -798,9 +798,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.68" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.70" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
+var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
+function geoCountries() { return FLAGS.test_uae ? ["ph", "ae"] : ["ph"]; }
 var MAX_DROPS = 4;
 
 // ---------------- State ----------------
@@ -904,7 +906,7 @@ var GEO_G = {
     var lib = await google.maps.importLibrary("places");
     if (!gTok) gTok = new lib.AutocompleteSessionToken();
     var base = near || { lat: MANILA[0], lng: MANILA[1] };
-    var r = await lib.AutocompleteSuggestion.fetchAutocompleteSuggestions({ input: q, includedRegionCodes: ["ph"], language: "en", region: "ph",
+    var r = await lib.AutocompleteSuggestion.fetchAutocompleteSuggestions({ input: q, includedRegionCodes: geoCountries(), language: "en", region: "ph",
       locationBias: { center: { lat: base.lat, lng: base.lng }, radius: 50000 }, origin: { lat: base.lat, lng: base.lng }, sessionToken: gTok });
     var out = (r.suggestions || []).map(function (s) { var p = s.placePrediction; if (!p) return null;
       var main = p.mainText ? p.mainText.toString() : "", sec = p.secondaryText ? p.secondaryText.toString() : "";
@@ -942,7 +944,7 @@ var GEO_FREE = {
   search: async function (q, near) {
     var base = near || { lat: MANILA[0], lng: MANILA[1] };
     function one(text) {
-      var u = "https://api.maptiler.com/geocoding/" + encodeURIComponent(text) + ".json?key=" + CONFIG.mapKey + "&country=ph&proximity=" + base.lng + "," + base.lat + "&limit=10&autocomplete=true&language=en";
+      var u = "https://api.maptiler.com/geocoding/" + encodeURIComponent(text) + ".json?key=" + CONFIG.mapKey + "&country=" + geoCountries().join(",") + "&proximity=" + base.lng + "," + base.lat + "&limit=10&autocomplete=true&language=en";
       return fetch(u).then(function (r) { return r.json(); }).then(function (j) { return (j.features || []).map(function (f) { return { label: f.place_name || f.text, lat: f.center[1], lng: f.center[0] }; }); }).catch(function () { return []; });
     }
     var transit = /^\s*(mrt|lrt|pnr)\b/i.test(q), tries = [one(q)];
@@ -1006,6 +1008,7 @@ function vConfirmed() {
 function deviceId() { try { var d = localStorage.getItem("pb_device"); if (!d) { d = "d" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("pb_device", d); } return d; } catch (e) { return ""; } }
 async function loadPromo() { try { S.promo = await rpc("customer_promo_status"); } catch (e) { S.promo = null; } }
 async function afterLogin() {
+  try { FLAGS = (await rpc("app_flags")) || {}; } catch (e) { FLAGS = {}; }
   try { S.me = await rpc("customer_me"); }
   catch (e) { S.session = null; S.authMsg = e.message; S.view = "auth"; if (/deactivated/i.test(e.message)) { try { await sb.auth.signOut(); } catch (x) {} } render(); return; }
   if (!S.me.name || !S.me.phone) { S.view = "profile"; render(); return; }
@@ -1265,7 +1268,8 @@ async function book() {
   if (S.wallet && S.bk.quote.sender_pays > 0 && S.wallet.balance >= S.bk.quote.sender_pays && (S.bk.pay === "gcash" || (S.bk.pay === "cash" && S.bk.useWallet !== false))) S.bk.pay = "wallet";   // wallet already covers it
   if (S.bk.pay === "gcash") { await payGcash(); return; }
   if (S.bk.pay === "wallet" && S.wallet && S.wallet.balance < S.bk.quote.sender_pays) { toast("Not enough money in your wallet. Top up first, or choose Cash or GCash.", true); return; }
-  await run(async function () { var id = await rpc("customer_book", { p: payload() }); var wasWallet = S.bk.pay === "wallet", usedW = S.bk.pay === "cash" && payParts(S.bk.quote).fromW > 0; S.bk = freshBooking(); loadPromo(); if (wasWallet || usedW) loadWallet(); toast(wasWallet ? "Paid from your wallet. Finding a rider…" : usedW ? "Booked! Wallet balance used, pay the rest in cash. Finding a rider…" : "Booked! Finding a rider…"); S.busy = false; await openOrder(id); });
+  await run(async function () { var id = await rpc("customer_book", { p: payload() }); var wasWallet = S.bk.pay === "wallet", usedW = S.bk.pay === "cash" && payParts(S.bk.quote).fromW > 0; S.bk = freshBooking(); loadPromo(); if (wasWallet || usedW) loadWallet(); S.busy = false; await openOrder(id);
+    okPop("Booking successful!", wasWallet ? "Paid from your wallet. We are now finding a rider near you." : usedW ? "Your wallet balance was used. Pay the rest in cash. We are now finding a rider near you." : "We are now finding a rider near you. You can follow your booking here."); });
 }
 
 // ---------------- PasuyoBuddy Wallet and GCash ----------------
@@ -1533,7 +1537,8 @@ async function openOrder(id) {
 }
 async function pollOrder() {
   if (S.view !== "track" || !S.order) { stopPoll(); return; }
-  try { var o = await rpc("customer_order", { p_order: S.order.id });
+  try { var o = await rpc("customer_order", { p_order: S.order.id }), was = S.order.status;
+    if (o.status === "completed" && was !== "completed") setTimeout(function () { okPop("Pasuyo delivered successfully!", "Your delivery " + (o.order_no ? "(" + o.order_no + ") " : "") + "is complete. Thank you for using PasuyoBuddy! Please rate your rider."); }, 300);
     if (sameButRider(o, S.order)) { S.order = o; updateRider(); }
     else if (JSON.stringify(o) !== JSON.stringify(S.order)) { S.order = o; render(); }
     if (o.rider && ENDED.indexOf(o.status) < 0) refreshUnread(custChatLabel());
