@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.73" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.74" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1243,12 +1243,32 @@ async function toVehicle() {
     catch (e) { S.bk.prices = await rpc("customer_prices", { p_km: S.bk.km, p_drops: st.length - 1 }); }   // server not updated yet
     S.bk.avail = null;
     try { var av = await rpc("vehicle_availability", {}); if (Array.isArray(av)) { S.bk.avail = {}; av.forEach(function (r) { S.bk.avail[r.vehicle_type_id] = r.riders; }); } } catch (e) {}   // server not updated yet: all stay open
+    if (S.bk.rebookVeh) { var rv = S.bk.prices.vehicles.filter(function (v) { return v.name === S.bk.rebookVeh; })[0]; if (rv) S.bk.vehicle = rv.id; S.bk.rebookVeh = null; }
     if (vehNone(S.bk.vehicle)) { var fv = S.bk.prices.vehicles.filter(function (v) { return !vehNone(v.id); })[0]; if (fv) S.bk.vehicle = fv.id; }
     if (!poolOk() && S.bk.level === "pooling") S.bk.level = "regular";
     go("vehicle");
   });
 }
 function vehNone(id) { return !!(S.bk.avail && S.bk.avail[id] === 0); }
+// Book again: copy the places, contacts and details of an old booking into a new one (price is always fresh)
+async function rebook(id) {
+  await run(async function () {
+    var o = (S.order && S.order.id === id && S.order.stops) ? S.order : await rpc("customer_order", { p_order: id });
+    var st = (o.stops || []).slice().sort(function (a, b) { return a.seq - b.seq; });
+    if (st.length < 2 || st.some(function (x) { return x.lat == null; })) { toast("This booking cannot be copied. Please book it again manually.", true); return; }
+    stopPoll(); var b = freshBooking();
+    b.stops = st.map(function (x) { var n = newStop(x.kind === "pickup" ? "pickup" : "dropoff");
+      n.address = x.address || ""; n.area = x.area || ""; n.lat = Number(x.lat); n.lng = Number(x.lng);
+      n.contact_name = x.contact_name || ""; n.contact_phone = x.contact_phone || "";
+      if (n.kind === "dropoff") { n.payer = x.fare_payer === "receiver" ? "receiver" : "sender"; if (Number(x.cod_amount) > 0) { n.cod = String(Math.round(Number(x.cod_amount) / 100)); if (x.abono_fee) n.abono = Math.round(Number(x.abono_fee) / 100); } }
+      return n; });
+    b.itemType = o.item_type || "parcel"; b.note = o.note || ""; b.needsBag = !!o.needs_bag; if (o.abono_payer) b.abonoPayer = o.abono_payer;
+    b.pay = o.payment_method === "wallet" ? "wallet" : "cash"; b.rebookVeh = o.vehicle || null;
+    S.bk = b; S.busy = false;
+    await toVehicle();
+    toast("Copied from " + (o.order_no || "your old booking") + ". Check the details, then book.");
+  });
+}
 function abonoOpts() { var b = abonoFee(); return [b, Math.round(b * 1.5), b * 2]; }
 function abonoFee() { return S.me && S.me.settings && S.me.settings.abono_fee != null ? Number(S.me.settings.abono_fee) : 50; }
 function hasCod() { return S.bk.stops.some(function (s) { return s.kind === "dropoff" && Number(s.cod) > 0; }); }
@@ -1946,6 +1966,7 @@ function vTrack() {
     + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
     + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate + favBtn
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
+    + (ended ? '<button class="btn pri" data-act="rebook" data-id="' + o.id + '">&#128257; Book again (same places)</button>' : "")
     + (o.status === "completed" ? '<button class="btn" data-act="receipt">&#129534; View receipt / request invoice</button>' : "")
     + (ended ? '<button class="btn pri" data-act="home">Book another delivery</button>' : "") + "</div>" + nav("orders");
 }
@@ -1961,7 +1982,7 @@ function vOrders() {
   var show = tab === "cur" ? cur : tab === "done" ? done : canc;
   var empty = tab === "cur" ? "No ongoing booking right now." : tab === "done" ? "No completed deliveries yet." : "No canceled bookings.";
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
-    : tabs + (show.length ? show.map(card).join("") : '<div class="card muted">' + empty + "</div>");
+    : tabs + (show.length ? show.map(function (o) { return tab === "cur" ? card(o) : card(o) + '<div style="text-align:right;margin:-4px 4px 10px"><button class="linkbtn" data-act="rebook" data-id="' + o.id + '">&#128257; Book again</button></div>'; }).join("") : '<div class="card muted">' + empty + "</div>");
   return topBar("My orders") + '<div class="body">' + body + "</div>" + nav("orders");
 }
 
@@ -2019,6 +2040,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "wtopen") { var w0 = S.wallet; S.wTopOpen = !(S.wTopOpen == null ? !(w0 && w0.balance) : S.wTopOpen); render(); }
   else if (a === "pushon") enablePush();
   else if (a === "receipt") openReceipt();
+  else if (a === "rebook") rebook(d.id);
   else if (a === "supopen") supList();
   else if (a === "suporder") { S.supNew = true; S.supTopic = "booking"; S.supOrder = S.order ? S.order.order_no : ""; supList().then(function () { S.supNew = true; render(); }); }
   else if (a === "supnew") { S.supNew = true; render(); }
