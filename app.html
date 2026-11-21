@@ -1971,7 +1971,7 @@ function vTrack() {
 }
 function vOrders() {
   var list = S.orders;
-  var card = function (o) { return '<button class="veh ocard" data-act="open" data-id="' + o.id + '"><span class="sp" style="min-width:0"><span class="b" style="display:block;line-height:1.35"><span style="color:#15171C">&#128230; ' + h(cleanArea(o.from_address || o.from_area)) + '</span></span><span class="b" style="display:block;line-height:1.35;margin-top:3px">&#128205; ' + h(cleanArea(o.to_address || o.to_area)) + (o.drops > 1 ? ' <span class="muted">(+' + (o.drops - 1) + " more)</span>" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span></span><span style="text-align:right;flex:0 0 auto"><span class="b" style="display:block">' + peso(o.fare_total) + "</span>" + pill(o.status) + "</span></button>"; };
+  var card = function (o, rb) { return '<div class="veh ocard" role="button" tabindex="0" data-act="open" data-id="' + o.id + '" style="margin-bottom:10px"><span class="sp" style="min-width:0"><span class="b" style="display:block;line-height:1.35"><span style="color:#15171C">&#128230; ' + h(cleanArea(o.from_address || o.from_area)) + '</span></span><span class="b" style="display:block;line-height:1.35;margin-top:3px">&#128205; ' + h(cleanArea(o.to_address || o.to_area)) + (o.drops > 1 ? ' <span class="muted">(+' + (o.drops - 1) + " more)</span>" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span></span><span style="text-align:right;flex:0 0 auto"><span class="b" style="display:block">' + peso(o.fare_total) + "</span>" + pill(o.status) + (rb ? '<button class="btn sm" style="margin-top:8px;white-space:nowrap" data-act="rebook" data-id="' + o.id + '">&#128257; Book again</button>' : "") + "</span></div>"; };
   var cur = (list || []).filter(function (o) { return ENDED.indexOf(o.status) < 0; }),
       done = (list || []).filter(function (o) { return o.status === "completed"; }),
       canc = (list || []).filter(function (o) { return ENDED.indexOf(o.status) >= 0 && o.status !== "completed"; });
@@ -1981,7 +1981,7 @@ function vOrders() {
   var show = tab === "cur" ? cur : tab === "done" ? done : canc;
   var empty = tab === "cur" ? "No ongoing booking right now." : tab === "done" ? "No completed deliveries yet." : "No canceled bookings.";
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
-    : tabs + (show.length ? show.map(function (o) { return tab === "cur" ? card(o) : card(o) + '<div style="text-align:right;margin:-6px 6px 12px"><button class="linkbtn" data-act="rebook" data-id="' + o.id + '">&#128257; Book again</button></div>'; }).join("") : '<div class="card muted">' + empty + "</div>");
+    : tabs + (show.length ? show.map(function (o) { return card(o, tab !== "cur"); }).join("") : '<div class="card muted">' + empty + "</div>");
   return topBar("My orders") + '<div class="body">' + body + "</div>" + nav("orders");
 }
 
