@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.71" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.72" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1925,7 +1925,7 @@ function vTrack() {
   var idx = order.indexOf(o.status), steps = "";
   if (idx >= 0) steps = '<div class="steps">' + order.map(function (s, i) { return '<div class="step ' + (i < idx || o.status === "completed" ? "done" : i === idx ? "now" : "todo") + '"><span class="mk"></span><span>' + labels[s] + "</span></div>"; }).join("") + "</div>";
   var canCancel = ["searching", "accepted", "at_pickup"].indexOf(o.status) >= 0, canTip = ["searching", "accepted"].indexOf(o.status) >= 0;
-  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div>"
+  var rider = o.rider ? '<div class="card"><h2>Your rider</h2><div class="row" style="gap:12px;align-items:center">' + riderPhoto(o.rider) + '<div class="sp"><div class="b" style="font-size:17px">' + h(o.rider.name || "Rider") + '</div><div style="font-weight:800;letter-spacing:.04em;margin-top:2px">' + h(o.rider.plate || "") + '</div><div class="small muted">' + h(o.vehicle) + " · ★ " + h(o.rider.rating) + "</div>" + (o.rider.jobs != null ? '<div class="small" style="margin-top:2px;font-weight:700;color:' + (o.rider.jobs ? "#0B6B45" : "#7A5A00") + '">' + (o.rider.jobs ? "&#9989; " + Number(o.rider.jobs).toLocaleString("en-PH") + " completed booking" + (o.rider.jobs === 1 ? "" : "s") : "&#127381; New rider") + "</div>" : "") + (o.rider.phone ? '<div class="small" style="margin-top:2px">&#128222; ' + h(phoneFmt(o.rider.phone)) + "</div>" : "") + "</div>" + (o.rider.phone && !ended ? '<a class="btn sm" href="tel:' + h(o.rider.phone) + '">Call</a>' : "") + "</div>"
     + '<div class="note n-info small" style="margin-top:10px">&#128064; <b>Check your rider:</b> the face and plate number should match the photo above. <button class="linkbtn" style="font-size:13px" data-act="repdiff">Different person? Report it</button></div></div>' : "";
   if (o.needs_bag) rider += '<div class="note n-info">&#127890; You asked the rider to bring a delivery bag.</div>';
   var arr = o.status === "in_transit" ? o.stops.filter(function (x) { return x.kind === "dropoff" && x.status === "arrived"; })[0] : null;
