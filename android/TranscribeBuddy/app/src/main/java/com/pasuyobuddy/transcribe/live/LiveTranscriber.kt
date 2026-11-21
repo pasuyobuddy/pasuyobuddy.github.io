@@ -128,7 +128,7 @@ class LiveTranscriber(
                 }
                 SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
                     listening = false
-                    onStatus("This language isn't available for live mode on your phone. Pick another language, or use Record meeting.")
+                    onStatus("This language isn't available for live mode on your phone. Pick another language, or use Record and transcribe it afterwards.")
                 }
                 SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER,
                 SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> {

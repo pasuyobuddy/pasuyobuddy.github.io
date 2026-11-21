@@ -55,7 +55,7 @@ class RecordService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startRecording()
-            ACTION_STOP -> stopRecording(intent.getBooleanExtra(EXTRA_TRANSCRIBE, true))
+            ACTION_STOP -> stopRecording(intent.getBooleanExtra(EXTRA_TRANSCRIBE, false))
             ACTION_PAUSE -> pauseRecording()
             ACTION_RESUME -> resumeRecording()
         }
@@ -158,7 +158,7 @@ class RecordService : Service() {
         )
         val stop = PendingIntent.getService(
             this, 2,
-            Intent(this, RecordService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_TRANSCRIBE, true),
+            Intent(this, RecordService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_TRANSCRIBE, false),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val paused = RecordState.status.value.paused
@@ -169,13 +169,13 @@ class RecordService : Service() {
         )
         return NotificationCompat.Builder(this, "jobs")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(if (paused) "Recording paused" else "Recording meeting…")
-            .setContentText("Tap Stop & transcribe when finished")
+            .setContentTitle(if (paused) "Recording paused" else "Recording…")
+            .setContentText("Tap Stop & save when finished")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .addAction(0, if (paused) "Resume" else "Pause", toggle)
-            .addAction(0, "Stop & transcribe", stop)
+            .addAction(0, "Stop & save", stop)
             .build()
     }
 }

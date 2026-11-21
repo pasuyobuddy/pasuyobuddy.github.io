@@ -79,7 +79,7 @@ object Recordings {
             ?: emptyList()
 
     fun titleFor(ts: Long): String =
-        "Meeting " + SimpleDateFormat("yyyy-MM-dd HH.mm", Locale.US).format(Date(ts))
+        "Recording " + SimpleDateFormat("yyyy-MM-dd HH.mm", Locale.US).format(Date(ts))
 
     private fun durationOf(f: File): Long {
         val r = MediaMetadataRetriever()

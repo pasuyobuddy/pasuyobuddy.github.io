@@ -222,7 +222,7 @@ private fun HomeScreen(activity: MainActivity, go: (Screen) -> Unit) {
             if (rec.recording) {
                 Card(Modifier.fillMaxWidth().clickable { go(Screen.Record) },
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFFEE2E2))) {
-                    Text("● Recording meeting – tap to open", Modifier.padding(14.dp), color = Color(0xFFB91C1C))
+                    Text("● Recording – tap to open", Modifier.padding(14.dp), color = Color(0xFFB91C1C))
                 }
             }
 
@@ -232,7 +232,7 @@ private fun HomeScreen(activity: MainActivity, go: (Screen) -> Unit) {
             BigAction(Icons.Filled.AudioFile, "Transcribe a file", "Voice notes, mp3, m4a, videos… works offline") {
                 activity.pickAudioFile()
             }
-            BigAction(Icons.Filled.RecordVoiceOver, "Record meeting", "Record now, transcribe with timestamps when you stop") {
+            BigAction(Icons.Filled.RecordVoiceOver, "Record", "Voice recorder – saves to Recordings, transcribe anytime") {
                 go(Screen.Record)
             }
             TranslateSwitchCard()
@@ -368,24 +368,18 @@ private fun RecordScreen(activity: MainActivity, go: (Screen) -> Unit) {
     val rec by RecordState.status.collectAsState()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val ctx = LocalContext.current
-    val prefs = remember { AppPrefs(ctx) }
-    var lang by remember { mutableStateOf(prefs.whisperLang) }
 
     LaunchedEffect(rec.recording) {
         while (rec.recording) { now = System.currentTimeMillis(); delay(500) }
     }
 
-    Scaffold(topBar = { Bar("Record meeting", { go(Screen.Home) }) }) { pad ->
+    Scaffold(topBar = { Bar("Record", { go(Screen.Home) }) }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            LanguagePicker("Language of the meeting", Languages.whisper, lang, enabled = true) {
-                lang = it; prefs.whisperLang = it
-            }
-            TranslateSwitchCard()
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(24.dp))
             if (rec.recording) {
                 Icon(
                     if (rec.paused) Icons.Filled.Pause else Icons.Filled.FiberManualRecord, null, Modifier.size(56.dp),
@@ -405,10 +399,11 @@ private fun RecordScreen(activity: MainActivity, go: (Screen) -> Unit) {
                     Text(if (rec.paused) "Resume" else "Pause", fontSize = 17.sp)
                 }
                 Button(
-                    onClick = { RecordService.stop(ctx, transcribe = true); go(Screen.Job) },
+                    onClick = { RecordService.stop(ctx, transcribe = false); go(Screen.Recordings) },
                     modifier = Modifier.fillMaxWidth().height(56.dp)
-                ) { Icon(Icons.Filled.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop & transcribe", fontSize = 18.sp) }
-                TextButton(onClick = { RecordService.stop(ctx, transcribe = false); go(Screen.Recordings) }) { Text("Stop without transcribing (save to Recordings)") }
+                ) { Icon(Icons.Filled.Stop, null); Spacer(Modifier.width(8.dp)); Text("Stop & save", fontSize = 18.sp) }
+                Text("Saved to Recordings. Play it, share it, or transcribe it whenever you want.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Button(
                     onClick = { activity.startMeetingRecording() },
@@ -839,6 +834,7 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
     var refresh by remember { mutableIntStateOf(0) }
     var openPath by remember { mutableStateOf<String?>(null) }
     var toDelete by remember { mutableStateOf<Recording?>(null) }
+    var toTranscribe by remember { mutableStateOf<Recording?>(null) }
     val job by JobState.status.collectAsState()
 
     LaunchedEffect(refresh) {
@@ -853,7 +849,7 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
         when {
             list == null -> Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             list.isEmpty() -> Box(Modifier.padding(pad).fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("No recordings yet. Use Record meeting on the home screen.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("No recordings yet. Tap Record on the home screen.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list, key = { it.file.path }) { rec ->
@@ -886,11 +882,9 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
                                 if (transcriptId != null) {
                                     TextButton(onClick = { go(Screen.Detail(transcriptId)) }) { Text("Open text") }
                                 }
-                                TextButton(enabled = !job.isRunning, onClick = {
-                                    openPath = null
-                                    TranscribeService.start(ctx, path, rec.title, "meeting", keepAudio = true)
-                                    go(Screen.Job)
-                                }) { Text(if (transcriptId != null) "Transcribe again" else "Transcribe") }
+                                TextButton(enabled = !job.isRunning, onClick = { toTranscribe = rec }) {
+                                    Text(if (transcriptId != null) "Transcribe again" else "Transcribe")
+                                }
                                 IconButton(onClick = { shareAudio(ctx, rec.file) }) { Icon(Icons.Filled.Share, "Share") }
                                 IconButton(onClick = { toDelete = rec }) { Icon(Icons.Filled.Delete, "Delete") }
                             }
@@ -899,6 +893,31 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
                 }
             }
         }
+    }
+
+    toTranscribe?.let { rec ->
+        val prefs = remember { AppPrefs(ctx) }
+        var lang by remember { mutableStateOf(prefs.whisperLang) }
+        AlertDialog(
+            onDismissRequest = { toTranscribe = null },
+            title = { Text("Transcribe recording") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(rec.title + " · " + Formats.clock(rec.durationMs), style = MaterialTheme.typography.bodySmall)
+                    LanguagePicker("Language spoken", Languages.whisper, lang, enabled = true) { lang = it; prefs.whisperLang = it }
+                    TranslateSwitchCard()
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    toTranscribe = null
+                    openPath = null
+                    TranscribeService.start(ctx, rec.file.path, rec.title, "meeting", keepAudio = true)
+                    go(Screen.Job)
+                }) { Text("Start") }
+            },
+            dismissButton = { TextButton(onClick = { toTranscribe = null }) { Text("Cancel") } }
+        )
     }
 
     toDelete?.let { rec ->
