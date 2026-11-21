@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.76" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.77" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1981,7 +1981,7 @@ function vOrders() {
   var show = tab === "cur" ? cur : tab === "done" ? done : canc;
   var empty = tab === "cur" ? "No ongoing booking right now." : tab === "done" ? "No completed deliveries yet." : "No canceled bookings.";
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
-    : tabs + (show.length ? show.map(card).join("") : '<div class="card muted">' + empty + "</div>");
+    : tabs + (show.length ? show.map(function (o) { return tab === "cur" ? card(o) : card(o) + '<div style="text-align:right;margin:-6px 6px 12px"><button class="linkbtn" data-act="rebook" data-id="' + o.id + '">&#128257; Book again</button></div>'; }).join("") : '<div class="card muted">' + empty + "</div>");
   return topBar("My orders") + '<div class="body">' + body + "</div>" + nav("orders");
 }
 
