@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.72" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.73" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1893,7 +1893,7 @@ function quoteLines(q) {
   var L1 = '<div class="line"><span class="muted">Base fare</span><span>' + peso(q.fare_base) + '</span></div><div class="line"><span class="muted">Distance (' + q.total_km + ' km)</span><span>' + peso(q.fare_distance) + "</span></div>";
   if (q.fare_stops) L1 += '<div class="line"><span class="muted">Extra stops</span><span>' + peso(q.fare_stops) + "</span></div>";
   if (q.fare_surcharge) L1 += '<div class="line"><span class="muted">' + (q.is_surge ? "High demand" + (q.hd_pct ? " (+" + q.hd_pct + "%)" : "") : q.is_night ? "Night rate" : "Rush-hour rate") + '</span><span>' + peso(q.fare_surcharge) + "</span></div>";
-  if (q.fare_speed_adj) L1 += '<div class="line"><span class="muted">' + (q.fare_speed_adj > 0 ? "Priority" : "Saver discount") + "</span><span>" + (q.fare_speed_adj < 0 ? "−" : "") + peso(Math.abs(q.fare_speed_adj)) + "</span></div>";
+  if (q.fare_speed_adj) L1 += '<div class="line"><span class="muted">' + (q.fare_speed_adj > 0 ? "Priority" + (function () { var b = (q.fare_base || 0) + (q.fare_distance || 0) + (q.fare_stops || 0) + (q.fare_surcharge || 0); return b > 0 ? " (+" + Math.round(q.fare_speed_adj / b * 100) + "%)" : ""; })() : "Saver discount") + "</span><span>" + (q.fare_speed_adj < 0 ? "−" : "") + peso(Math.abs(q.fare_speed_adj)) + "</span></div>";
   L1 += '<div class="line b"><span>Delivery fare</span><span>' + peso(q.fare_total) + "</span></div>";
   if (q.promo_discount) L1 += '<div class="line" style="color:var(--good)"><span>&#127873; First delivery promo</span><span class="b">−' + peso(q.promo_discount) + "</span></div>";
   if (q.cod_amount) L1 += '<div class="line"><span class="muted">Abono amount</span><span>' + peso(q.cod_amount) + '</span></div><div class="line"><span class="muted">Abono rider fee (' + (q.abono_payer === "seller" ? "pickup pays" : "drop-off pays") + ")</span><span>" + peso(q.abono_fee) + "</span></div>";
