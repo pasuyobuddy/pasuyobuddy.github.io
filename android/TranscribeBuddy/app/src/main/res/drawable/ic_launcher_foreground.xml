@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microphone with text lines -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- mic capsule -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M42,30 a8,8 0 0 1 16,0 v18 a8,8 0 0 1 -16,0 z" />
+    <!-- mic holder -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.5" android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M36,46 a14,14 0 0 0 28,0 M50,60 v8 M43,68 h14" />
+    <!-- text lines -->
+    <path android:strokeColor="#FBBF24" android:strokeWidth="3.5" android:strokeLineCap="round"
+        android:pathData="M68,36 h8 M68,44 h10 M68,52 h6" />
+</vector>
