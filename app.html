@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.74" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.76" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -977,7 +977,8 @@ var GEO = window.__TEST_GEO__ || {
 function straightKm(a, b) { var R = 6371, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
   var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
   return 2 * R * Math.asin(Math.sqrt(x)); }
-function areaOf(label) { var p = String(label || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+function cleanArea(a) { return String(a || "").replace(/^\s*-\s*/, "").replace(/\s+-\s+/g, ", ").trim(); }   // UAE-style "A - B - C" to "A, B, C"
+function areaOf(label) { var p = cleanArea(label).split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   if (p.length >= 4) return p[p.length - 4] + ", " + p[p.length - 3]; if (p.length >= 2) return p[0] + ", " + p[1]; return p[0] || ""; }
 function tiles(map) { L.tileLayer("https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=" + CONFIG.mapKey, { maxZoom: 20, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }).addTo(map); }
 var mapObj = null;
@@ -1264,9 +1265,8 @@ async function rebook(id) {
       return n; });
     b.itemType = o.item_type || "parcel"; b.note = o.note || ""; b.needsBag = !!o.needs_bag; if (o.abono_payer) b.abonoPayer = o.abono_payer;
     b.pay = o.payment_method === "wallet" ? "wallet" : "cash"; b.rebookVeh = o.vehicle || null;
-    S.bk = b; S.busy = false;
-    await toVehicle();
-    toast("Copied from " + (o.order_no || "your old booking") + ". Check the details, then book.");
+    S.bk = b; S.busy = false; go("home");
+    toast("Copied from " + (o.order_no || "your old booking") + ". Check the places, then tap Choose vehicle.");
   });
 }
 function abonoOpts() { var b = abonoFee(); return [b, Math.round(b * 1.5), b * 2]; }
@@ -1848,7 +1848,7 @@ function vVerify() {
 function vHome() {
   var st = S.bk.stops, drops = st.length - 1;
   var rows = st.map(function (s, i) {
-    var title = s.lat != null ? h((s.detail ? s.detail + ", " : "") + s.address) : (i === 0 ? "Where to pick up?" : "Where to deliver?");
+    var title = s.lat != null ? h((s.detail ? s.detail + ", " : "") + cleanArea(s.address)) : (i === 0 ? "Where to pick up?" : "Where to deliver?");
     var sub = s.lat != null ? h(s.contact_name + " · " + s.contact_phone) + (i > 0 ? " · " + (s.payer === "receiver" ? "Drop-off pays fare" : "Pickup pays fare") + (Number(s.cod) > 0 ? " · Abono " + peso(Number(s.cod) * 100) + " + rider fee " + peso((s.abono || abonoFee()) * 100) : "") : "") : '<span class="muted">Tap to set</span>';
     return '<button class="stop" data-act="place" data-i="' + i + '"><span class="dot ' + (i === 0 ? "pk" : "dr") + '">' + (i === 0 ? "P" : i) + '</span><span class="sp"><span class="b" style="display:block">' + (s.lat != null ? title : '<span class="muted">' + title + "</span>") + '</span><span class="small muted">' + sub + "</span></span>"
       + (i > 0 && st.length > 2 ? '<span class="chip" style="min-height:30px;padding:0 10px;display:inline-flex;align-items:center" data-act="rmdrop" data-i="' + i + '">Remove</span>' : "") + "</button>";
@@ -1963,16 +1963,15 @@ function vTrack() {
   return topBar(o.order_no, "orders") + '<div class="body">'
     + '<div class="card"><div class="row" style="margin-bottom:8px">' + pill(o.status) + '<span class="sp"></span><span class="small muted">' + h(when(o.created_at)) + "</span></div>" + steps + "</div>" + favMsg + finMsg + msg + (ended ? "" : pushCard(false))
     + '<div class="map" style="height:300px"><div id="tmap" style="height:100%"></div><div class="mapbtns"><button data-act="maprider">&#128205; Rider</button><button data-act="mapall">&#127937; Route</button></div></div><div id="rdrinfo" class="small muted" style="text-align:center">' + riderInfoText(o) + '</div>' + (ENDED.indexOf(o.status) < 0 && o.track_token ? '<button class="btn yel" data-act="sharetrack">&#128279; Copy tracking link</button><div class="small muted" style="text-align:center">Send it to the person waiting. They see the map with the rider&#39;s live location only, no login needed.</div>' : "") + rider + (o.rider ? chatBtn(custChatLabel(), S.unread) : "") + tip + (o.status !== "searching" ? '<button class="btn" style="color:var(--bad);border-color:#E9B9A3" data-act="repopen">&#9888;&#65039; Report a problem</button>' : "") + '<button class="btn" data-act="suporder">&#128172; Ask PasuyoBuddy Support about this booking</button>'
-    + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + "</div>"
+    + '<div class="card"><h2>Stops</h2><div class="line"><span class="sp"><span class="b">Pickup</span><br><span class="small muted">' + h(o.stops[0].address) + "</span></span></div>" + stopLines(o) + (ended ? '<button class="btn pri" style="margin-top:12px" data-act="rebook" data-id="' + o.id + '">&#128257; Book again (same places)</button><div class="small muted" style="margin-top:6px;text-align:center">Copies these places and contacts. You can still change them.</div>' : "") + "</div>"
     + '<div class="card"><h2>Payment · ' + payTitle(o) + "</h2>" + quoteLines(o) + payLines(o) + (o.receiver_pays ? '<div class="line"><span class="muted">Receivers pay in cash</span><span class="b">' + peso(o.receiver_pays) + "</span></div>" : "") + "</div>" + rate + favBtn
     + (canCancel ? (S.cancelAsk ? '<div class="card"><div class="b" style="margin-bottom:10px">Cancel this booking?</div><div class="row"><button class="btn" data-act="cancelno">Keep it</button><button class="btn bad" data-act="cancel">Yes, cancel</button></div></div>' : '<button class="btn bad" data-act="cancel">Cancel booking</button>') : "")
-    + (ended ? '<button class="btn pri" data-act="rebook" data-id="' + o.id + '">&#128257; Book again (same places)</button>' : "")
     + (o.status === "completed" ? '<button class="btn" data-act="receipt">&#129534; View receipt / request invoice</button>' : "")
     + (ended ? '<button class="btn pri" data-act="home">Book another delivery</button>' : "") + "</div>" + nav("orders");
 }
 function vOrders() {
   var list = S.orders;
-  var card = function (o) { return '<button class="veh ocard" data-act="open" data-id="' + o.id + '"><span class="sp" style="min-width:0"><span class="b oroute">' + h(o.from_area) + " → " + h(o.to_area) + (o.drops > 1 ? " (+" + (o.drops - 1) + ")" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span></span><span style="text-align:right;flex:0 0 auto"><span class="b" style="display:block">' + peso(o.fare_total) + "</span>" + pill(o.status) + "</span></button>"; };
+  var card = function (o) { return '<button class="veh ocard" data-act="open" data-id="' + o.id + '"><span class="sp" style="min-width:0"><span class="b" style="display:block;line-height:1.35"><span style="color:#15171C">&#128230; ' + h(cleanArea(o.from_address || o.from_area)) + '</span></span><span class="b" style="display:block;line-height:1.35;margin-top:3px">&#128205; ' + h(cleanArea(o.to_address || o.to_area)) + (o.drops > 1 ? ' <span class="muted">(+' + (o.drops - 1) + " more)</span>" : "") + '</span><span class="small muted">' + h(o.order_no) + " · " + h(o.vehicle) + " · " + h(when(o.created_at)) + '</span></span><span style="text-align:right;flex:0 0 auto"><span class="b" style="display:block">' + peso(o.fare_total) + "</span>" + pill(o.status) + "</span></button>"; };
   var cur = (list || []).filter(function (o) { return ENDED.indexOf(o.status) < 0; }),
       done = (list || []).filter(function (o) { return o.status === "completed"; }),
       canc = (list || []).filter(function (o) { return ENDED.indexOf(o.status) >= 0 && o.status !== "completed"; });
@@ -1982,7 +1981,7 @@ function vOrders() {
   var show = tab === "cur" ? cur : tab === "done" ? done : canc;
   var empty = tab === "cur" ? "No ongoing booking right now." : tab === "done" ? "No completed deliveries yet." : "No canceled bookings.";
   var body = !list ? '<div class="spin">Loading…</div>' : !list.length ? '<div class="card muted">No bookings yet. Your deliveries will show here.</div>'
-    : tabs + (show.length ? show.map(function (o) { return tab === "cur" ? card(o) : card(o) + '<div style="text-align:right;margin:-4px 4px 10px"><button class="linkbtn" data-act="rebook" data-id="' + o.id + '">&#128257; Book again</button></div>'; }).join("") : '<div class="card muted">' + empty + "</div>");
+    : tabs + (show.length ? show.map(card).join("") : '<div class="card muted">' + empty + "</div>");
   return topBar("My orders") + '<div class="body">' + body + "</div>" + nav("orders");
 }
 
