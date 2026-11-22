@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en-PH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Massage Buddy Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0E7C7B">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css?v=1.00">
+<style>
+  .wrap, .top-in { max-width: 980px; }
+  .wrap { padding-bottom: 40px; }
+  .tabs { position: sticky; top: 64px; z-index: 10; }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 760px) { .grid2 { grid-template-columns: 1fr 1fr; } .stats { grid-template-columns: repeat(4, 1fr); } }
+  .doc-thumb { width: 100%; max-height: 360px; object-fit: contain; background: #fff; border-radius: 10px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="logo" href="#dash"><span class="mark"></span><span>Massage Buddy<small>Admin</small></span></a>
+  <span class="sp"></span>
+  <button class="icon-btn hide" id="bell" aria-label="Notifications"></button>
+</div></header>
+<main class="wrap">
+  <div class="tabs hide" id="tabs">
+    <button data-r="dash">Dashboard</button><button data-r="therapists">Therapists</button><button data-r="bookings">Bookings</button>
+    <button data-r="customers">Customers</button><button data-r="money">Money</button><button data-r="reviews">Reviews</button><button data-r="settings">Settings</button>
+  </div>
+  <div id="view"><div class="spinner"></div></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js?v=1.00"></script>
+<script src="common.js?v=1.00"></script>
+<script>
+(function () {
+  "use strict";
+  const { $, $$, esc, peso } = MB;
+  const view = $("#view");
+  $(".logo .mark").innerHTML = MB.icons.leaf;
+  const bell = $("#bell");
+  const setUnread = (n) => { bell.innerHTML = MB.icons.bell + (n ? `<span class="dot">${n > 9 ? "9+" : n}</span>` : ""); };
+  bell.onclick = () => MB.openNotifications(setUnread);
+  $("#tabs").onclick = (e) => { const b = e.target.closest("[data-r]"); if (b) location.hash = b.dataset.r; };
+  let isAdmin = false;
+
+  async function route() {
+    if (!MB.configured) { view.innerHTML = MB.setupBanner(); return; }
+    if (!MB.session) {
+      view.innerHTML = `<div class="card" id="auth" style="max-width:460px;margin:24px auto"></div>`;
+      MB.renderAuth($("#auth"), { title: "Admin login", onDone: () => route() }); return;
+    }
+    if (!isAdmin) {
+      isAdmin = await MB.rpc("mb_admin_check", {}, { quiet: true }).catch(() => false);
+      if (!isAdmin) {
+        view.innerHTML = `<div class="card center" style="max-width:520px;margin:24px auto"><h2>Not an admin yet</h2>
+          <p class="small">You are logged in as <b>${esc(MB.session.user.email || MB.session.user.phone)}</b>. To make this account admin, run this in Supabase &gt; SQL Editor:</p>
+          <pre style="text-align:left;white-space:pre-wrap;background:#fff;padding:10px;border-radius:10px;font-size:12px">insert into public.mb_admins (user_id)
+select id from auth.users where email = '${esc(MB.session.user.email || "")}'
+on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button class="btn ghost" id="lo">Log out</button></div>`;
+        $("#lo").onclick = () => MB.logout(); return;
+      }
+      $("#tabs").classList.remove("hide"); bell.classList.remove("hide");
+      MB.rpc("mb_me", {}, { quiet: true }).then((m) => setUnread(m.unread)).catch(() => {});
+      MB.enablePush(false);
+    }
+    const r = location.hash.replace(/^#/, "").split("/")[0] || "dash";
+    $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.r === r));
+    view.innerHTML = `<div class="spinner"></div>`;
+    try {
+      await ({ therapists: pTherapists, bookings: pBookings, customers: pCustomers, money: pMoney, reviews: pReviews, settings: pSettings }[r] || pDash)();
+    } catch (e) { view.innerHTML = `<div class="empty"><p>${esc(MB.errMsg(e))}</p></div>`; }
+  }
+  window.addEventListener("hashchange", route);
+
+  // ---------- Dashboard ----------
+  async function pDash() {
+    const d = await MB.rpc("mb_admin_dashboard");
+    view.innerHTML = `<h1>Dashboard</h1>
+      ${d.therapists_pending ? `<div class="banner"><b>${d.therapists_pending} therapist(s) waiting for approval.</b> <a href="#therapists">Review now →</a></div>` : ""}
+      <div class="stats">
+        <div class="stat"><div class="n">${d.bookings_today}</div><div class="l">Bookings today</div></div>
+        <div class="stat"><div class="n">${d.pending}</div><div class="l">Waiting for therapist</div></div>
+        <div class="stat"><div class="n">${d.upcoming}</div><div class="l">Upcoming confirmed</div></div>
+        <div class="stat"><div class="n">${d.completed_30d}</div><div class="l">Completed (30 days)</div></div>
+        <div class="stat"><div class="n">${peso(d.revenue_30d)}</div><div class="l">Customer payments (30 days)</div></div>
+        <div class="stat"><div class="n">${peso(d.commission_30d)}</div><div class="l">Commission earned (30 days)</div></div>
+        <div class="stat"><div class="n" style="color:${d.commission_unpaid > 0 ? "var(--danger)" : "inherit"}">${peso(d.commission_unpaid)}</div><div class="l">Commission not yet paid</div></div>
+        <div class="stat"><div class="n">${d.therapists_approved} / ${d.customers}</div><div class="l">Therapists / customers</div></div>
+      </div>
+      <p class="small muted">Links: <a href="./" target="_blank">Customer app</a> · <a href="therapist.html" target="_blank">Therapist app</a></p>
+      <button class="btn ghost sm" id="lo">Log out</button> <span class="small muted">v${MB.version}</span>`;
+    $("#lo").onclick = () => MB.logout();
+  }
+
+  // ---------- Therapists ----------
+  let tFilter = "pending";
+  async function pTherapists() {
+    const list = await MB.rpc("mb_admin_therapists", { p_status: tFilter || null });
+    view.innerHTML = `<h1>Therapists</h1>
+      <div class="chips">${[["pending", "Waiting"], ["approved", "Approved"], ["suspended", "Suspended"], ["", "All"]].map(([v, l]) => `<button class="chip ${tFilter === v ? "on" : ""}" data-f="${v}">${l}</button>`).join("")}</div>
+      <div class="grid2">${list.map((t) => `
+        <div class="card" data-id="${t.id}">
+          <div class="row"><img class="avatar sm" src="${esc(t.photo_url || MB.PLACEHOLDER)}" alt="" onerror="this.src=MB.PLACEHOLDER">
+            <div class="grow"><b>${esc(t.display_name)}</b><div class="small muted">${esc(t.area)} · ${esc(t.gender)} · ${t.experience_years} yrs</div></div>
+            <span class="badge ${t.status}">${t.status}</span></div>
+          <div class="small" style="margin-top:8px">📞 ${esc(t.phone)} · ✉️ ${esc(t.email)}</div>
+          <div class="small">Services: ${t.services} · Schedule: ${t.has_schedule ? "yes" : "<b>not set</b>"} · Completed: ${t.completed} · ${t.rating_count ? Number(t.rating_avg).toFixed(1) + "★ (" + t.rating_count + ")" : "no reviews"}</div>
+          <div class="small muted">Applied ${MB.fmtDate(t.created_at)}${t.admin_note ? " · Note: " + esc(t.admin_note) : ""}</div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn sm light" data-a="view">View profile & ID</button>
+            ${t.status !== "approved" ? `<button class="btn sm" data-a="approved">Approve</button>` : ""}
+            ${t.status !== "suspended" ? `<button class="btn sm danger" data-a="suspended">${t.status === "pending" ? "Reject" : "Suspend"}</button>` : ""}
+          </div>
+        </div>`).join("") || `<div class="empty">No therapists here.</div>`}</div>`;
+    $(".chips").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { tFilter = b.dataset.f; route(); } };
+    view.querySelector(".grid2").onclick = async (e) => {
+      const a = e.target.dataset.a; if (!a) return;
+      const t = list.find((x) => x.id === e.target.closest("[data-id]").dataset.id);
+      if (a === "view") return showTherapist(t);
+      let note = "";
+      if (a === "suspended") { note = await MB.prompt(t.status === "pending" ? "Reject application" : "Suspend therapist", "Reason (the therapist will see this):", "e.g. ID photo is not clear, please upload again", "Confirm"); if (note == null) return; }
+      await MB.rpc("mb_admin_set_therapist_status", { p_id: t.id, p_status: a, p_note: note });
+      MB.toast(a === "approved" ? "Approved ✅ The therapist was notified." : "Done."); route();
+    };
+  }
+  async function showTherapist(t) {
+    const body = MB.modal(t.display_name, `
+      <img src="${esc(t.photo_url || MB.PLACEHOLDER)}" class="doc-thumb" alt="">
+      <p style="white-space:pre-line">${esc(t.bio) || '<span class="muted">No bio.</span>'}</p>
+      ${t.photos.length ? `<div class="gallery">${t.photos.map((p) => `<img src="${esc(p)}" alt="">`).join("")}</div>` : ""}
+      <h3 style="margin-top:14px">Valid ID</h3><div id="d-id" class="small muted">${t.id_doc_path ? "Loading…" : "Not uploaded"}</div>
+      <h3 style="margin-top:14px">Certificate</h3><div id="d-cert" class="small muted">${t.cert_doc_path ? "Loading…" : "Not uploaded"}</div>`);
+    const show = async (path, el) => {
+      if (!path) return;
+      const { data, error } = await MB.sb.storage.from("mb-docs").createSignedUrl(path, 600);
+      $(el, body).innerHTML = error ? "Could not load: " + esc(error.message) : `<a href="${esc(data.signedUrl)}" target="_blank" rel="noopener"><img class="doc-thumb" src="${esc(data.signedUrl)}" alt="document"></a>`;
+    };
+    show(t.id_doc_path, "#d-id"); show(t.cert_doc_path, "#d-cert");
+  }
+
+  // ---------- Bookings ----------
+  let bFilter = "";
+  async function pBookings() {
+    const list = await MB.rpc("mb_admin_bookings", { p_status: bFilter || null, p_limit: 300 });
+    view.innerHTML = `<h1>Bookings</h1>
+      <div class="chips">${[["", "All"], ["pending", "Waiting"], ["confirmed", "Confirmed"], ["on_the_way", "On the way"], ["in_progress", "In progress"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["declined", "Declined"]].map(([v, l]) => `<button class="chip ${bFilter === v ? "on" : ""}" data-f="${v}">${l}</button>`).join("")}</div>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>#</th><th>When</th><th>Customer</th><th>Therapist</th><th>Massage</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>
+      ${list.map((b) => `<tr data-id="${b.id}"><td>${b.id}</td><td>${MB.fmtWhen(b.start_at)}</td>
+        <td>${esc(b.customer.name)}<div class="small muted">${esc(b.customer.phone || "")}</div><div class="small muted">${esc(b.area)}</div></td>
+        <td>${esc(b.therapist.name)}<div class="small muted">${esc(b.therapist.phone || "")}</div></td>
+        <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div></td>
+        <td>${MB.badge(b.status)}${b.cancel_reason ? `<div class="small muted">${esc(b.cancelled_by)}: ${esc(b.cancel_reason)}</div>` : ""}</td>
+        <td>${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
+      </tbody></table></div>`;
+    $(".chips").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { bFilter = b.dataset.f; route(); } };
+    $("table").onclick = async (e) => {
+      if (e.target.dataset.a !== "cancel") return;
+      const id = Number(e.target.closest("[data-id]").dataset.id);
+      const why = await MB.prompt("Cancel booking #" + id, "Reason (customer and therapist will see it):", "", "Cancel booking"); if (why == null) return;
+      await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: why || "Cancelled by Massage Buddy" }); MB.toast("Cancelled."); route();
+    };
+  }
+
+  // ---------- Customers ----------
+  let cSearch = "";
+  async function pCustomers() {
+    const list = await MB.rpc("mb_admin_customers", { p_search: cSearch });
+    view.innerHTML = `<h1>Customers</h1>
+      <div class="row"><input id="cs" placeholder="Search name, phone or email" value="${esc(cSearch)}" class="grow"><button class="btn" id="cs-b">Search</button></div>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Name</th><th>Contact</th><th>Bookings</th><th>Joined</th><th></th></tr></thead><tbody>
+      ${list.map((c) => `<tr data-id="${c.id}"><td>${esc(c.full_name || "—")}${c.is_therapist ? ' <span class="badge">therapist</span>' : ""}${c.blocked ? ' <span class="badge bad">blocked</span>' : ""}</td>
+        <td class="small">${esc(c.phone)}<br>${esc(c.email)}</td><td>${c.bookings}${c.cancelled ? `<div class="small muted">${c.cancelled} cancelled</div>` : ""}</td>
+        <td class="small">${MB.fmtDate(c.created_at)}</td>
+        <td><button class="btn sm ${c.blocked ? "light" : "danger"}" data-b="${c.blocked ? 0 : 1}">${c.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("") || `<tr><td colspan="5" class="center muted">No customers.</td></tr>`}
+      </tbody></table></div>`;
+    const go = () => { cSearch = $("#cs").value.trim(); route(); };
+    $("#cs-b").onclick = go; $("#cs").onkeydown = (e) => { if (e.key === "Enter") go(); };
+    $("table").onclick = async (e) => {
+      const b = e.target.dataset.b; if (b == null) return;
+      const id = e.target.closest("[data-id]").dataset.id;
+      if (b === "1" && !(await MB.confirm("Block customer?", "They will not be able to make new bookings.", "Block", true))) return;
+      await MB.rpc("mb_admin_set_blocked", { p_user: id, p_blocked: b === "1" }); route();
+    };
+  }
+
+  // ---------- Money ----------
+  async function pMoney() {
+    const list = await MB.rpc("mb_admin_balances");
+    view.innerHTML = `<h1>Money</h1>
+      <p class="small muted">Customers pay therapists in cash. Each therapist owes Massage Buddy the commission. When a therapist sends you money (e.g. GCash), record it here.</p>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Therapist</th><th>Completed</th><th>Cash collected</th><th>Commission</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>
+      ${list.map((t) => `<tr data-id="${t.id}"><td>${esc(t.display_name)}<div class="small muted">${esc(t.phone)}</div></td><td>${t.completed}</td><td>${peso(t.gross)}</td><td>${peso(t.due)}</td><td>${peso(t.paid)}</td>
+        <td><b style="color:${t.balance > 0 ? "var(--danger)" : "var(--ok)"}">${peso(t.balance)}</b></td>
+        <td><button class="btn sm" data-a="pay" data-n="${esc(t.display_name)}" data-bal="${t.balance}">Record payment</button></td></tr>`).join("") || `<tr><td colspan="7" class="center muted">No therapists yet.</td></tr>`}
+      </tbody></table></div>`;
+    $("table").onclick = (e) => {
+      if (e.target.dataset.a !== "pay") return;
+      const id = e.target.closest("[data-id]").dataset.id;
+      const body = MB.modal("Payment from " + e.target.dataset.n, `
+        <label>Amount (₱)</label><input id="m-amt" type="number" inputmode="decimal" value="${Math.max(0, Number(e.target.dataset.bal))}">
+        <label>Reference (e.g. GCash ref no.)</label><input id="m-ref">
+        <label>Note</label><input id="m-note">
+        <button class="btn block" id="m-go" style="margin-top:14px">Save payment</button>`);
+      $("#m-go", body).onclick = (ev) => MB.busy(ev.target, async () => {
+        await MB.rpc("mb_admin_add_settlement", { p_therapist: id, p_amount: Number($("#m-amt").value), p_reference: $("#m-ref").value, p_note: $("#m-note").value });
+        MB.closeModal(); MB.toast("Payment saved ✅"); route();
+      });
+    };
+  }
+
+  // ---------- Reviews ----------
+  async function pReviews() {
+    const list = await MB.rpc("mb_admin_reviews");
+    view.innerHTML = `<h1>Reviews</h1><div class="grid2">${list.map((r) => `
+      <div class="card" data-id="${r.id}" style="${r.hidden ? "opacity:.55" : ""}"><div class="row"><b class="grow">${esc(r.therapist)}</b><span class="stars">${MB.stars(r.stars)}</span></div>
+        <div class="small">${esc(r.comment) || '<span class="muted">No comment</span>'}</div>
+        <div class="small muted">by ${esc(r.customer)} · ${MB.fmtDate(r.created_at)}</div>
+        <button class="btn sm ${r.hidden ? "light" : "danger"}" style="margin-top:8px" data-h="${r.hidden ? 0 : 1}">${r.hidden ? "Show again" : "Hide review"}</button></div>`).join("") || `<div class="empty">No reviews yet.</div>`}</div>`;
+    view.querySelector(".grid2").onclick = async (e) => {
+      const h = e.target.dataset.h; if (h == null) return;
+      await MB.rpc("mb_admin_set_review_hidden", { p_id: Number(e.target.closest("[data-id]").dataset.id), p_hidden: h === "1" }); route();
+    };
+  }
+
+  // ---------- Settings ----------
+  async function pSettings() {
+    const d = await MB.rpc("mb_admin_settings");
+    const s = d.settings;
+    const fields = [
+      ["commission_pct", "Commission %", "Massage Buddy's share of each booking."],
+      ["buffer_min", "Travel time between bookings (minutes)", ""],
+      ["lead_min", "Book at least … minutes ahead", "e.g. 120 = customers can't book less than 2 hours from now."],
+      ["slot_step_min", "Time slots every … minutes", "15, 30 or 60"],
+      ["accept_min", "Therapist must accept within … minutes", "Otherwise the request is declined automatically."],
+      ["cancel_hours", "Customer can cancel online until … hours before", ""],
+      ["booking_days", "Customers can book up to … days ahead", ""],
+      ["support_phone", "Support / GCash number", "Shown to customers and therapists."],
+      ["support_email", "Support email", ""]];
+    view.innerHTML = `<h1>Settings</h1>
+      <div class="grid2"><div class="card" id="set">${fields.map(([k, l, h]) => `<label>${esc(l)}</label>
+        <div class="row"><input data-k="${k}" value="${esc(s[k] || "")}" class="grow"><button class="btn sm light" data-save="${k}">Save</button></div>${h ? `<div class="hint">${esc(h)}</div>` : ""}`).join("")}</div>
+      <div class="card"><h3>Massage types</h3><div id="types">${d.types.map((t) => `
+        <div class="list-item" data-id="${t.id}"><div class="row"><input class="grow tn" value="${esc(t.name)}">
+          <label class="switch" style="margin:0"><input type="checkbox" class="ta" ${t.active ? "checked" : ""}><span></span></label></div>
+          <input class="td" value="${esc(t.description)}" style="margin-top:6px" placeholder="Short description">
+          <button class="btn sm light" data-ts style="margin-top:6px">Save</button></div>`).join("")}</div>
+        <div class="sep"></div><h3>Add a type</h3><input id="nt-name" placeholder="Name e.g. Hot Stone"><input id="nt-desc" placeholder="Short description" style="margin-top:6px">
+        <button class="btn block" id="nt-add" style="margin-top:8px">Add</button></div></div>`;
+    $("#set").onclick = async (e) => {
+      const k = e.target.dataset.save; if (!k) return;
+      await MB.busy(e.target, () => MB.rpc("mb_admin_save_setting", { p_key: k, p_value: $(`[data-k="${k}"]`).value.trim() })); MB.toast("Saved ✅");
+    };
+    $("#types").onclick = async (e) => {
+      if (!("ts" in e.target.dataset)) return;
+      const row = e.target.closest("[data-id]");
+      await MB.rpc("mb_admin_save_type", { p_id: Number(row.dataset.id), p_name: $(".tn", row).value, p_description: $(".td", row).value, p_active: $(".ta", row).checked }); MB.toast("Saved ✅");
+    };
+    $("#nt-add").onclick = (e) => MB.busy(e.target, async () => {
+      await MB.rpc("mb_admin_save_type", { p_id: null, p_name: $("#nt-name").value, p_description: $("#nt-desc").value, p_active: true }); MB.toast("Added ✅"); route();
+    });
+  }
+
+  (async function init() {
+    MB.registerSW();
+    if (MB.configured) { await MB.getSession(); MB.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") isAdmin = false; }); }
+    route();
+  })();
+})();
+</script>
+</body>
+</html>

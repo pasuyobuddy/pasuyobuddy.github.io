@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en-PH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Massage Buddy Therapist</title>
+<meta name="description" content="Massage Buddy app for massage therapists: profile, schedule, bookings and earnings.">
+<meta name="theme-color" content="#0E7C7B">
+<link rel="manifest" href="therapist.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css?v=1.00">
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="logo" href="#home"><span class="mark"></span><span>Massage Buddy<small>Therapist</small></span></a>
+  <span class="sp"></span>
+  <button class="icon-btn hide" id="bell" aria-label="Notifications"></button>
+  <a class="icon-btn hide" id="prof-btn" href="#profile" aria-label="My profile"></a>
+</div></header>
+
+<main class="wrap" id="view"><div class="spinner"></div></main>
+
+<nav class="nav hide" id="nav"><div class="nav-in">
+  <a href="#home" data-r="home"></a>
+  <a href="#bookings" data-r="bookings"></a>
+  <a href="#schedule" data-r="schedule"></a>
+  <a href="#services" data-r="services"></a>
+  <a href="#earnings" data-r="earnings"></a>
+</div></nav>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js?v=1.00"></script>
+<script src="common.js?v=1.00"></script>
+<script>
+(function () {
+  "use strict";
+  const { $, $$, esc, peso } = MB;
+  const S = { me: null, t: null, types: [], bookings: null, settings: {} };
+  const view = $("#view");
+  $(".logo .mark").innerHTML = MB.icons.leaf;
+  $("#prof-btn").innerHTML = MB.icons.user.replace("<svg", '<svg width="22" height="22"');
+  const navLabels = { home: [MB.icons.home, "Home"], bookings: [MB.icons.list, "Bookings"], schedule: [MB.icons.cal, "Schedule"], services: [MB.icons.leaf.replace(/#0E7C7B/g, "currentColor").replace(/width="20" height="20"/, ""), "Services"], earnings: [MB.icons.peso, "Earnings"] };
+  $$(".nav a").forEach((a) => { const l = navLabels[a.dataset.r]; a.innerHTML = l[0] + `<span>${l[1]}</span>`; });
+  const bell = $("#bell");
+  const setUnread = (n) => { bell.innerHTML = MB.icons.bell + (n ? `<span class="dot">${n > 9 ? "9+" : n}</span>` : ""); };
+  bell.onclick = () => MB.openNotifications(setUnread);
+  MB.onPushWhileOpen = () => refresh(true);
+
+  async function loadAll() {
+    S.me = await MB.rpc("mb_me");
+    S.t = await MB.rpc("mb_my_therapist");
+    setUnread(S.me.unread);
+    const on = !!S.t;
+    bell.classList.toggle("hide", false); $("#prof-btn").classList.toggle("hide", !on); $("#nav").classList.toggle("hide", !on);
+  }
+  async function refresh(redraw) {
+    if (!MB.session) return;
+    try { S.me = await MB.rpc("mb_me", {}, { quiet: true }); setUnread(S.me.unread); S.bookings = null; if (redraw && /^#(home|bookings)?$/.test(location.hash || "#home")) route(); } catch (e) {}
+  }
+
+  const statusBanner = () => {
+    if (!S.t) return "";
+    if (S.t.status === "pending") return `<div class="banner"><b>⏳ Waiting for approval.</b> We are checking your documents. Meanwhile, set up your <a href="#services">services</a> and <a href="#schedule">schedule</a> so you're ready.</div>`;
+    if (S.t.status === "suspended") return `<div class="banner bad"><b>Your account is suspended.</b> ${esc(S.t.admin_note || "Please contact support.")}</div>`;
+    return "";
+  };
+
+  // ---------- router ----------
+  async function route() {
+    window.scrollTo(0, 0);
+    if (!MB.configured) { view.innerHTML = MB.setupBanner(); return; }
+    if (!MB.session) return pageLogin();
+    if (!S.me) { view.innerHTML = `<div class="spinner"></div>`; try { await loadAll(); } catch (e) { view.innerHTML = `<div class="empty"><p>${esc(MB.errMsg(e))}</p><button class="btn" onclick="location.reload()">Try again</button></div>`; return; } }
+    if (!S.t) return pageProfile(true);
+    const r = location.hash.replace(/^#/, "") || "home";
+    $$(".nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === r));
+    try {
+      if (r === "bookings") return await pageBookings();
+      if (r === "schedule") return pageSchedule();
+      if (r === "services") return pageServices();
+      if (r === "earnings") return await pageEarnings();
+      if (r === "profile") return pageProfile(false);
+      return await pageHome();
+    } catch (e) { view.innerHTML = `<div class="empty"><p>${esc(MB.errMsg(e))}</p><button class="btn" onclick="location.reload()">Try again</button></div>`; }
+  }
+  window.addEventListener("hashchange", route);
+
+  function pageLogin() {
+    $("#nav").classList.add("hide");
+    view.innerHTML = `<div class="hero"><h1>Earn with Massage Buddy 🌿</h1><p>Set your own prices and schedule. Get home-service bookings in Metro Manila.</p></div>
+      <div class="card" id="auth"></div>
+      <div class="card small"><b>How it works</b><ol style="padding-left:18px;margin:6px 0 0">
+        <li>Create an account and fill in your profile.</li><li>Upload a valid ID (and certificate if you have one).</li>
+        <li>We approve you, usually within 1–2 days.</li><li>Customers book you; you accept and go to them.</li>
+        <li>Customer pays you cash. You pay Massage Buddy the small commission.</li></ol></div>
+      <p class="center small">Looking for a massage? <a href="./">Book here</a></p>
+      <div class="ver">v${MB.version}</div>`;
+    MB.renderAuth($("#auth"), { title: "Therapist login", onDone: async () => { S.me = null; await route(); MB.enablePush(false); } });
+  }
+
+  // ---------- Home ----------
+  async function loadBookings() { if (!S.bookings) S.bookings = await MB.rpc("mb_my_bookings", { p_as: "therapist" }); return S.bookings; }
+  async function pageHome() {
+    view.innerHTML = `${statusBanner()}<h1>Hi, ${esc((S.t.display_name || "").split(" ")[0])} 👋</h1><div id="h"><div class="spinner"></div></div>`;
+    const [list, earn] = await Promise.all([loadBookings(), MB.rpc("mb_my_earnings", {}, { quiet: true }).catch(() => null)]);
+    const now = Date.now(), today = MB.manilaDate(0);
+    const req = list.filter((b) => b.status === "pending");
+    const todays = list.filter((b) => ["confirmed", "on_the_way", "in_progress"].includes(b.status) && new Date(b.start_at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) === today);
+    const next = list.filter((b) => ["confirmed", "on_the_way"].includes(b.status) && new Date(b.start_at).getTime() > now).sort((a, b) => new Date(a.start_at) - new Date(b.start_at))[0];
+    const checks = [
+      [S.t.services.some((s) => s.active), "Add your massage services and prices", "#services"],
+      [S.t.availability.length > 0, "Set your weekly working hours", "#schedule"],
+      [!!S.t.photo_url, "Add a profile photo", "#profile"],
+    ];
+    if (MB.pushSupported()) checks.push([Notification.permission === "granted", "Turn on phone notifications for new bookings", "push"]);
+    const todo = checks.filter((c) => !c[0]);
+    $("#h").innerHTML = `
+      ${todo.length ? `<div class="card"><h3>Finish your setup</h3>${todo.map((c) => `<div class="list-item row"><span>⬜</span><span class="grow">${esc(c[1])}</span>${c[2] === "push" ? `<button class="btn sm" id="h-push">Turn on</button>` : `<a class="btn sm light" href="${c[2]}">Open</a>`}</div>`).join("")}</div>` : ""}
+      <div class="stats">
+        <div class="stat"><div class="n">${earn ? peso(earn.today.net) : "–"}</div><div class="l">Earned today</div></div>
+        <div class="stat"><div class="n">${earn ? peso(earn.week.net) : "–"}</div><div class="l">Last 7 days</div></div>
+        <div class="stat"><div class="n">${S.t.rating_count ? Number(S.t.rating_avg).toFixed(1) + " ★" : "New"}</div><div class="l">${S.t.rating_count} reviews</div></div>
+        <div class="stat"><div class="n">${todays.length}</div><div class="l">Bookings today</div></div>
+      </div>
+      <h2>New requests ${req.length ? `<span class="badge pending">${req.length}</span>` : ""}</h2>
+      ${req.length ? req.map(bookingCard).join("") : `<div class="card muted small">No new requests right now.</div>`}
+      ${next ? `<h2>Next booking</h2>${bookingCard(next)}` : ""}`;
+    const hp = $("#h-push"); if (hp) hp.onclick = (e) => MB.busy(e.target, async () => { if (await MB.enablePush(true)) pageHome(); });
+    $("#h").onclick = onBookingAction;
+  }
+
+  // ---------- Bookings ----------
+  const mapLink = (addr) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(addr);
+  function bookingCard(b) {
+    const c = b.customer || {};
+    const act = {
+      pending: `<button class="btn sm" data-a="confirmed">✅ Accept</button><button class="btn sm danger" data-a="declined">Decline</button>`,
+      confirmed: `<button class="btn sm" data-a="on_the_way">🚗 On the way</button><button class="btn sm light" data-a="in_progress">Start</button><button class="btn sm danger" data-a="cancel">Cancel</button>`,
+      on_the_way: `<button class="btn sm" data-a="in_progress">▶ Start massage</button><button class="btn sm danger" data-a="cancel">Cancel</button>`,
+      in_progress: `<button class="btn sm gold" data-a="completed">✔ Complete · cash received</button>`
+    }[b.status] || "";
+    return `<div class="card" data-id="${b.id}">
+      <div class="row"><div class="grow"><b>${esc(b.type_name)} · ${b.duration_min} min</b><div class="small muted">${esc(c.name || "Customer")}</div></div>${MB.badge(b.status, b.status === "pending" ? "New request" : b.status === "on_the_way" ? "On the way" : "")}</div>
+      <div class="sep"></div>
+      <div class="small">📅 <b>${MB.fmtWhen(b.start_at)}</b> – ${MB.fmtTime(b.end_at)}</div>
+      <div class="small">📍 ${esc(b.address)}${b.area ? ", " + esc(b.area) : ""} · <a href="${mapLink(b.address + ", " + b.area)}" target="_blank" rel="noopener">Map</a></div>
+      ${b.notes ? `<div class="small">📝 ${esc(b.notes)}</div>` : ""}
+      <div class="small">💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b></div>
+      ${b.cancel_reason ? `<div class="small muted">Reason: ${esc(b.cancel_reason)}</div>` : ""}
+      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">💬</a>` : ""}${act}</div>
+    </div>`;
+  }
+  async function onBookingAction(e) {
+    const a = e.target.dataset && e.target.dataset.a; if (!a) return;
+    const id = Number(e.target.closest("[data-id]").dataset.id);
+    const btn = e.target;
+    try {
+    if (a === "cancel") {
+      const why = await MB.prompt("Cancel booking", "Tell the customer why (they will see this).", "e.g. Sorry, I am sick today", "Cancel booking");
+      if (why == null) return;
+      await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: why });
+      MB.toast("Booking cancelled.");
+    } else {
+      if (a === "declined" && !(await MB.confirm("Decline this request?", "The customer will be asked to choose another time.", "Decline", true))) return;
+      if (a === "completed" && !(await MB.confirm("Complete booking?", "Confirm the massage is done and you received the cash.", "Yes, complete"))) return;
+      await MB.busy(btn, () => MB.rpc("mb_set_booking_status", { p_booking: id, p_status: a }));
+      MB.toast({ confirmed: "Accepted ✅ The customer was notified.", declined: "Declined.", on_the_way: "Customer notified: you're on the way.", in_progress: "Massage started.", completed: "Completed 🎉" }[a]);
+    }
+    } catch (err) { /* message already shown */ }
+    S.bookings = null; route();
+  }
+  let bTab = "req";
+  async function pageBookings() {
+    view.innerHTML = `${statusBanner()}<h1>Bookings</h1>
+      <div class="tabs"><button data-tab="req" class="${bTab === "req" ? "on" : ""}">Requests</button><button data-tab="up" class="${bTab === "up" ? "on" : ""}">Upcoming</button><button data-tab="hist" class="${bTab === "hist" ? "on" : ""}">History</button></div>
+      <div id="bl"><div class="spinner"></div></div>`;
+    $(".tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { bTab = b.dataset.tab; pageBookings(); } };
+    const list = await loadBookings();
+    const sorted = (arr) => arr.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+    const items = bTab === "req" ? sorted(list.filter((b) => b.status === "pending"))
+      : bTab === "up" ? sorted(list.filter((b) => ["confirmed", "on_the_way", "in_progress"].includes(b.status)))
+      : list.filter((b) => !MB.ACTIVE.includes(b.status));
+    $("#bl").innerHTML = items.length ? items.map(bookingCard).join("") : `<div class="empty"><div class="big">📭</div><p>Nothing here yet.</p></div>`;
+    $("#bl").onclick = onBookingAction;
+  }
+
+  // ---------- Schedule ----------
+  function pageSchedule() {
+    const av = {}; S.t.availability.forEach((a) => { if (!av[a.weekday]) av[a.weekday] = a; });
+    view.innerHTML = `${statusBanner()}<h1>My schedule</h1>
+      <p class="muted small">Customers can only book you inside these hours. We automatically leave travel time between bookings.</p>
+      <div class="card" id="days">${[1, 2, 3, 4, 5, 6, 0].map((d) => { const a = av[d]; return `
+        <div class="day-row" data-d="${d}"><span class="d">${MB.DAYS[d]}</span>
+          <label class="switch" style="margin:0"><input type="checkbox" ${a ? "checked" : ""}><span></span></label>
+          <input type="time" class="st" value="${a ? a.start : "09:00"}" step="1800" ${a ? "" : "disabled"}> <span class="muted">to</span>
+          <input type="time" class="en" value="${a ? a.end : "21:00"}" step="1800" ${a ? "" : "disabled"}></div>`; }).join("")}
+        <button class="btn block" id="s-save" style="margin-top:14px">Save schedule</button>
+      </div>
+      <h2>Days off</h2>
+      <div class="card">
+        <div class="row"><input type="date" id="bd-day" min="${MB.manilaDate(0)}" class="grow"><input id="bd-reason" placeholder="Reason (optional)" class="grow"></div>
+        <button class="btn block light" id="bd-add" style="margin-top:10px">Add day off</button>
+        <div id="bd-list">${S.t.blocked_dates.map((b) => `<div class="list-item row"><span class="grow">🚫 ${MB.fmtDate(b.day + "T12:00:00+08:00")}${b.reason ? ` <span class="muted small">– ${esc(b.reason)}</span>` : ""}</span><button class="btn sm danger" data-rm="${b.id}">Remove</button></div>`).join("") || `<p class="muted small">No days off planned.</p>`}</div>
+      </div>`;
+    $("#days").onchange = (e) => { if (e.target.type === "checkbox") { const row = e.target.closest(".day-row"); $$("input[type=time]", row).forEach((i) => (i.disabled = !e.target.checked)); } };
+    $("#s-save").onclick = (e) => MB.busy(e.target, async () => {
+      const rows = $$("#days .day-row").filter((r) => $("input[type=checkbox]", r).checked).map((r) => ({ weekday: Number(r.dataset.d), start: $(".st", r).value, end: $(".en", r).value }));
+      for (const r of rows) if (!r.start || !r.end || r.end <= r.start) return MB.toast(`${MB.DAYS[r.weekday]}: end time must be after start time.`, true);
+      S.t = await MB.rpc("mb_save_availability", { p_rows: rows }); MB.toast("Schedule saved ✅");
+    });
+    $("#bd-add").onclick = (e) => MB.busy(e.target, async () => {
+      const d = $("#bd-day").value; if (!d) return MB.toast("Please choose a date.", true);
+      S.t = await MB.rpc("mb_add_blocked_date", { p_day: d, p_reason: $("#bd-reason").value }); MB.toast("Day off added."); pageSchedule();
+    });
+    $("#bd-list").onclick = async (e) => { const id = e.target.dataset.rm; if (!id) return; S.t = await MB.rpc("mb_remove_blocked_date", { p_id: Number(id) }); pageSchedule(); };
+  }
+
+  // ---------- Services ----------
+  function pageServices() {
+    const has = {}; S.t.services.forEach((s) => (has[s.type_id + "_" + s.duration_min] = s));
+    view.innerHTML = `${statusBanner()}<h1>My services & prices</h1>
+      <p class="muted small">Turn on the massages you offer and set your price. Customers pay this total; Massage Buddy's commission is taken from it.</p>
+      <div id="svc">${S.types.map((t) => `<div class="card"><h3>${esc(t.name)}</h3><div class="small muted">${esc(t.description)}</div>
+        ${[60, 90, 120].map((d) => { const s = has[t.id + "_" + d]; return `<div class="day-row" data-t="${t.id}" data-d="${d}">
+          <label class="switch" style="margin:0"><input type="checkbox" ${s && s.active ? "checked" : ""}><span></span></label>
+          <span class="grow">${d} min</span><span class="muted">₱</span><input type="number" inputmode="numeric" min="100" step="50" style="width:110px" value="${s ? Number(s.price) : ""}" placeholder="${d === 60 ? 800 : d === 90 ? 1100 : 1400}"></div>`; }).join("")}
+      </div>`).join("")}</div>
+      <button class="btn block gold" id="sv-save">Save services</button>`;
+    $("#sv-save").onclick = (e) => MB.busy(e.target, async () => {
+      let n = 0;
+      for (const r of $$("#svc .day-row")) {
+        const on = $("input[type=checkbox]", r).checked, price = Number($("input[type=number]", r).value), tId = Number(r.dataset.t), d = Number(r.dataset.d);
+        const old = has[tId + "_" + d];
+        if (on && !(price >= 100)) return MB.toast(`Please set a price (at least ₱100) for every service you turned on.`, true);
+        if (on && (!old || !old.active || Number(old.price) !== price)) { S.t = await MB.rpc("mb_save_service", { p_type: tId, p_duration: d, p_price: price, p_active: true }); n++; }
+        if (!on && old && old.active) { S.t = await MB.rpc("mb_save_service", { p_type: tId, p_duration: d, p_price: Number(old.price), p_active: false }); n++; }
+      }
+      MB.toast(n ? "Services saved ✅" : "No changes."); pageServices();
+    });
+  }
+
+  // ---------- Earnings ----------
+  async function pageEarnings() {
+    view.innerHTML = `<h1>Earnings</h1><div class="spinner"></div>`;
+    const e = await MB.rpc("mb_my_earnings");
+    view.innerHTML = `<h1>Earnings</h1>
+      <div class="stats">
+        <div class="stat"><div class="n">${peso(e.today.net)}</div><div class="l">Today · ${e.today.count} done</div></div>
+        <div class="stat"><div class="n">${peso(e.week.net)}</div><div class="l">Last 7 days · ${e.week.count}</div></div>
+        <div class="stat"><div class="n">${peso(e.month.net)}</div><div class="l">Last 30 days · ${e.month.count}</div></div>
+        <div class="stat"><div class="n">${peso(e.month.gross)}</div><div class="l">Cash collected (30 days)</div></div>
+      </div>
+      <div class="card">
+        <h3>Commission to pay Massage Buddy</h3>
+        <div class="row"><span class="grow muted small">Commission (${e.commission_pct}% of completed bookings)</span><span>${peso(e.commission_due)}</span></div>
+        <div class="row"><span class="grow muted small">Already paid</span><span>− ${peso(e.commission_paid)}</span></div>
+        <div class="sep"></div>
+        <div class="row"><b class="grow">Balance to pay</b><b class="price" style="color:${e.balance > 0 ? "var(--danger)" : "var(--ok)"}">${peso(Math.max(0, e.balance))}</b></div>
+        ${e.balance > 0 ? `<div class="banner info small" style="margin-bottom:0">Please send your balance by GCash${S.settings.support_phone ? ` to <b>${esc(S.settings.support_phone)}</b>` : ""} every week. Admin records it here once received.</div>` : ""}
+      </div>
+      <h2>Payments made</h2>
+      <div class="card">${e.settlements.length ? e.settlements.map((s) => `<div class="list-item row"><span class="grow">${MB.fmtDate(s.created_at)}<div class="small muted">${esc(s.reference)} ${esc(s.note)}</div></span><b>${peso(s.amount)}</b></div>`).join("") : `<p class="muted small">No payments yet.</p>`}</div>`;
+  }
+
+  // ---------- Profile / application ----------
+  function pageProfile(isNew) {
+    const t = S.t || { display_name: S.me.full_name, gender: "female", area: "", experience_years: 0, bio: "", photo_url: "", photos: [], phone: S.me.phone };
+    const F = { photo_url: t.photo_url, photos: (t.photos || []).slice(), id_doc: "", cert_doc: "" };
+    if (isNew) $("#nav").classList.add("hide");
+    view.innerHTML = `${isNew ? `<div class="hero"><h1>Become a Massage Buddy therapist</h1><p>Fill in your profile. We'll review it and approve you.</p></div>` : `${statusBanner()}<h1>My profile</h1>`}
+      <div class="card">
+        <label>Profile photo (clear face photo)</label>
+        <div class="upload-box" id="u-photo">${F.photo_url ? `<img src="${esc(F.photo_url)}" alt="">` : "📷"}<div class="small">Tap to ${F.photo_url ? "change" : "add"} photo</div></div>
+        <input type="file" accept="image/*" id="f-photo" class="hide">
+        <label>Name shown to customers</label><input id="t-name" value="${esc(t.display_name)}" placeholder="e.g. Maria S.">
+        <label>Mobile number</label><input id="t-phone" type="tel" value="${esc(t.phone || S.me.phone || "")}" placeholder="0917 123 4567">
+        <div class="hint">Customers see it only after you accept their booking.</div>
+        <div class="row"><div class="grow"><label>Gender</label><select id="t-gender">
+          <option value="female" ${t.gender === "female" ? "selected" : ""}>Female</option><option value="male" ${t.gender === "male" ? "selected" : ""}>Male</option><option value="other" ${t.gender === "other" ? "selected" : ""}>Other</option></select></div>
+          <div class="grow"><label>Years of experience</label><input id="t-exp" type="number" min="0" max="60" value="${Number(t.experience_years) || 0}"></div></div>
+        <label>Main area (city)</label><select id="t-area"><option value="">Choose city</option>${MB.AREAS.map((a) => `<option ${t.area === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+        <label>About you</label><textarea id="t-bio" placeholder="Your training, specialties, what customers can expect…">${esc(t.bio)}</textarea>
+        <label>More photos (optional, up to 6)</label>
+        <div class="gallery" id="gal"></div>
+        <button class="btn sm light" id="g-add" type="button" style="margin-top:8px">+ Add photo</button><input type="file" accept="image/*" id="f-gal" class="hide">
+      </div>
+      <div class="card">
+        <h3>Documents (only admin can see these)</h3>
+        <label>Valid ID ${isNew ? "(required)" : ""}</label>
+        <div class="upload-box" id="u-id">${t.has_id_doc ? "✅ ID uploaded" : "🪪"}<div class="small">Tap to ${t.has_id_doc ? "replace" : "upload"} a photo of your ID</div></div><input type="file" accept="image/*" id="f-id" class="hide">
+        <label>Massage certificate / TESDA (optional)</label>
+        <div class="upload-box" id="u-cert">${t.has_cert_doc ? "✅ Certificate uploaded" : "📜"}<div class="small">Tap to ${t.has_cert_doc ? "replace" : "upload"}</div></div><input type="file" accept="image/*" id="f-cert" class="hide">
+      </div>
+      <button class="btn block gold" id="t-save">${isNew ? "Submit application" : "Save profile"}</button>
+      ${!isNew && t.rating_count ? `<p class="center small muted">Rating ${Number(t.rating_avg).toFixed(1)} ★ from ${t.rating_count} reviews</p>` : ""}
+      ${MB.pushSupported() ? `<div class="card row" style="margin-top:16px"><div class="grow"><b>Phone notifications</b><div class="small muted">New bookings and reminders</div></div><button class="btn sm light" id="t-push">${Notification.permission === "granted" ? "On ✅" : "Turn on"}</button></div>` : ""}
+      <button class="btn block ghost" id="t-out" style="margin-top:12px">Log out</button>
+      <div class="ver">Massage Buddy Therapist v${MB.version}</div>`;
+    const drawGal = () => { $("#gal").innerHTML = F.photos.map((p, i) => `<div style="position:relative;flex:none"><img src="${esc(p)}" alt=""><button class="x" style="position:absolute;top:4px;right:4px;width:28px;height:28px;font-size:16px" data-rm="${i}">×</button></div>`).join(""); $("#g-add").classList.toggle("hide", F.photos.length >= 6); };
+    drawGal();
+    $("#gal").onclick = (e) => { const i = e.target.dataset.rm; if (i != null) { F.photos.splice(Number(i), 1); drawGal(); } };
+    const pick = (boxId, inputId, fn) => { $(boxId).onclick = () => $(inputId).click(); $(inputId).onchange = async (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; MB.toast("Uploading…"); try { await fn(f); } catch (err) { MB.toast(MB.errMsg(err), true); } }; };
+    pick("#u-photo", "#f-photo", async (f) => { F.photo_url = await MB.upload("mb-photos", f, "profile"); $("#u-photo").innerHTML = `<img src="${esc(F.photo_url)}" alt=""><div class="small">Tap to change photo</div>`; MB.toast("Photo ready. Remember to save."); });
+    pick("#g-add", "#f-gal", async (f) => { F.photos.push(await MB.upload("mb-photos", f, "gallery")); drawGal(); MB.toast("Photo added. Remember to save."); });
+    pick("#u-id", "#f-id", async (f) => { F.id_doc = await MB.upload("mb-docs", f, "id"); $("#u-id").innerHTML = `✅ ID uploaded<div class="small">Tap to replace</div>`; MB.toast("ID uploaded. Remember to save."); });
+    pick("#u-cert", "#f-cert", async (f) => { F.cert_doc = await MB.upload("mb-docs", f, "certificate"); $("#u-cert").innerHTML = `✅ Certificate uploaded<div class="small">Tap to replace</div>`; MB.toast("Certificate uploaded. Remember to save."); });
+    $("#t-save").onclick = (e) => MB.busy(e.target, async () => {
+      S.t = await MB.rpc("mb_save_therapist", {
+        p_display_name: $("#t-name").value, p_gender: $("#t-gender").value, p_area: $("#t-area").value,
+        p_experience: Number($("#t-exp").value) || 0, p_bio: $("#t-bio").value, p_photo_url: F.photo_url || "",
+        p_photos: F.photos, p_id_doc: F.id_doc, p_cert_doc: F.cert_doc, p_phone: $("#t-phone").value });
+      MB.toast(isNew ? "Application sent! 🎉" : "Profile saved ✅");
+      if (isNew) { $("#nav").classList.remove("hide"); $("#prof-btn").classList.remove("hide"); location.hash = "services"; route(); }
+    });
+    const tp = $("#t-push"); if (tp) tp.onclick = (e) => MB.busy(e.target, async () => { if (await MB.enablePush(true)) tp.dataset.t = "On ✅"; });
+    $("#t-out").onclick = () => MB.logout();
+  }
+
+  // ---------- start ----------
+  (async function init() {
+    MB.registerSW();
+    if (MB.configured) {
+      await MB.getSession();
+      try {
+        const [types, settings] = await Promise.all([MB.rpc("mb_massage_types", {}, { quiet: true }), MB.rpc("mb_public_settings", {}, { quiet: true })]);
+        S.types = types || []; S.settings = settings || {};
+      } catch (e) {}
+      MB.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") { S.me = null; S.t = null; } });
+      if (MB.session) MB.enablePush(false);
+      MB.onResume(() => refresh(true));
+      // check for new requests every minute, only while the app is open on screen
+      setInterval(() => { if (document.visibilityState === "visible" && MB.session && S.t) refresh(/^#(home|bookings)?$/.test(location.hash || "#home") && !document.getElementById("mb-modal")); }, 60000);
+    }
+    route();
+  })();
+})();
+</script>
+</body>
+</html>
