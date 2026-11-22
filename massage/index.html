@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.02">
+<link rel="stylesheet" href="style.css?v=1.07">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -27,8 +27,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.02"></script>
-<script src="common.js?v=1.02"></script>
+<script src="config.js?v=1.07"></script>
+<script src="common.js?v=1.07"></script>
 <script>
 (function () {
   "use strict";
@@ -49,7 +49,14 @@
 
   async function refreshMe() {
     if (!MB.session) { S.me = null; bell.classList.add("hide"); return null; }
-    try { S.me = await MB.rpc("mb_me", {}, { quiet: true }); bell.classList.remove("hide"); setUnread(S.me.unread); }
+    try {
+      S.me = await MB.rpc("mb_me", {}, { quiet: true }); bell.classList.remove("hide"); setUnread(S.me.unread);
+      // every account must agree to the Terms (asked once per visit; booking is blocked until accepted)
+      if (S.me.terms_accepted === false && !S.termsAsked) {
+        S.termsAsked = true;
+        setTimeout(() => { if (!document.getElementById("mb-modal")) MB.acceptTerms().then((ok) => { if (ok && S.me) S.me.terms_accepted = true; }); }, 600);
+      }
+    }
     catch (e) { S.me = null; }
     return S.me;
   }
@@ -65,6 +72,7 @@
       if (r === "book") return await pageBook();
       if (r === "done") return pageDone(arg);
       if (r === "bookings") return await pageBookings();
+      if (r === "chat" && arg) { await pageBookings(); return MB.openChat(Number(arg), () => { history.replaceState(null, "", "#bookings"); pageBookings(); }); }
       if (r === "account") return await pageAccount();
       return await pageHome();
     } catch (e) {
@@ -235,6 +243,10 @@
       if (!ok) return;
       await refreshMe();
     }
+    if (S.me && S.me.terms_accepted === false) {
+      if (!(await MB.acceptTerms())) return MB.toast("Please accept the Terms to book a massage.", true);
+      S.me.terms_accepted = true;
+    }
     try {
       const b = await MB.rpc("mb_create_booking", { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes });
       S.lastBooking = { id: b.id, when: S.slot, type: S.sel.type_name, dur: S.sel.duration_min, name: S.therapist.display_name, price: S.sel.price };
@@ -266,7 +278,7 @@
       <div class="tabs"><button data-tab="up" class="${bookTab === "up" ? "on" : ""}">Upcoming</button><button data-tab="past" class="${bookTab === "past" ? "on" : ""}">Past</button></div>
       <div id="blist"><div class="spinner"></div></div>`;
     $(".tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { bookTab = b.dataset.tab; pageBookings(); } };
-    const all = await MB.rpc("mb_my_bookings", { p_as: "customer" });
+    const [all, unread] = await Promise.all([MB.rpc("mb_my_bookings", { p_as: "customer" }), MB.loadUnread()]);
     const now = Date.now();
     const up = all.filter((b) => MB.ACTIVE.includes(b.status) && new Date(b.end_at).getTime() > now - 3 * 3600e3).reverse();
     const past = all.filter((b) => !up.includes(b));
@@ -285,12 +297,14 @@
         ${b.status === "cancelled" || b.status === "declined" ? `<div class="small muted">${b.cancel_reason ? "Reason: " + esc(b.cancel_reason) : ""}</div>` : ""}
         <div class="btn-row" style="margin-top:10px">
           ${b.therapist && b.therapist.phone ? `<a class="btn sm light" href="tel:${esc(b.therapist.phone)}">📞 Call</a><a class="btn sm light" href="sms:${esc(b.therapist.phone)}">💬 Text</a>` : ""}
+          ${MB.chatButton(b, unread)}
           ${["pending", "confirmed"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
           ${b.status === "completed" && !b.reviewed ? `<button class="btn sm gold" data-a="rate">⭐ Rate</button>` : ""}
           ${!MB.ACTIVE.includes(b.status) && b.therapist ? `<a class="btn sm ghost" href="#t/${b.therapist.id}">Book again</a>` : ""}
         </div>
       </div>`).join("");
     el.onclick = async (e) => {
+      const cb = e.target.closest("[data-chat]"); if (cb) return MB.openChat(Number(cb.dataset.chat), () => pageBookings());
       const a = e.target.dataset.a; if (!a) return;
       const id = Number(e.target.closest("[data-id]").dataset.id);
       if (a === "cancel") {

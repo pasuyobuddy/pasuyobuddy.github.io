@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0E7C7B">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.02">
+<link rel="stylesheet" href="style.css?v=1.07">
 <style>
   .wrap, .top-in { max-width: 980px; }
   .wrap { padding-bottom: 40px; }
@@ -32,8 +32,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.02"></script>
-<script src="common.js?v=1.02"></script>
+<script src="config.js?v=1.07"></script>
+<script src="common.js?v=1.07"></script>
 <script>
 (function () {
   "use strict";
@@ -109,6 +109,7 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
           <div class="small" style="margin-top:8px">📞 ${esc(t.phone)} · ✉️ ${esc(t.email)}</div>
           <div class="small">Services: ${t.services} · Schedule: ${t.has_schedule ? "yes" : "<b>not set</b>"} · Completed: ${t.completed} · ${t.rating_count ? Number(t.rating_avg).toFixed(1) + "★ (" + t.rating_count + ")" : "no reviews"}</div>
           <div class="small muted">Applied ${MB.fmtDate(t.created_at)}${t.admin_note ? " · Note: " + esc(t.admin_note) : ""}</div>
+          ${t.docs_complete === undefined ? "" : t.docs_complete ? `<div style="margin-top:6px"><span class="badge ok">📄 Documents complete</span></div>` : `<div style="margin-top:6px"><span class="badge bad">📄 Documents missing</span></div>`}
           <div class="btn-row" style="margin-top:10px">
             <button class="btn sm light" data-a="view">View profile & ID</button>
             ${t.status !== "approved" ? `<button class="btn sm" data-a="approved">Approve</button>` : ""}
@@ -131,14 +132,17 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
       <img src="${esc(t.photo_url || MB.PLACEHOLDER)}" class="doc-thumb" alt="">
       <p style="white-space:pre-line">${esc(t.bio) || '<span class="muted">No bio.</span>'}</p>
       ${t.photos.length ? `<div class="gallery">${t.photos.map((p) => `<img src="${esc(p)}" alt="">`).join("")}</div>` : ""}
-      <h3 style="margin-top:14px">Valid ID</h3><div id="d-id" class="small muted">${t.id_doc_path ? "Loading…" : "Not uploaded"}</div>
-      <h3 style="margin-top:14px">Certificate</h3><div id="d-cert" class="small muted">${t.cert_doc_path ? "Loading…" : "Not uploaded"}</div>`);
+      <p class="small">Years in service: <b>${Number(t.experience_years) >= 20 ? "20+" : Number(t.experience_years) || "Less than 1"} ${Number(t.experience_years) === 1 ? "year" : "years"}</b> · Terms accepted: <b>${t.terms_accepted_at ? MB.fmtDate(t.terms_accepted_at) : "not yet"}</b></p>
+      ${[["id", "1. Valid ID", t.id_doc_path], ["nbi", "2. NBI Clearance", t.nbi_doc_path], ["selfie", "3. Selfie holding ID", t.selfie_doc_path],
+         ["loi", "4. Signed Letter of Intent", t.loi_doc_path], ["barangay", "5. Barangay Clearance (optional)", t.barangay_doc_path], ["cert", "6. Certificate (optional)", t.cert_doc_path]]
+        .map(([k, label, path]) => `<h3 style="margin-top:14px">${label}</h3><div id="d-${k}" class="small ${path ? "muted" : ""}">${path ? "Loading…" : '<span class="badge bad">Not uploaded</span>'}</div>`).join("")}`);
     const show = async (path, el) => {
       if (!path) return;
       const { data, error } = await MB.sb.storage.from("mb-docs").createSignedUrl(path, 600);
       $(el, body).innerHTML = error ? "Could not load: " + esc(error.message) : `<a href="${esc(data.signedUrl)}" target="_blank" rel="noopener"><img class="doc-thumb" src="${esc(data.signedUrl)}" alt="document"></a>`;
     };
     show(t.id_doc_path, "#d-id"); show(t.cert_doc_path, "#d-cert");
+    show(t.nbi_doc_path, "#d-nbi"); show(t.selfie_doc_path, "#d-selfie"); show(t.loi_doc_path, "#d-loi"); show(t.barangay_doc_path, "#d-barangay");
   }
 
   // ---------- Bookings ----------
@@ -153,10 +157,11 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
         <td>${esc(b.therapist.name)}<div class="small muted">${esc(b.therapist.phone || "")}</div></td>
         <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div></td>
         <td>${MB.badge(b.status)}${b.cancel_reason ? `<div class="small muted">${esc(b.cancelled_by)}: ${esc(b.cancel_reason)}</div>` : ""}</td>
-        <td>${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
+        <td><button class="btn sm light" data-a="chat" title="Read chat">💬</button> ${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
       </tbody></table></div>`;
     $(".chips").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { bFilter = b.dataset.f; route(); } };
     $("table").onclick = async (e) => {
+      if (e.target.dataset.a === "chat") return MB.openChat(Number(e.target.closest("[data-id]").dataset.id));
       if (e.target.dataset.a !== "cancel") return;
       const id = Number(e.target.closest("[data-id]").dataset.id);
       const why = await MB.prompt("Cancel booking #" + id, "Reason (customer and therapist will see it):", "", "Cancel booking"); if (why == null) return;
@@ -170,11 +175,12 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
     const list = await MB.rpc("mb_admin_customers", { p_search: cSearch });
     view.innerHTML = `<h1>Customers</h1>
       <div class="row"><input id="cs" placeholder="Search name, phone or email" value="${esc(cSearch)}" class="grow"><button class="btn" id="cs-b">Search</button></div>
-      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Name</th><th>Contact</th><th>Bookings</th><th>Joined</th><th></th></tr></thead><tbody>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Name</th><th>Contact</th><th>Bookings</th><th>Joined</th><th>Terms</th><th></th></tr></thead><tbody>
       ${list.map((c) => `<tr data-id="${c.id}"><td>${esc(c.full_name || "—")}${c.is_therapist ? ' <span class="badge">therapist</span>' : ""}${c.blocked ? ' <span class="badge bad">blocked</span>' : ""}</td>
         <td class="small">${esc(c.phone)}<br>${esc(c.email)}</td><td>${c.bookings}${c.cancelled ? `<div class="small muted">${c.cancelled} cancelled</div>` : ""}</td>
         <td class="small">${MB.fmtDate(c.created_at)}</td>
-        <td><button class="btn sm ${c.blocked ? "light" : "danger"}" data-b="${c.blocked ? 0 : 1}">${c.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("") || `<tr><td colspan="5" class="center muted">No customers.</td></tr>`}
+        <td class="small">${c.terms_accepted_at ? "✅ " + MB.fmtDate(c.terms_accepted_at) : c.terms_accepted_at === null ? '<span class="badge bad">Not yet</span>' : "—"}</td>
+        <td><button class="btn sm ${c.blocked ? "light" : "danger"}" data-b="${c.blocked ? 0 : 1}">${c.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("") || `<tr><td colspan="6" class="center muted">No customers.</td></tr>`}
       </tbody></table></div>`;
     const go = () => { cSearch = $("#cs").value.trim(); route(); };
     $("#cs-b").onclick = go; $("#cs").onkeydown = (e) => { if (e.key === "Enter") go(); };
