@@ -16,17 +16,18 @@
 //      "Key pair"               -> vapidKey
 // =====================================================================
 self.MB_CONFIG = {
-  appVersion: "1.09",
+  appVersion: "1.10",
   supabaseUrl: "https://ffzkblztfmdzdycndyaz.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmemtibHp0Zm1kemR5Y25keWF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzNTE0NTUsImV4cCI6MjExMDkyNzQ1NX0.UTILgHBB9N2kCwdW0egXJqC5VqM8atG1iHqI1xH00v8",
 
-  firebase: null
-  // firebase: {
-  //   apiKey: "....",
-  //   authDomain: "....firebaseapp.com",
-  //   projectId: "....",
-  //   messagingSenderId: "....",
-  //   appId: "....",
-  //   vapidKey: "...."
-  // }
+  // Firebase project "massagebuddy" (public web config + Web Push key; safe to be public)
+  firebase: {
+    apiKey: "AIzaSyD3TOYCs1HEfgUj53-Plg4zNac2Z2oDrOQ",
+    authDomain: "massagebuddy.firebaseapp.com",
+    projectId: "massagebuddy",
+    storageBucket: "massagebuddy.firebasestorage.app",
+    messagingSenderId: "128507808042",
+    appId: "1:128507808042:web:b7478750911749d1973653",
+    vapidKey: "BIEYCVBTUKsuOXNj-4dyemQUwkGExM_txDtfWGmbsSTcmU2prTgk-MZ3QVAJN30hsiTqvH8msOb0QIPhYI8ptr4"
+  }
 };
