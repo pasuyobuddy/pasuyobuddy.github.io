@@ -205,3 +205,11 @@ table.t td, table.t th { padding: 8px 6px; border-bottom: 1px solid var(--line);
 .pw-wrap input { padding-right: 48px; }
 .pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; border-radius: 10px; }
 .pw-eye:hover { color: var(--brand); }
+
+/* Policy pages */
+.doc h2 { margin-top: 24px; }
+.doc ul { padding-left: 20px; }
+.doc li { margin: 4px 0; }
+.doc-links { margin: 24px 0 40px; }
+.foot-links { text-align: center; font-size: 12px; color: var(--muted); margin: 20px 0; }
+.foot-links a { color: var(--muted); }

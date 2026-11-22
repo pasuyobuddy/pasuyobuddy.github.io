@@ -87,7 +87,8 @@
         <select id="f-gender" class="grow filt" aria-label="Therapist gender"><option value="">Any gender</option><option value="female" ${f.gender === "female" ? "selected" : ""}>Female</option><option value="male" ${f.gender === "male" ? "selected" : ""}>Male</option></select>
         <select id="f-sort" class="grow filt" aria-label="Sort"><option value="rating">Top rated</option><option value="price" ${f.sort === "price" ? "selected" : ""}>Lowest price</option></select>
       </div>
-      <div id="list"><div class="spinner"></div></div>`;
+      <div id="list"><div class="spinner"></div></div>
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div>`;
     $("#type-chips").onclick = (e) => { const b = e.target.closest("[data-type]"); if (!b) return; f.type = b.dataset.type ? Number(b.dataset.type) : null; pageHome(); };
     $("#f-area").onchange = (e) => { f.area = e.target.value; loadList(); };
     $("#f-gender").onchange = (e) => { f.gender = e.target.value; loadList(); };
@@ -316,7 +317,7 @@
     if (!MB.session) {
       view.innerHTML = `${MB.setupBanner()}<div class="card" id="auth"></div>
         <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a></div>
-        <div class="ver">Massage Buddy v${MB.version}</div>`;
+        <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">Massage Buddy v${MB.version}</div>`;
       if (MB.configured) MB.renderAuth($("#auth"), { title: "Welcome to Massage Buddy", subtitle: "Log in or create an account to book.", onDone: async () => { await refreshMe(); route(); } });
       return;
     }
@@ -335,7 +336,7 @@
       <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a>${me.is_admin ? ` · <a href="admin.html">Admin</a>` : ""}</div>
       ${S.settings.support_phone || S.settings.support_email ? `<div class="card small"><b>Need help?</b><br>${S.settings.support_phone ? `📞 <a href="tel:${esc(S.settings.support_phone)}">${esc(S.settings.support_phone)}</a><br>` : ""}${S.settings.support_email ? `✉️ <a href="mailto:${esc(S.settings.support_email)}">${esc(S.settings.support_email)}</a>` : ""}</div>` : ""}
       <button class="btn block ghost" id="p-out">Log out</button>
-      <div class="ver">Massage Buddy v${MB.version}</div>`;
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">Massage Buddy v${MB.version}</div>`;
     $("#p-save").onclick = (e) => MB.busy(e.target, async () => {
       S.me = await MB.rpc("mb_save_profile", { p_name: $("#p-name").value, p_phone: $("#p-phone").value, p_address: $("#p-addr").value, p_area: $("#p-area").value });
       MB.toast("Saved ✅");

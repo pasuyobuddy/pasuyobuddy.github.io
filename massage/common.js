@@ -154,6 +154,7 @@
           <label>Mobile number</label><input name="phone" type="tel" autocomplete="tel" required placeholder="0917 123 4567">` : ""}
           <label>Email</label><input name="email" type="email" autocomplete="email" required placeholder="you@email.com">
           <label>Password</label>${MB.pwInput(`name="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" required minlength="6" placeholder="At least 6 characters"`)}
+          ${mode === "signup" ? `<p class="small muted" style="margin:10px 0 0">By creating an account you agree to our <a href="terms.html" target="_blank">Terms</a>, <a href="privacy.html" target="_blank">Privacy Policy</a> and <a href="refund.html" target="_blank">Refund &amp; Cancellation Policy</a>.</p>` : ""}
           <button class="btn block" style="margin-top:16px">${mode === "signup" ? "Create account" : "Log in"}</button>
           <p class="center small">${mode === "signup"
             ? `Already have an account? <a href="#" data-m="login">Log in</a>`

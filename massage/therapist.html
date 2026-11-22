@@ -95,7 +95,7 @@
         <li>We approve you, usually within 1–2 days.</li><li>Customers book you; you accept and go to them.</li>
         <li>Customer pays you cash. You pay Massage Buddy the small commission.</li></ol></div>
       <p class="center small">Looking for a massage? <a href="./">Book here</a></p>
-      <div class="ver">v${MB.version}</div>`;
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">v${MB.version}</div>`;
     MB.renderAuth($("#auth"), { title: "Therapist login", onDone: async () => { S.me = null; await route(); MB.enablePush(false); } });
   }
 
