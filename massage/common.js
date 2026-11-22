@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.08";
+  MB.version = C.appVersion || "1.09";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -335,8 +335,11 @@
     const blob = await MB.shrinkImage(file, bucket === "mb-docs" ? 1600 : 1080);
     const uid = MB.session.user.id;
     const path = `${uid}/${name}-${Date.now()}.jpg`;
-    const { error } = await MB.sb.storage.from(bucket).upload(path, blob, { contentType: "image/jpeg", upsert: true });
-    if (error) throw error;
+    // upsert must stay false: an upsert also needs read + update permission in Supabase Storage,
+    // which our private rules don't give (that caused "new row violates row-level security policy").
+    // Every file gets a new unique name, so nothing ever needs to be overwritten.
+    const { error } = await MB.sb.storage.from(bucket).upload(path, blob, { contentType: "image/jpeg", upsert: false });
+    if (error) throw new Error("Photo upload failed. Please try again. (" + (error.message || error) + ")");
     if (bucket === "mb-photos") return MB.sb.storage.from(bucket).getPublicUrl(path).data.publicUrl;
     return path;
   };
