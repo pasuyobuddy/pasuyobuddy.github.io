@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.01";
+  MB.version = C.appVersion || "1.02";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -19,6 +19,14 @@
   MB.ACTIVE = ["pending", "confirmed", "on_the_way", "in_progress"];
   MB.PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#E3F2F1"/><circle cx="50" cy="38" r="18" fill="#9CCFCB"/><path d="M18 92c4-20 18-30 32-30s28 10 32 30" fill="#9CCFCB"/></svg>');
+
+  // ---------- app mode: one app, two modes (customer / therapist) ----------
+  MB.getMode = () => { try { return localStorage.getItem("mb_mode") || ""; } catch (e) { return ""; } };
+  MB.setMode = (m) => { try { localStorage.setItem("mb_mode", m); } catch (e) {} };
+  MB.switchTo = (m, hash) => {
+    MB.setMode(m);
+    location.href = (m === "therapist" ? "therapist.html" : "./") + (hash ? "#" + hash : "");
+  };
 
   // ---------- small helpers ----------
   MB.$ = (s, el) => (el || document).querySelector(s);
@@ -277,7 +285,13 @@
       const pb = MB.$("#n-push", body); if (pb) pb.onclick = (e) => MB.busy(e.target, () => MB.enablePush(true));
       body.addEventListener("click", (e) => {
         const c = e.target.closest("[data-link]"); if (!c || !c.dataset.link) return;
-        MB.closeModal(); const h = c.dataset.link.split("#")[1]; if (h != null) location.hash = h;
+        MB.closeModal();
+        const [pg, h] = c.dataset.link.split("#");
+        const here = location.pathname.split("/").pop() || "index.html";
+        const target = pg || here;
+        if (target !== here && !(target === "index.html" && here === "")) {
+          if (target === "therapist.html") MB.switchTo("therapist", h); else if (target === "index.html") MB.switchTo("customer", h); else location.href = c.dataset.link;
+        } else if (h != null) location.hash = h;
       });
       if (d.unread) { await MB.rpc("mb_mark_notifications_read", {}, { quiet: true }); onChange && onChange(0); }
     } catch (e) { body.innerHTML = `<div class="empty">Could not load notifications.</div>`; }

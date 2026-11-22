@@ -6,10 +6,10 @@
 <title>Massage Buddy Therapist</title>
 <meta name="description" content="Massage Buddy app for massage therapists: profile, schedule, bookings and earnings.">
 <meta name="theme-color" content="#0E7C7B">
-<link rel="manifest" href="therapist.webmanifest">
+<link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.01">
+<link rel="stylesheet" href="style.css?v=1.02">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.01"></script>
-<script src="common.js?v=1.01"></script>
+<script src="config.js?v=1.02"></script>
+<script src="common.js?v=1.02"></script>
 <script>
 (function () {
   "use strict";
@@ -94,7 +94,7 @@
         <li>Create an account and fill in your profile.</li><li>Upload a valid ID (and certificate if you have one).</li>
         <li>We approve you, usually within 1–2 days.</li><li>Customers book you; you accept and go to them.</li>
         <li>Customer pays you cash. You pay Massage Buddy the small commission.</li></ol></div>
-      <p class="center small">Looking for a massage? <a href="./">Book here</a></p>
+      <div class="card row"><div class="grow"><b>💆 Customer mode</b><div class="small muted">Looking for a massage? Book one here</div></div><button class="btn sm light" data-to-cust>Switch</button></div>
       <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">v${MB.version}</div>`;
     MB.renderAuth($("#auth"), { title: "Therapist login", onDone: async () => { S.me = null; await route(); MB.enablePush(false); } });
   }
@@ -295,6 +295,7 @@
       <button class="btn block gold" id="t-save">${isNew ? "Submit application" : "Save profile"}</button>
       ${!isNew && t.rating_count ? `<p class="center small muted">Rating ${Number(t.rating_avg).toFixed(1)} ★ from ${t.rating_count} reviews</p>` : ""}
       ${MB.pushSupported() ? `<div class="card row" style="margin-top:16px"><div class="grow"><b>Phone notifications</b><div class="small muted">New bookings and reminders</div></div><button class="btn sm light" id="t-push">${Notification.permission === "granted" ? "On ✅" : "Turn on"}</button></div>` : ""}
+      <div class="card row" style="margin-top:16px"><div class="grow"><b>💆 Customer mode</b><div class="small muted">Book a massage for yourself. Same login.</div></div><button class="btn sm light" data-to-cust>Switch</button></div>
       <button class="btn block ghost" id="t-out" style="margin-top:12px">Log out</button>
       <div class="ver">Massage Buddy Therapist v${MB.version}</div>`;
     const drawGal = () => { $("#gal").innerHTML = F.photos.map((p, i) => `<div style="position:relative;flex:none"><img src="${esc(p)}" alt=""><button class="x" style="position:absolute;top:4px;right:4px;width:28px;height:28px;font-size:16px" data-rm="${i}">×</button></div>`).join(""); $("#g-add").classList.toggle("hide", F.photos.length >= 6); };
@@ -317,7 +318,10 @@
     $("#t-out").onclick = () => MB.logout();
   }
 
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-to-cust]")) MB.switchTo("customer"); });
+
   // ---------- start ----------
+  MB.setMode("therapist");
   (async function init() {
     MB.registerSW();
     if (MB.configured) {

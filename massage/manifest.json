@@ -2,7 +2,7 @@
   "id": "/massage/",
   "name": "Massage Buddy",
   "short_name": "Massage Buddy",
-  "description": "Book a home-service massage in Metro Manila.",
+  "description": "Book a home-service massage, or earn as a massage therapist, in Metro Manila.",
   "start_url": "/massage/",
   "scope": "/massage/",
   "display": "standalone",
@@ -11,8 +11,23 @@
   "theme_color": "#0E7C7B",
   "lang": "en-PH",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
