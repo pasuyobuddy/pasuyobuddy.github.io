@@ -35,7 +35,7 @@ body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
   box-shadow:0 calc(var(--u)*1.5) calc(var(--u)*4) rgba(0,0,0,.25);flex:none}
 .map svg{position:absolute;inset:0;width:100%;height:100%}
 .pin{position:absolute;font-size:calc(var(--u)*9);transform:translate(-50%,-90%)}
-.moto{position:absolute;font-size:calc(var(--u)*10);transform:translate(-50%,-50%)}
+.moto{position:absolute;width:calc(var(--u)*17);transform:translate(-50%,-50%);filter:drop-shadow(0 calc(var(--u)*.8) calc(var(--u)*1) rgba(0,0,0,.35))}
 .badge{display:inline-flex;align-items:center;gap:.4em;background:var(--ink);color:#fff;border-radius:999px;padding:calc(var(--u)*1.4) calc(var(--u)*3.4);
   font-weight:800;font-size:calc(var(--u)*4.4);margin:calc(var(--u)*1)}
 .cta{background:var(--yellow);color:var(--ink);font-weight:900;font-size:calc(var(--u)*7.4);padding:calc(var(--u)*2.2) calc(var(--u)*6);border-radius:999px;
@@ -112,7 +112,7 @@ body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
       </svg>
       <div class="pin" style="left:10%;top:85%">🟢</div>
       <div class="pin" style="left:70%;top:15%">📍</div>
-      <div class="moto" id="moto">🏍️</div>
+      <img class="moto" id="moto" src="pb-motorcycle.png" alt="">
     </div>
   </section>
 
@@ -121,7 +121,7 @@ body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
     <img class="logo" id="s6l" src="../icon-512.png" alt="PasuyoBuddy" style="width:calc(var(--u)*52);border-radius:calc(var(--u)*6)">
     <div class="cta" id="s6c" data-tl="BOOK NA! 🚀" data-en="BOOK NOW! 🚀"></div>
     <div class="url" id="s6u">pasuyobuddy.com</div>
-    <div class="small" id="s6s" data-tl="Walang app na ida-download&lt;br&gt;📍 Buong Metro Manila (NCR)" data-en="No app download needed&lt;br&gt;📍 All of Metro Manila (NCR)"></div>
+    <div class="small" id="s6s" data-tl="📲 May app o mag-book online&lt;br&gt;📍 Buong Metro Manila (NCR)" data-en="📲 Get the app or book online&lt;br&gt;📍 All of Metro Manila (NCR)"></div>
   </section>
 </div>
 
@@ -224,7 +224,7 @@ window.renderAt = function (t) {
     const pt = route.getPointAtLength(L * p);
     const moto = $("moto");
     moto.style.left = pt.x + "%"; moto.style.top = pt.y + "%";
-    moto.style.transform = `translate(-50%,-60%) translateY(${Math.sin(lt * 18) * u * .3}px) scaleX(-1)`;
+    moto.style.transform = `translate(-50%,-75%) translateY(${Math.sin(lt * 18) * u * .3}px)`;
   }
   // 6 – call to action
   if (visible("s6", t)) {
