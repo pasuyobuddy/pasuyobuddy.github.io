@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.00">
+<link rel="stylesheet" href="style.css?v=1.02">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -27,8 +27,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.00"></script>
-<script src="common.js?v=1.00"></script>
+<script src="config.js?v=1.02"></script>
+<script src="common.js?v=1.02"></script>
 <script>
 (function () {
   "use strict";
@@ -87,7 +87,8 @@
         <select id="f-gender" class="grow filt" aria-label="Therapist gender"><option value="">Any gender</option><option value="female" ${f.gender === "female" ? "selected" : ""}>Female</option><option value="male" ${f.gender === "male" ? "selected" : ""}>Male</option></select>
         <select id="f-sort" class="grow filt" aria-label="Sort"><option value="rating">Top rated</option><option value="price" ${f.sort === "price" ? "selected" : ""}>Lowest price</option></select>
       </div>
-      <div id="list"><div class="spinner"></div></div>`;
+      <div id="list"><div class="spinner"></div></div>
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div>`;
     $("#type-chips").onclick = (e) => { const b = e.target.closest("[data-type]"); if (!b) return; f.type = b.dataset.type ? Number(b.dataset.type) : null; pageHome(); };
     $("#f-area").onchange = (e) => { f.area = e.target.value; loadList(); };
     $("#f-gender").onchange = (e) => { f.gender = e.target.value; loadList(); };
@@ -315,8 +316,9 @@
   async function pageAccount() {
     if (!MB.session) {
       view.innerHTML = `${MB.setupBanner()}<div class="card" id="auth"></div>
-        <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a></div>
-        <div class="ver">Massage Buddy v${MB.version}</div>`;
+        <div class="card row"><div class="grow"><b>🧑‍⚕️ Therapist mode</b><div class="small muted">Give massages and earn with Massage Buddy</div></div><button class="btn sm light" id="to-ther">Switch</button></div>
+        <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">Massage Buddy v${MB.version}</div>`;
+      $("#to-ther").onclick = () => MB.switchTo("therapist");
       if (MB.configured) MB.renderAuth($("#auth"), { title: "Welcome to Massage Buddy", subtitle: "Log in or create an account to book.", onDone: async () => { await refreshMe(); route(); } });
       return;
     }
@@ -332,20 +334,44 @@
       </div>
       ${MB.pushSupported() ? `<div class="card row"><div class="grow"><b>Phone notifications</b><div class="small muted">Booking updates and reminders</div></div><button class="btn sm light" id="p-push">${Notification.permission === "granted" ? "On ✅" : "Turn on"}</button></div>` : ""}
       ${me.blocked ? `<div class="banner bad">Your account cannot make bookings right now. Please contact support.</div>` : ""}
-      <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a>${me.is_admin ? ` · <a href="admin.html">Admin</a>` : ""}</div>
+      <div class="card row"><div class="grow"><b>🧑‍⚕️ Therapist mode</b><div class="small muted">Give massages and earn with Massage Buddy</div></div><button class="btn sm light" id="to-ther">Switch</button></div>
+      ${me.is_admin ? `<div class="card center small"><a href="admin.html">Open Admin</a></div>` : ""}
       ${S.settings.support_phone || S.settings.support_email ? `<div class="card small"><b>Need help?</b><br>${S.settings.support_phone ? `📞 <a href="tel:${esc(S.settings.support_phone)}">${esc(S.settings.support_phone)}</a><br>` : ""}${S.settings.support_email ? `✉️ <a href="mailto:${esc(S.settings.support_email)}">${esc(S.settings.support_email)}</a>` : ""}</div>` : ""}
       <button class="btn block ghost" id="p-out">Log out</button>
-      <div class="ver">Massage Buddy v${MB.version}</div>`;
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div><div class="ver">Massage Buddy v${MB.version}</div>`;
     $("#p-save").onclick = (e) => MB.busy(e.target, async () => {
       S.me = await MB.rpc("mb_save_profile", { p_name: $("#p-name").value, p_phone: $("#p-phone").value, p_address: $("#p-addr").value, p_area: $("#p-area").value });
       MB.toast("Saved ✅");
     });
     const pp = $("#p-push"); if (pp) pp.onclick = (e) => MB.busy(e.target, async () => { if (await MB.enablePush(true)) pp.dataset.t = "On ✅"; });
     $("#p-out").onclick = () => MB.logout();
+    $("#to-ther").onclick = () => MB.switchTo("therapist");
+  }
+
+  // ---------- first-time choice: customer or therapist ----------
+  function chooseMode() {
+    $(".nav").classList.add("hide");
+    view.innerHTML = `<div style="padding-top:24px" class="center">
+      <div style="font-size:52px">🌿</div>
+      <h1>Welcome to Massage Buddy</h1>
+      <p class="muted">Home-service massage in Metro Manila.<br>How will you use the app?</p>
+      <button class="btn block gold" id="m-cust" style="min-height:64px;font-size:17px;margin-top:16px">💆 I want a massage</button>
+      <div style="height:12px"></div>
+      <button class="btn block" id="m-ther" style="min-height:64px;font-size:17px">🧑‍⚕️ I'm a massage therapist</button>
+      <p class="small muted" style="margin-top:16px">You can switch anytime in Account. Same login for both.</p>
+      <div class="foot-links"><a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="refund.html">Refund &amp; Cancellation</a></div>
+    </div>`;
+    $("#m-cust").onclick = () => { MB.setMode("customer"); $(".nav").classList.remove("hide"); init2(); };
+    $("#m-ther").onclick = () => MB.switchTo("therapist");
   }
 
   // ---------- start ----------
-  (async function init() {
+  const startMode = MB.getMode();
+  if (startMode === "therapist" && !location.hash) { location.replace("therapist.html"); return; }
+  if (!startMode && !location.hash) { chooseMode(); return; }
+  if (!startMode) MB.setMode("customer");
+  init2();
+  async function init2() {
     MB.registerSW();
     if (MB.configured) {
       await MB.getSession();
@@ -359,7 +385,7 @@
       MB.onResume(() => { refreshMe(); if (/^#(bookings)?$/.test(location.hash) || location.hash === "") route(); });
     }
     route();
-  })();
+  }
 })();
 </script>
 </body>

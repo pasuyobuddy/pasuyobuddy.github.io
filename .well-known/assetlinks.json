@@ -52,5 +52,17 @@
         "7C:57:89:B1:C9:8F:9B:DF:4B:72:28:84:E8:0A:F5:D4:1A:9C:BA:69:E9:00:2F:2B:AF:CD:6A:70:B8:A1:02:0B"
       ]
     }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.pasuyolabs.massage",
+      "sha256_cert_fingerprints": [
+        "21:F6:9D:E9:93:4A:39:F9:18:BE:F2:28:9B:D5:C0:BA:C7:C3:DF:62:91:E5:DA:C6:AB:AD:B2:CD:5E:79:1D:37"
+      ]
+    }
   }
 ]
