@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="tl">
+<head>
+<meta charset="utf-8">
+<title>PasuyoBuddy Rider Ad</title>
+<!-- Rider recruitment ad (9:16). Open with ?w=1080&h=1920&lang=tl|en, then call window.renderAt(seconds). -->
+<style>
+:root{ --red:#D7141A; --red-d:#B10E13; --yellow:#FFC629; --ink:#15171C; --cream:#FFF7E0; --good:#0B6B45; --u:10.8px }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000;overflow:hidden}
+body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
+#stage{position:relative;overflow:hidden;background:var(--red)}
+.bg{position:absolute;inset:-20%;}
+.stripes{background:repeating-linear-gradient(-30deg, rgba(255,198,41,.13) 0 calc(var(--u)*3), transparent calc(var(--u)*3) calc(var(--u)*9))}
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:calc(var(--u)*7);opacity:0}
+.h1{font-weight:900;font-size:calc(var(--u)*11);line-height:1.02;letter-spacing:-.02em}
+.h2{font-weight:900;font-size:calc(var(--u)*8.4);line-height:1.05;letter-spacing:-.01em}
+.sub{font-weight:700;font-size:calc(var(--u)*4.8);line-height:1.25;margin-top:calc(var(--u)*3)}
+.white{color:#fff}.yellow{color:var(--yellow)}.red{color:var(--red)}
+.hl{background:var(--yellow);color:var(--ink);padding:0 .18em;border-radius:.12em;display:inline-block}
+.veh{display:block;filter:drop-shadow(0 calc(var(--u)*2) calc(var(--u)*2) rgba(0,0,0,.4))}
+.fleet{position:relative;width:100%;height:calc(var(--u)*70);margin-top:calc(var(--u)*4)}
+.fleet img{position:absolute}
+.phone{position:relative;width:calc(var(--u)*50);height:calc(var(--u)*100);border-radius:calc(var(--u)*6);background:#111;padding:calc(var(--u)*1.6);
+  box-shadow:0 calc(var(--u)*3) calc(var(--u)*8) rgba(0,0,0,.45);flex:none;margin-top:calc(var(--u)*5)}
+.phone .screen{width:100%;height:100%;border-radius:calc(var(--u)*4.6);overflow:hidden;background:#fff;position:relative}
+.phone img{width:100%;display:block;position:absolute;left:0;top:0}
+.card{display:flex;align-items:center;gap:calc(var(--u)*3);background:#fff;border-radius:calc(var(--u)*4);padding:calc(var(--u)*3.4) calc(var(--u)*4);
+  width:min(100%, calc(var(--u)*86));text-align:left;margin-top:calc(var(--u)*3.4);box-shadow:0 calc(var(--u)*1) calc(var(--u)*3) rgba(0,0,0,.18)}
+.card .ic{font-size:calc(var(--u)*10);line-height:1}
+.card b{display:block;font-weight:900;font-size:calc(var(--u)*5.6);color:var(--red)}
+.card span{font-weight:700;font-size:calc(var(--u)*4.2);color:#5B6070}
+.req{display:flex;align-items:center;gap:calc(var(--u)*3);background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.18);border-radius:calc(var(--u)*4);
+  padding:calc(var(--u)*3) calc(var(--u)*4);width:calc(var(--u)*84);margin-top:calc(var(--u)*3);color:#fff;text-align:left}
+.req .ic{font-size:calc(var(--u)*9);line-height:1}
+.req b{flex:1;font-weight:900;font-size:calc(var(--u)*5.4);white-space:nowrap}
+.req .ok{width:calc(var(--u)*9);height:calc(var(--u)*9);border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:calc(var(--u)*5.4)}
+.icon{width:calc(var(--u)*46);border-radius:calc(var(--u)*9);box-shadow:0 calc(var(--u)*1.5) calc(var(--u)*4) rgba(0,0,0,.4)}
+.cta{background:var(--yellow);color:var(--ink);font-weight:900;font-size:calc(var(--u)*7.6);padding:calc(var(--u)*2.2) calc(var(--u)*6);border-radius:999px;
+  margin-top:calc(var(--u)*5);box-shadow:0 calc(var(--u)*1) 0 var(--red-d)}
+.url{font-weight:900;font-size:calc(var(--u)*5.6);color:#fff;margin-top:calc(var(--u)*4);letter-spacing:-.01em}
+.small{font-weight:700;font-size:calc(var(--u)*4.4);color:#fff;opacity:.95;margin-top:calc(var(--u)*2);line-height:1.35}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="bg stripes" id="stripes"></div>
+
+  <!-- 1. hook -->
+  <section class="scene" id="s1">
+    <div class="h1 white" id="s1t" data-tl="May motor, kotse&lt;br&gt;o van ka?" data-en="Got a motorcycle,&lt;br&gt;car or van?"></div>
+    <img class="veh" id="s1m" src="pb-motorcycle.png" alt="" style="width:calc(var(--u)*72);margin-top:calc(var(--u)*6)">
+  </section>
+
+  <!-- 2. earn on your own time + fleet -->
+  <section class="scene" id="s2" style="background:var(--cream)">
+    <div class="h2" id="s2t" data-tl="Kumita sa &lt;span class='red'&gt;sarili mong oras!&lt;/span&gt;" data-en="Earn on &lt;span class='red'&gt;your own time!&lt;/span&gt;"></div>
+    <div class="fleet">
+      <img id="s2a" src="pb-van.png" alt="" style="width:calc(var(--u)*52);left:calc(var(--u)*30);top:calc(var(--u)*2)">
+      <img id="s2b" src="pb-sedan.png" alt="" style="width:calc(var(--u)*56);left:calc(var(--u)*-2);top:calc(var(--u)*24)">
+      <img id="s2c" src="pb-motorcycle.png" alt="" style="width:calc(var(--u)*40);left:calc(var(--u)*44);top:calc(var(--u)*34)">
+    </div>
+  </section>
+
+  <!-- 3. paid per job (rider app) -->
+  <section class="scene" id="s3">
+    <div class="h2 white" id="s3t" data-tl="Bayad &lt;span class='hl'&gt;kada job&lt;/span&gt; 💸" data-en="Paid &lt;span class='hl'&gt;per job&lt;/span&gt; 💸"></div>
+    <div class="sub white" id="s3s" data-tl="Alam mo agad ang kikitain mo" data-en="Know your earnings upfront"></div>
+    <div class="phone" id="s3p"><div class="screen"><img id="s3img" src="../nx1.png" alt=""></div></div>
+  </section>
+
+  <!-- 4. benefits -->
+  <section class="scene" id="s4" style="background:var(--cream)">
+    <div class="h2" id="s4t" data-tl="Bakit &lt;span class='red'&gt;PasuyoBuddy?&lt;/span&gt;" data-en="Why &lt;span class='red'&gt;PasuyoBuddy?&lt;/span&gt;"></div>
+    <div class="card" id="s4a"><div class="ic">⏰</div><div><b data-tl="Mag-online kahit kailan" data-en="Go online anytime"></b><span data-tl="Ikaw ang may hawak ng oras mo" data-en="You're in control of your time"></span></div></div>
+    <div class="card" id="s4b"><div class="ic">📍</div><div><b data-tl="Mga job malapit sa'yo" data-en="Jobs near you"></b><span data-tl="Pati next job malapit sa drop-off" data-en="Even a next job near your drop-off"></span></div></div>
+    <div class="card" id="s4c"><div class="ic">💳</div><div><b data-tl="Wallet at cash-out" data-en="Wallet & cash-out"></b><span data-tl="Kumpleto ang job history sa app" data-en="Full job history in the app"></span></div></div>
+  </section>
+
+  <!-- 5. requirements -->
+  <section class="scene" id="s5">
+    <div class="h2 white" id="s5t" data-tl="&lt;span class='hl'&gt;Requirements&lt;/span&gt;" data-en="&lt;span class='hl'&gt;Requirements&lt;/span&gt;"></div>
+    <div class="req" id="s5a"><div class="ic">🪪</div><b data-tl="Driver's license" data-en="Driver's license"></b><div class="ok">✓</div></div>
+    <div class="req" id="s5b"><div class="ic">📄</div><b data-tl="OR/CR ng sasakyan" data-en="Vehicle OR/CR"></b><div class="ok">✓</div></div>
+    <div class="req" id="s5c"><div class="ic">🛡️</div><b data-tl="NBI clearance" data-en="NBI clearance"></b><div class="ok">✓</div></div>
+  </section>
+
+  <!-- 6. call to action -->
+  <section class="scene" id="s6">
+    <img class="icon" id="s6l" src="../rider-icon-512.png" alt="PasuyoBuddy Rider">
+    <div class="cta" id="s6c" data-tl="MAG-RIDER NA! 🏍️" data-en="BE A RIDER! 🏍️"></div>
+    <div class="url" id="s6u">pasuyobuddy.com/download.html</div>
+    <div class="small" id="s6s" data-tl="📲 I-download ang Rider app&lt;br&gt;📍 Metro Manila (NCR)" data-en="📲 Download the Rider app&lt;br&gt;📍 Metro Manila (NCR)"></div>
+  </section>
+</div>
+
+<script>
+const P = new URLSearchParams(location.search);
+const W = +P.get("w") || 1080, H = +P.get("h") || 1920, LANG = P.get("lang") || "tl";
+const stage = document.getElementById("stage");
+stage.style.width = W + "px"; stage.style.height = H + "px";
+document.documentElement.style.setProperty("--u", Math.min(W, H) / 100 + "px");
+document.querySelectorAll("[data-tl]").forEach((el) => { el.innerHTML = el.dataset[LANG] || el.dataset.tl; });
+
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const easeOut = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const easeInOut = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const back = (x) => { x = clamp(x); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const prog = (t, start, dur) => clamp((t - start) / dur);
+
+// scene cuts on the beat of the 120 BPM track (same cut times as the customer ad)
+const SC = { s1: [0, 2.5], s2: [2.5, 5], s3: [5, 9], s4: [9, 13], s5: [13, 16.5], s6: [16.5, 20] };
+const BG = { s1: "#D7141A", s2: "#FFF7E0", s3: "#D7141A", s4: "#FFF7E0", s5: "#15171C", s6: "#D7141A" };
+const DURATION = 20;
+const visible = (id, t) => t >= SC[id][0] - 0.001 && t < SC[id][1];
+const sceneT = (id, t) => t - SC[id][0];
+function set(el, { o = 1, x = 0, y = 0, s = 1, r = 0 } = {}) {
+  el.style.opacity = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+}
+
+window.renderAt = function (t) {
+  const u = Math.min(W, H) / 100;
+  const cur = Object.keys(SC).find((k) => visible(k, t)) || "s6";
+  stage.style.background = BG[cur];
+  $("stripes").style.opacity = (cur === "s2" || cur === "s4") ? 0 : 1;
+  $("stripes").style.transform = `translateX(${(t * 60) % (u * 18)}px)`;
+  for (const id of Object.keys(SC)) {
+    const sc = $(id);
+    if (!visible(id, t)) { sc.style.opacity = 0; continue; }
+    const lt = sceneT(id, t), len = SC[id][1] - SC[id][0];
+    const inP = easeOut(lt / 0.28), outP = id === "s6" ? 0 : easeInOut((lt - (len - 0.22)) / 0.22);
+    sc.style.opacity = 1;
+    sc.style.transform = `translateX(${(1 - inP) * W * 0.35 - outP * W * 0.4}px)`;
+  }
+  // 1 – hook: motorcycle drives in
+  if (visible("s1", t)) {
+    const lt = sceneT("s1", t);
+    set($("s1t"), { o: prog(lt, .05, .2), s: .7 + .3 * back(prog(lt, .05, .4)) });
+    const p = easeOut(prog(lt, .35, .7));
+    set($("s1m"), { o: prog(lt, .35, .1), x: (1 - p) * -W * 0.9, y: Math.sin(lt * 20) * u * .25 * (p < 1 ? 1 : .3) });
+  }
+  // 2 – fleet pops in
+  if (visible("s2", t)) {
+    const lt = sceneT("s2", t);
+    set($("s2t"), { o: prog(lt, .05, .2), y: (1 - easeOut(prog(lt, .05, .35))) * -u * 8 });
+    ["s2a", "s2b", "s2c"].forEach((id, i) => {
+      const p = prog(lt, .4 + i * .3, .4);
+      set($(id), { o: p, x: (1 - easeOut(p)) * (i % 2 ? -u * 40 : u * 40), s: .8 + .2 * back(p) });
+    });
+  }
+  // 3 – rider app job offer
+  if (visible("s3", t)) {
+    const lt = sceneT("s3", t);
+    set($("s3t"), { o: prog(lt, .05, .2), s: .8 + .2 * back(prog(lt, .05, .4)) });
+    set($("s3s"), { o: prog(lt, .45, .25) });
+    set($("s3p"), { o: prog(lt, .25, .2), y: (1 - easeOut(prog(lt, .25, .6))) * u * 40, r: (1 - easeOut(prog(lt, .25, .6))) * -6 });
+    const img = $("s3img"), scr = img.parentElement;
+    const target = Math.max(0, Math.min(img.offsetHeight - scr.offsetHeight, img.offsetHeight * 0.3));
+    img.style.transform = `translateY(${-easeInOut(prog(lt, 1.3, 1.6)) * target}px)`;
+  }
+  // 4 – benefits
+  if (visible("s4", t)) {
+    const lt = sceneT("s4", t);
+    set($("s4t"), { o: prog(lt, .05, .2), s: .8 + .2 * back(prog(lt, .05, .4)) });
+    ["s4a", "s4b", "s4c"].forEach((id, i) => {
+      const p = prog(lt, .5 + i * .55, .4);
+      set($(id), { o: p, x: (1 - back(p)) * (i % 2 ? u * 30 : -u * 30) });
+    });
+  }
+  // 5 – requirements checklist
+  if (visible("s5", t)) {
+    const lt = sceneT("s5", t);
+    set($("s5t"), { o: prog(lt, .05, .2), y: (1 - easeOut(prog(lt, .05, .35))) * u * 6 });
+    ["s5a", "s5b", "s5c"].forEach((id, i) => {
+      const p = prog(lt, .45 + i * .45, .3);
+      set($(id), { o: p, y: (1 - easeOut(p)) * u * 8 });
+      const ok = $(id).querySelector(".ok");
+      set(ok, { o: prog(lt, .7 + i * .45, .1), s: back(prog(lt, .7 + i * .45, .3)) });
+    });
+  }
+  // 6 – call to action
+  if (visible("s6", t)) {
+    const lt = sceneT("s6", t);
+    set($("s6l"), { o: prog(lt, .05, .15), s: .3 + .7 * back(prog(lt, .05, .5)) });
+    set($("s6c"), { o: prog(lt, .5, .15), s: back(prog(lt, .5, .4)) * (1 + Math.max(0, Math.sin((lt - 1) * 8)) * .04 * (lt > 1)) });
+    set($("s6u"), { o: prog(lt, .85, .25), y: (1 - easeOut(prog(lt, .85, .4))) * u * 5 });
+    set($("s6s"), { o: prog(lt, 1.2, .3) });
+  }
+};
+window.DURATION = DURATION;
+renderAt(0);
+</script>
+</body>
+</html>
