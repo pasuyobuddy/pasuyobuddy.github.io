@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.06";
+  MB.version = C.appVersion || "1.07";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -162,7 +162,7 @@
           <label>Mobile number</label><input name="phone" type="tel" autocomplete="tel" required placeholder="0917 123 4567">` : ""}
           <label>Email</label><input name="email" type="email" autocomplete="email" required placeholder="you@email.com">
           <label>Password</label>${MB.pwInput(`name="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" required minlength="6" placeholder="At least 6 characters"`)}
-          ${mode === "signup" ? `<p class="small muted" style="margin:10px 0 0">By creating an account you agree to our <a href="terms.html" target="_blank">Terms</a>, <a href="privacy.html" target="_blank">Privacy Policy</a> and <a href="refund.html" target="_blank">Refund &amp; Cancellation Policy</a>.</p>` : ""}
+          ${mode === "signup" ? `<label class="terms-check"><input type="checkbox" name="terms"><span>I have read and agree to the <a href="terms.html" target="_blank">Terms &amp; Conditions</a>, <a href="privacy.html" target="_blank">Privacy Policy</a> and <a href="refund.html" target="_blank">Refund &amp; Cancellation Policy</a>.</span></label>` : ""}
           <button class="btn block" style="margin-top:16px">${mode === "signup" ? "Create account" : "Log in"}</button>
           <p class="center small">${mode === "signup"
             ? `Already have an account? <a href="#" data-m="login">Log in</a>`
@@ -198,8 +198,9 @@
             if (error) throw error;
           } else if (mode === "signup") {
             if (v("phone").replace(/\D/g, "").length < 10) throw new Error("Please enter a valid mobile number.");
+            if (!f.elements.terms.checked) throw new Error("Please tick the box to agree to the Terms & Conditions, Privacy Policy and Refund Policy.");
             const { data, error } = await MB.sb.auth.signUp({ email: v("email"), password: f.elements.password.value,
-              options: { data: { full_name: v("name"), phone: v("phone") }, emailRedirectTo: redirect } });
+              options: { data: { full_name: v("name"), phone: v("phone"), terms_accepted: "true", terms_version: MB.TERMS_VERSION }, emailRedirectTo: redirect } });
             if (error) throw error;
             if (!data.session) { el.innerHTML = `<div class="empty"><div class="big">📧</div><h2>Check your email</h2><p>We sent a confirmation link to <b>${MB.esc(v("email"))}</b>. Tap it, then come back here and log in.</p></div>`; return; }
           } else if (mode === "forgot") {
@@ -224,6 +225,30 @@
       });
     });
   };
+
+  // ---------- Terms agreement (required for every account) ----------
+  MB.TERMS_VERSION = "2026-11-22";
+  // Shows the "Accept the Terms" popup. Resolves true when accepted (or when the database is not updated yet).
+  MB.acceptTerms = () => new Promise((res) => {
+    let done = false; const fin = (v) => { if (!done) { done = true; res(v); } };
+    const body = MB.modal("Please accept our Terms", `
+      <p>To use Massage Buddy, please read and agree to our rules. They protect you, our therapists and Massage Buddy.</p>
+      <div class="card small" style="line-height:1.7">
+        📄 <a href="terms.html" target="_blank">Terms &amp; Conditions</a><br>
+        🔒 <a href="privacy.html" target="_blank">Privacy Policy</a><br>
+        ↩️ <a href="refund.html" target="_blank">Refund &amp; Cancellation Policy</a> (cancellation and no-show fees)
+      </div>
+      <label class="terms-check"><input type="checkbox" id="tc-ok"><span>I have read and agree to the Terms &amp; Conditions, Privacy Policy and Refund &amp; Cancellation Policy.</span></label>
+      <button class="btn block" id="tc-go" style="margin-top:14px">I agree</button>
+      <button class="btn block ghost" id="tc-no" style="margin-top:8px">Not now</button>`, () => fin(false));
+    MB.$("#tc-no", body).onclick = () => { MB.closeModal(); fin(false); };
+    MB.$("#tc-go", body).onclick = (e) => MB.busy(e.target, async () => {
+      if (!MB.$("#tc-ok", body).checked) return MB.toast("Please tick the box first.", true);
+      try { await MB.rpc("mb_accept_terms", { p_version: MB.TERMS_VERSION }, { quiet: true }); }
+      catch (err) { if (!/mb_accept_terms|schema cache|does not exist/i.test(err.message || "")) { MB.toast(MB.errMsg(err), true); return; } }
+      MB.closeModal(); MB.toast("Thank you! ✅"); fin(true);
+    });
+  });
 
   MB.loginModal = (title, subtitle) => new Promise((res) => {
     const body = MB.modal("Log in", "", () => res(false));

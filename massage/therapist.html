@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.06">
+<link rel="stylesheet" href="style.css?v=1.07">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.06"></script>
-<script src="common.js?v=1.06"></script>
+<script src="config.js?v=1.07"></script>
+<script src="common.js?v=1.07"></script>
 <script>
 (function () {
   "use strict";
@@ -360,6 +360,7 @@
         p_display_name: $("#t-name").value, p_gender: $("#t-gender").value, p_area: $("#t-area").value,
         p_experience: Number($("#t-exp").value) || 0, p_bio: $("#t-bio").value, p_photo_url: F.photo_url || "",
         p_photos: F.photos, p_id_doc: F.id_doc, p_cert_doc: F.cert_doc, p_phone: $("#t-phone").value });
+      if ($("#t-terms").checked) MB.rpc("mb_accept_terms", { p_version: MB.TERMS_VERSION }, { quiet: true }).catch(() => {});
       try {
         S.t = await MB.rpc("mb_save_therapist_docs", { p_nbi: F.nbi, p_selfie: F.selfie, p_loi: F.loi, p_barangay: F.barangay, p_accept_terms: $("#t-terms").checked }, { quiet: true });
       } catch (err) {

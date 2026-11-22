@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0E7C7B">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.06">
+<link rel="stylesheet" href="style.css?v=1.07">
 <style>
   .wrap, .top-in { max-width: 980px; }
   .wrap { padding-bottom: 40px; }
@@ -32,8 +32,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.06"></script>
-<script src="common.js?v=1.06"></script>
+<script src="config.js?v=1.07"></script>
+<script src="common.js?v=1.07"></script>
 <script>
 (function () {
   "use strict";
@@ -175,11 +175,12 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
     const list = await MB.rpc("mb_admin_customers", { p_search: cSearch });
     view.innerHTML = `<h1>Customers</h1>
       <div class="row"><input id="cs" placeholder="Search name, phone or email" value="${esc(cSearch)}" class="grow"><button class="btn" id="cs-b">Search</button></div>
-      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Name</th><th>Contact</th><th>Bookings</th><th>Joined</th><th></th></tr></thead><tbody>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Name</th><th>Contact</th><th>Bookings</th><th>Joined</th><th>Terms</th><th></th></tr></thead><tbody>
       ${list.map((c) => `<tr data-id="${c.id}"><td>${esc(c.full_name || "—")}${c.is_therapist ? ' <span class="badge">therapist</span>' : ""}${c.blocked ? ' <span class="badge bad">blocked</span>' : ""}</td>
         <td class="small">${esc(c.phone)}<br>${esc(c.email)}</td><td>${c.bookings}${c.cancelled ? `<div class="small muted">${c.cancelled} cancelled</div>` : ""}</td>
         <td class="small">${MB.fmtDate(c.created_at)}</td>
-        <td><button class="btn sm ${c.blocked ? "light" : "danger"}" data-b="${c.blocked ? 0 : 1}">${c.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("") || `<tr><td colspan="5" class="center muted">No customers.</td></tr>`}
+        <td class="small">${c.terms_accepted_at ? "✅ " + MB.fmtDate(c.terms_accepted_at) : c.terms_accepted_at === null ? '<span class="badge bad">Not yet</span>' : "—"}</td>
+        <td><button class="btn sm ${c.blocked ? "light" : "danger"}" data-b="${c.blocked ? 0 : 1}">${c.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("") || `<tr><td colspan="6" class="center muted">No customers.</td></tr>`}
       </tbody></table></div>`;
     const go = () => { cSearch = $("#cs").value.trim(); route(); };
     $("#cs-b").onclick = go; $("#cs").onkeydown = (e) => { if (e.key === "Enter") go(); };

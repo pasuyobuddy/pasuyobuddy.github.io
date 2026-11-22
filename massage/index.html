@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.06">
+<link rel="stylesheet" href="style.css?v=1.07">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -27,8 +27,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.06"></script>
-<script src="common.js?v=1.06"></script>
+<script src="config.js?v=1.07"></script>
+<script src="common.js?v=1.07"></script>
 <script>
 (function () {
   "use strict";
@@ -49,7 +49,14 @@
 
   async function refreshMe() {
     if (!MB.session) { S.me = null; bell.classList.add("hide"); return null; }
-    try { S.me = await MB.rpc("mb_me", {}, { quiet: true }); bell.classList.remove("hide"); setUnread(S.me.unread); }
+    try {
+      S.me = await MB.rpc("mb_me", {}, { quiet: true }); bell.classList.remove("hide"); setUnread(S.me.unread);
+      // every account must agree to the Terms (asked once per visit; booking is blocked until accepted)
+      if (S.me.terms_accepted === false && !S.termsAsked) {
+        S.termsAsked = true;
+        setTimeout(() => { if (!document.getElementById("mb-modal")) MB.acceptTerms().then((ok) => { if (ok && S.me) S.me.terms_accepted = true; }); }, 600);
+      }
+    }
     catch (e) { S.me = null; }
     return S.me;
   }
@@ -235,6 +242,10 @@
       const ok = await MB.loginModal("Log in to book", "Your booking details stay saved.");
       if (!ok) return;
       await refreshMe();
+    }
+    if (S.me && S.me.terms_accepted === false) {
+      if (!(await MB.acceptTerms())) return MB.toast("Please accept the Terms to book a massage.", true);
+      S.me.terms_accepted = true;
     }
     try {
       const b = await MB.rpc("mb_create_booking", { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes });
