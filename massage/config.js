@@ -16,7 +16,7 @@
 //      "Key pair"               -> vapidKey
 // =====================================================================
 self.MB_CONFIG = {
-  appVersion: "1.00",
+  appVersion: "1.01",
   supabaseUrl: "https://ffzkblztfmdzdycndyaz.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmemtibHp0Zm1kemR5Y25keWF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzNTE0NTUsImV4cCI6MjExMDkyNzQ1NX0.UTILgHBB9N2kCwdW0egXJqC5VqM8atG1iHqI1xH00v8",
 

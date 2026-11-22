@@ -199,3 +199,9 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.t td, table.t th { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .star-pick button { font-size: 34px; background: none; border: 0; color: #D6CFC3; cursor: pointer; padding: 0 2px; }
 .star-pick button.on { color: var(--accent); }
+
+/* Password show/hide */
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 48px; }
+.pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; border-radius: 10px; }
+.pw-eye:hover { color: var(--brand); }
