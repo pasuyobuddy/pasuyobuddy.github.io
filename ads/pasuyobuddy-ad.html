@@ -35,7 +35,7 @@ body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
   box-shadow:0 calc(var(--u)*1.5) calc(var(--u)*4) rgba(0,0,0,.25);flex:none}
 .map svg{position:absolute;inset:0;width:100%;height:100%}
 .pin{position:absolute;font-size:calc(var(--u)*9);transform:translate(-50%,-90%)}
-.moto{position:absolute;width:calc(var(--u)*17);transform:translate(-50%,-50%);filter:drop-shadow(0 calc(var(--u)*.8) calc(var(--u)*1) rgba(0,0,0,.35))}
+.moto{position:absolute;width:calc(var(--u)*15);transform:translate(-50%,-50%);filter:drop-shadow(0 calc(var(--u)*.6) calc(var(--u)*.8) rgba(0,0,0,.35))}
 .badge{display:inline-flex;align-items:center;gap:.4em;background:var(--ink);color:#fff;border-radius:999px;padding:calc(var(--u)*1.4) calc(var(--u)*3.4);
   font-weight:800;font-size:calc(var(--u)*4.4);margin:calc(var(--u)*1)}
 .cta{background:var(--yellow);color:var(--ink);font-weight:900;font-size:calc(var(--u)*7.4);padding:calc(var(--u)*2.2) calc(var(--u)*6);border-radius:999px;
@@ -112,7 +112,7 @@ body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
       </svg>
       <div class="pin" style="left:10%;top:85%">🟢</div>
       <div class="pin" style="left:70%;top:15%">📍</div>
-      <img class="moto" id="moto" src="pb-motorcycle.png" alt="">
+      <img class="moto" id="moto" src="pb-moto-top.png" alt="">
     </div>
   </section>
 
@@ -222,9 +222,12 @@ window.renderAt = function (t) {
     const p = easeInOut(prog(lt, .5, 2.6));
     route.style.strokeDasharray = `${L}`; route.style.strokeDashoffset = `${L * (1 - p)}`;
     const pt = route.getPointAtLength(L * p);
+    // top-view rider faces right (0°): turn it with the road like in the app
+    const a1 = route.getPointAtLength(Math.max(0, L * p - 1.5)), a2 = route.getPointAtLength(Math.min(L, L * p + 1.5));
+    const heading = Math.atan2(a2.y - a1.y, a2.x - a1.x) * 180 / Math.PI;
     const moto = $("moto");
     moto.style.left = pt.x + "%"; moto.style.top = pt.y + "%";
-    moto.style.transform = `translate(-50%,-75%) translateY(${Math.sin(lt * 18) * u * .3}px)`;
+    moto.style.transform = `translate(-50%,-50%) rotate(${heading}deg)`;
   }
   // 6 – call to action
   if (visible("s6", t)) {
