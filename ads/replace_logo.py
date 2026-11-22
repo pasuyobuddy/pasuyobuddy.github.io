@@ -50,6 +50,12 @@ keep = skin[830:862, 586:650] & (np.arange(830, 862)[:, None] >= 858)   # don't 
 fw = (feather * ~keep)[..., None]
 clean[830:862, 586:650] = (dst * (1 - fw) + patch * fw).astype(np.uint8)
 
+# the man's shoulder overlaps the bag: keep the original pixels there (incl. its natural rim light)
+ys_, xs_ = np.mgrid[0:H, 0:W]
+edge_y = np.interp(xs_, [780, 950, 1010, 1060], [652, 745, 838, 960])
+shoulder = (ys_ > edge_y - 2) & (xs_ < 1060) & (ys_ > 560) & (ys_ < 800) & (xs_ > 780)
+clean[shoulder] = img[shoulder]
+
 # ---------------------------------------------------------------- 2. real logo with transparent background
 logo = Image.open(logo_path).convert("RGB")
 la = np.array(logo).astype(int)
@@ -83,7 +89,7 @@ def place(base_bgr, cx, cy, width, angle=0.0, blur=0.0, shade_strength=0.9):
     base_bgr[y0:y0 + h, x0:x0 + w] = (out * 255).astype(np.uint8)
 
 place(clean, cx=724, cy=856, width=172, angle=3, blur=0.35)          # chest print, right of the fingertip
-place(clean, cx=1010, cy=694, width=250, angle=0, blur=2.0, shade_strength=0.7)  # bag is slightly out of focus
+place(clean, cx=1048, cy=628, width=218, angle=0, blur=1.8, shade_strength=0.7)  # on the bag, clear of the shoulder (bag is out of focus)
 
 Image.fromarray(cv2.cvtColor(clean, cv2.COLOR_BGR2RGB)).save(out_path)
 Image.fromarray(mask).save(out_path.replace(".png", "_mask.png"))
