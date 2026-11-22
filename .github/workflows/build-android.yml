@@ -73,6 +73,8 @@ jobs:
         run: |
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/TranscribeBuddy.apk"
+          echo "Native libraries in the APK:"; unzip -l "$GITHUB_WORKSPACE/TranscribeBuddy.apk" | grep '\.so$'
+          unzip -l "$GITHUB_WORKSPACE/TranscribeBuddy.apk" | grep -q 'libggml-cpu-android_armv8.0_1.so' || { echo "CPU backend variants missing from APK"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:

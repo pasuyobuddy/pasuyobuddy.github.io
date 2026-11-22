@@ -11,7 +11,11 @@ if (NOT EXISTS ${WHISPER_DIR}/CMakeLists.txt)
     message(FATAL_ERROR "whisper.cpp not found. Run: git clone --depth 1 --branch v1.8.2 https://github.com/ggml-org/whisper.cpp ${WHISPER_DIR}")
 endif ()
 
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# Speed: build several CPU versions of the engine (ARMv8.0 … v8.6 with dot-product / fp16 / int8 matmul)
+# and let ggml load the fastest one the phone supports at runtime.
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
@@ -25,4 +29,4 @@ target_include_directories(whisper_jni PRIVATE ${WHISPER_DIR}/include ${WHISPER_
 target_compile_options(whisper_jni PRIVATE -O3)
 
 find_library(LOG_LIB log)
-target_link_libraries(whisper_jni whisper ${LOG_LIB} android)
+target_link_libraries(whisper_jni whisper ggml ggml-base ${LOG_LIB} android)

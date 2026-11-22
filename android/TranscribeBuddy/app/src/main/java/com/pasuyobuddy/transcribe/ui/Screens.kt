@@ -101,6 +101,7 @@ import com.pasuyobuddy.transcribe.audio.AudioPlayer
 import com.pasuyobuddy.transcribe.audio.RecordService
 import com.pasuyobuddy.transcribe.audio.Recording
 import com.pasuyobuddy.transcribe.audio.Recordings
+import com.pasuyobuddy.transcribe.audio.isContentRef
 import com.pasuyobuddy.transcribe.data.AppPrefs
 import com.pasuyobuddy.transcribe.data.Formats
 import com.pasuyobuddy.transcribe.data.Lang
@@ -540,8 +541,8 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
     LaunchedEffect(id) { t = withContext(Dispatchers.IO) { TranscriptStore.load(ctx, id) } }
 
     val tr = t
-    val audioPath = tr?.audioPath?.takeIf { File(it).exists() }
-    val player = remember(audioPath) { audioPath?.let { AudioPlayer.create(it) } }
+    val audioPath = tr?.audioPath?.takeIf { Recordings.exists(ctx, it) }
+    val player = remember(audioPath) { audioPath?.let { AudioPlayer.create(ctx, it) } }
     DisposableEffect(player) { onDispose { player?.release() } }
     Scaffold(topBar = {
         Bar(tr?.title ?: "Transcript", { go(Screen.History) }) {
@@ -598,7 +599,7 @@ private fun DetailScreen(id: String, go: (Screen) -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (audioPath != null) {
-                TextButton(onClick = { shareAudio(ctx, File(audioPath)) }) { Text("Share the recording (.m4a)") }
+                TextButton(onClick = { shareAudio(ctx, audioPath) }) { Text("Share the recording (.m4a)") }
             }
         }
     }
@@ -713,7 +714,7 @@ private fun SettingsScreen(go: (Screen) -> Unit) {
 
             HorizontalDivider()
             var info by remember { mutableStateOf("") }
-            LaunchedEffect(Unit) { info = withContext(Dispatchers.Default) { try { WhisperLib.systemInfo() } catch (e: Throwable) { "native library not loaded: ${e.message}" } } }
+            LaunchedEffect(Unit) { info = withContext(Dispatchers.Default) { try { WhisperLib.ensureBackends(ctx); WhisperLib.systemInfo() } catch (e: Throwable) { "native library not loaded: ${e.message}" } } }
             Text("About", fontWeight = FontWeight.SemiBold)
             Text("Transcribe Buddy · on-device Whisper (whisper.cpp)\n$info", style = MaterialTheme.typography.bodySmall)
         }
@@ -765,8 +766,8 @@ private fun shareFile(ctx: Context, title: String, ext: String, content: String,
     ctx.startActivity(Intent.createChooser(i, "Share $ext"))
 }
 
-private fun shareAudio(ctx: Context, f: File) {
-    val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)
+private fun shareAudio(ctx: Context, ref: String) {
+    val uri = if (isContentRef(ref)) android.net.Uri.parse(ref) else FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", File(ref))
     val i = Intent(Intent.ACTION_SEND).setType("audio/mp4")
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -839,6 +840,7 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
 
     LaunchedEffect(refresh) {
         withContext(Dispatchers.IO) {
+            Recordings.migratePrivate(ctx)      // move old private recordings to the phone's Recordings folder
             items = Recordings.list(ctx)
             transcriptByPath = TranscriptStore.list(ctx).mapNotNull { t -> t.audioPath?.let { it to t.id } }.toMap()
         }
@@ -849,11 +851,16 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
         when {
             list == null -> Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             list.isEmpty() -> Box(Modifier.padding(pad).fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("No recordings yet. Tap Record on the home screen.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("No recordings yet. Tap Record on the home screen.\n\nRecordings are saved in your phone's ${Recordings.folderLabel()} folder.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(list, key = { it.file.path }) { rec ->
-                    val path = rec.file.path
+                if (Recordings.usesSharedFolder) item {
+                    Text("📁 Also in your phone's ${Recordings.folderLabel()} folder, so you can pick them in “Transcribe a file” or share them from your Files app.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(list, key = { it.ref }) { rec ->
+                    val path = rec.ref
                     val transcriptId = transcriptByPath[path]
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
@@ -871,7 +878,7 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
                                 Icon(if (openPath == path) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play")
                             }
                             if (openPath == path) {
-                                val player = remember(path) { AudioPlayer.create(path) }
+                                val player = remember(path) { AudioPlayer.create(ctx, path) }
                                 DisposableEffect(player) {
                                     player?.toggle()
                                     onDispose { player?.release() }
@@ -885,7 +892,7 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
                                 TextButton(enabled = !job.isRunning, onClick = { toTranscribe = rec }) {
                                     Text(if (transcriptId != null) "Transcribe again" else "Transcribe")
                                 }
-                                IconButton(onClick = { shareAudio(ctx, rec.file) }) { Icon(Icons.Filled.Share, "Share") }
+                                IconButton(onClick = { shareAudio(ctx, rec.ref) }) { Icon(Icons.Filled.Share, "Share") }
                                 IconButton(onClick = { toDelete = rec }) { Icon(Icons.Filled.Delete, "Delete") }
                             }
                         }
@@ -912,8 +919,17 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
                 TextButton(onClick = {
                     toTranscribe = null
                     openPath = null
-                    TranscribeService.start(ctx, rec.file.path, rec.title, "meeting", keepAudio = true)
-                    go(Screen.Job)
+                    scope.launch {
+                        try {
+                            // shared recordings are copied to a temporary file for Whisper; the original stays put
+                            val local = withContext(Dispatchers.IO) { Recordings.toLocalFile(ctx, rec.ref) }
+                            TranscribeService.start(ctx, local.path, rec.title, "meeting",
+                                keepAudio = !isContentRef(rec.ref), audioRef = rec.ref)
+                            go(Screen.Job)
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(ctx, "Could not open the recording: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }) { Text("Start") }
             },
             dismissButton = { TextButton(onClick = { toTranscribe = null }) { Text("Cancel") } }
@@ -928,9 +944,10 @@ private fun RecordingsScreen(go: (Screen) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     toDelete = null
-                    if (openPath == rec.file.path) openPath = null
+                    if (openPath == rec.ref) openPath = null
                     scope.launch {
-                        withContext(Dispatchers.IO) { rec.file.delete() }
+                        val ok = withContext(Dispatchers.IO) { Recordings.delete(ctx, rec.ref) }
+                        if (!ok) android.widget.Toast.makeText(ctx, "Couldn't delete it here. Delete it from your Files app (${Recordings.folderLabel()}).", android.widget.Toast.LENGTH_LONG).show()
                         refresh++
                     }
                 }) { Text("Delete") }

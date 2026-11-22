@@ -51,18 +51,21 @@ class TranscribeService : Service() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_SOURCE = "source"
         private const val EXTRA_KEEP_AUDIO = "keepAudio"
+        private const val EXTRA_AUDIO_REF = "audioRef"
         private const val ACTION_CANCEL = "com.pasuyobuddy.transcribe.CANCEL"
         private const val CHANNEL = "jobs"
         private const val NOTIF_ID = 42
         private const val DONE_NOTIF_ID = 43
         private const val CHUNK_SECONDS = 120
 
-        fun start(ctx: Context, path: String, title: String, source: String, keepAudio: Boolean) {
+        /** [path] = local file to transcribe; [audioRef] = where the recording lives (for playback), if different. */
+        fun start(ctx: Context, path: String, title: String, source: String, keepAudio: Boolean, audioRef: String? = null) {
             val i = Intent(ctx, TranscribeService::class.java)
                 .putExtra(EXTRA_PATH, path)
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_SOURCE, source)
                 .putExtra(EXTRA_KEEP_AUDIO, keepAudio)
+                .putExtra(EXTRA_AUDIO_REF, audioRef)
             ContextCompat.startForegroundService(ctx, i)
         }
 
@@ -98,6 +101,7 @@ class TranscribeService : Service() {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Recording"
         val source = intent?.getStringExtra(EXTRA_SOURCE) ?: "file"
         val keepAudio = intent?.getBooleanExtra(EXTRA_KEEP_AUDIO, false) ?: false
+        val audioRef = intent?.getStringExtra(EXTRA_AUDIO_REF)
 
         ensureChannel(this)
         startInForeground(buildNotification("Starting…", 0, true))
@@ -114,7 +118,7 @@ class TranscribeService : Service() {
         JobState.status.value = JobStatus(Phase.PREPARING, title, 0f, startedAt = System.currentTimeMillis())
         job = scope.launch {
             try {
-                run(File(path), title, source, keepAudio)
+                run(File(path), title, source, keepAudio, audioRef)
             } finally {
                 wakeLock?.let { if (it.isHeld) it.release() }
                 ServiceCompat.stopForeground(this@TranscribeService, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -130,7 +134,7 @@ class TranscribeService : Service() {
         super.onDestroy()
     }
 
-    private suspend fun run(input: File, title: String, source: String, keepAudio: Boolean) {
+    private suspend fun run(input: File, title: String, source: String, keepAudio: Boolean, audioRef: String?) {
         val prefs = AppPrefs(this)
         val model = WhisperModel.byId(prefs.model)
         val lang = prefs.whisperLang
@@ -157,6 +161,7 @@ class TranscribeService : Service() {
             // 3) Whisper
             update(Phase.TRANSCRIBING, 0f)
             WhisperLib.setAbort(false)
+            WhisperLib.ensureBackends(this)
             ctxPtr = WhisperLib.initContext(ModelManager.file(this, model).path)
             if (ctxPtr == 0L) {
                 ModelManager.delete(this, model)
@@ -215,7 +220,7 @@ class TranscribeService : Service() {
                     language = detectedLang,
                     durationMs = totalSamples * 1000 / PcmUtils.TARGET_RATE,
                     segments = segments,
-                    audioPath = if (keepAudio) input.path else null,
+                    audioPath = audioRef ?: if (keepAudio) input.path else null,
                     translated = translate && detectedLang != "en"
                 )
             )

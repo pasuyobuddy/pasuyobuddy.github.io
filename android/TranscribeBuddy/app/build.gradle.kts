@@ -64,7 +64,7 @@ android {
         compose = true
     }
     packaging {
-        jniLibs { useLegacyPackaging = false }
+        jniLibs { useLegacyPackaging = true }   // extract .so files so ggml can load the CPU variants from nativeLibraryDir
     }
 }
 

@@ -6,6 +6,17 @@ object WhisperLib {
         System.loadLibrary("whisper_jni")
     }
 
+    /** Loads the CPU engine variant that fits this phone. Returns the number of devices found (0 = failed). */
+    external fun loadBackends(nativeLibDir: String): Int
+
+    @Volatile private var backendsReady = false
+    fun ensureBackends(ctx: android.content.Context) {
+        if (backendsReady) return
+        val n = loadBackends(ctx.applicationInfo.nativeLibraryDir)
+        if (n <= 0) throw IllegalStateException("Speech engine could not start on this phone (no CPU backend).")
+        backendsReady = true
+    }
+
     /** Returns a native context pointer, or 0 if the model could not be loaded. */
     external fun initContext(modelPath: String): Long
     external fun freeContext(ptr: Long)

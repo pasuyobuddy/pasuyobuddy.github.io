@@ -47,7 +47,9 @@ class RecordService : Service() {
     }
 
     private var recorder: MediaRecorder? = null
-    private var file: File? = null
+    private var file: File? = null                 // phones below Android 10
+    private var uri: android.net.Uri? = null       // Android 10+: shared Recordings folder
+    private var pfd: android.os.ParcelFileDescriptor? = null
     private var title: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -70,8 +72,7 @@ class RecordService : Service() {
 
         val ts = System.currentTimeMillis()
         title = Recordings.titleFor(ts)
-        val f = File(Recordings.dir(this), "meeting_$ts.m4a")
-        file = f
+        file = null; uri = null; pfd = null
         try {
             val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
             r.setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -80,13 +81,27 @@ class RecordService : Service() {
             r.setAudioChannels(1)
             r.setAudioSamplingRate(44_100)
             r.setAudioEncodingBitRate(64_000)
-            r.setOutputFile(f.path)
+            val shared = Recordings.createShared(this, ts)
+            val ref: String
+            if (shared != null) {
+                uri = shared
+                pfd = contentResolver.openFileDescriptor(shared, "rw")
+                r.setOutputFile(pfd!!.fileDescriptor)
+                ref = shared.toString()
+            } else {
+                val f = File(Recordings.privateDir(this), "meeting_$ts.m4a")
+                file = f
+                r.setOutputFile(f.path)
+                ref = f.path
+            }
             r.prepare()
             r.start()
             recorder = r
-            RecordState.status.value = RecordStatus(true, System.currentTimeMillis(), f.path)
+            RecordState.status.value = RecordStatus(true, System.currentTimeMillis(), ref)
         } catch (e: Exception) {
             RecordState.status.value = RecordStatus(false, error = "Could not start recording: ${e.message}")
+            try { pfd?.close() } catch (_: Exception) { }
+            uri?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) { } }
             stopSelfSafely()
         }
     }
@@ -128,14 +143,25 @@ class RecordService : Service() {
             ok = try { r.stop(); true } catch (e: Exception) { false } // stop() throws if nothing was recorded
             r.release()
         }
+        try { pfd?.close() } catch (_: Exception) { }
+        pfd = null
         val f = file
-        RecordState.status.value = RecordStatus(false, path = f?.path)
-        if (ok && f != null && f.length() > 0) {
-            if (transcribe) TranscribeService.start(this, f.path, title, "meeting", keepAudio = true)
+        val u = uri
+        val ref = u?.toString() ?: f?.path
+        RecordState.status.value = RecordStatus(false, path = ref)
+        val good = ok && ((u != null) || (f != null && f.length() > 0))
+        if (good) {
+            if (u != null) Recordings.publish(this, u)          // now visible in the Files app and file picker
+            if (transcribe && ref != null) {
+                val local = Recordings.toLocalFile(this, ref)
+                TranscribeService.start(this, local.path, title, "meeting", keepAudio = u == null, audioRef = ref)
+            }
         } else {
             f?.delete()
+            u?.let { try { contentResolver.delete(it, null, null) } catch (_: Exception) { } }
             if (r != null) RecordState.status.value = RecordStatus(false, error = "Recording was too short.")
         }
+        uri = null; file = null
         stopSelfSafely()
     }
 

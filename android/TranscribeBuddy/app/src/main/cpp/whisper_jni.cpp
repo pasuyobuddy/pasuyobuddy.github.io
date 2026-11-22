@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "whisper.h"
+#include "ggml-backend.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -17,6 +18,19 @@ static std::atomic<bool> g_abort(false);
 
 static bool abort_cb(void * /*user_data*/) {
     return g_abort.load();
+}
+
+// Load the fastest CPU backend variant for this phone from the app's native library folder.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pasuyobuddy_transcribe_whisper_WhisperLib_loadBackends(JNIEnv *env, jobject, jstring dir) {
+    static bool loaded = false;
+    if (!loaded) {
+        const char *d = env->GetStringUTFChars(dir, nullptr);
+        ggml_backend_load_all_from_path(d);
+        env->ReleaseStringUTFChars(dir, d);
+        loaded = true;
+    }
+    return (jint) ggml_backend_dev_count();
 }
 
 extern "C" JNIEXPORT jlong JNICALL
