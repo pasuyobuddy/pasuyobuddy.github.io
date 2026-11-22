@@ -40,15 +40,20 @@ soft = cv2.GaussianBlur(clean, (0, 0), 2.2)
 mm = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 3)[..., None]
 clean = (clean * (1 - mm * 0.7) + soft * (mm * 0.7)).astype(np.uint8)
 # above the fingertip: copy clean fabric from just above (inpainting there borrows skin colour)
-patch = clean[796:828, 586:650].astype(np.float32)
-feather = np.ones((32, 64), np.float32)
-feather[:6] = np.linspace(0, 1, 6)[:, None]
-feather[:, :6] *= np.linspace(0, 1, 6)[None, :]
-feather[:, -6:] *= np.linspace(1, 0, 6)[None, :]
-dst = clean[830:862, 586:650].astype(np.float32)
-keep = skin[830:862, 586:650] & (np.arange(830, 862)[:, None] >= 858)   # don't paint over the finger
+Y0, Y1, X0, X1 = 808, 868, 586, 652
+patch = img[Y0 - 78:Y1 - 78, X0:X1].astype(np.float32)       # plain chest fabric higher up (untouched original)
+hh, ww = Y1 - Y0, X1 - X0
+feather = np.ones((hh, ww), np.float32)
+feather[:8] *= np.linspace(0, 1, 8)[:, None]
+feather[:, :8] *= np.linspace(0, 1, 8)[None, :]
+feather[:, -8:] *= np.linspace(1, 0, 8)[None, :]
+o_ = img[Y0:Y1, X0:X1].astype(int)
+finger_px = (o_[..., 2] > 150) & (o_[..., 1] > 95) & (o_[..., 0] > 70) & (o_[..., 2] < 245)  # BGR: skin of the fingertip
+finger_px &= (np.arange(Y0, Y1)[:, None] >= 860)
+keep = cv2.dilate(finger_px.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
 fw = (feather * ~keep)[..., None]
-clean[830:862, 586:650] = (dst * (1 - fw) + patch * fw).astype(np.uint8)
+dst = clean[Y0:Y1, X0:X1].astype(np.float32)
+clean[Y0:Y1, X0:X1] = (dst * (1 - fw) + patch * fw).astype(np.uint8)
 
 # the man's shoulder overlaps the bag: keep the original pixels there (incl. its natural rim light)
 ys_, xs_ = np.mgrid[0:H, 0:W]
@@ -67,10 +72,21 @@ crop = (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)
 rgba = np.dstack([la, (alpha * 255).astype(int)]).astype(np.uint8)[crop[1]:crop[3], crop[0]:crop[2]]
 logo_rgba = Image.fromarray(rgba, "RGBA")
 
-def place(base_bgr, cx, cy, width, angle=0.0, blur=0.0, shade_strength=0.9):
+def place(base_bgr, cx, cy, width, angle=0.0, blur=0.0, shade_strength=0.9, trim=0, flatten=0.0, grain=0.0, seed=1):
+    """Print the logo onto fabric.
+    angle: degrees (negative = clockwise; the logo itself is drawn rising ~11°, so -11 makes it level)
+    trim: pixels to shave off the logo's outer border (looks less like a sticker)
+    flatten: 0..1 lower contrast/saturation to match a soft, out-of-focus area
+    grain: amount of fabric noise
+    """
     lw = width
     lh = int(logo_rgba.height * lw / logo_rgba.width)
-    lg = logo_rgba.resize((lw, lh), Image.LANCZOS).rotate(angle, resample=Image.BICUBIC, expand=True)
+    lg = logo_rgba.resize((lw, lh), Image.LANCZOS)
+    if trim:
+        a_ = np.array(lg)[..., 3]
+        a_ = cv2.erode(a_, np.ones((3, 3), np.uint8), iterations=trim)
+        arr_ = np.array(lg); arr_[..., 3] = a_; lg = Image.fromarray(arr_, "RGBA")
+    lg = lg.rotate(angle, resample=Image.BICUBIC, expand=True)
     if blur:
         lg = lg.filter(ImageFilter.GaussianBlur(blur))
     arr = np.array(lg).astype(np.float32) / 255
@@ -82,14 +98,27 @@ def place(base_bgr, cx, cy, width, angle=0.0, blur=0.0, shade_strength=0.9):
     local = cv2.GaussianBlur(gray, (0, 0), 25) + 1
     shade = np.clip((gray / local), 0.7, 1.25) ** shade_strength
     light = cv2.GaussianBlur(gray, (0, 0), 40) / max(1.0, gray.mean())   # broad lighting gradient
-    shade = shade * np.clip(light, 0.75, 1.15) ** 0.6
-    rgb = arr[..., :3][..., ::-1] * shade[..., None] * 0.97              # to BGR, slight ink darkening
-    a = arr[..., 3:4] * 0.97
+    shade = shade * np.clip(light, 0.75, 1.15) ** 0.8
+    rgb = arr[..., :3][..., ::-1]                                       # to BGR
+    if flatten:
+        # pull the ink toward the fabric colour underneath: less contrast, less saturation, lifted blacks
+        fabric = cv2.GaussianBlur(region, (0, 0), 12)
+        lum = rgb.mean(axis=2, keepdims=True)
+        rgb = rgb * (1 - flatten * 0.35) + lum * (flatten * 0.35)         # desaturate a bit
+        rgb = rgb * (1 - flatten * 0.25) + fabric * (flatten * 0.25)      # tint with the fabric/ambient light
+        rgb = 0.08 * flatten + rgb * (1 - 0.08 * flatten)                  # lift pure blacks (haze/defocus)
+    rgb = rgb * shade[..., None] * 0.97
+    if grain:
+        rng = np.random.default_rng(seed)
+        rgb = rgb + rng.normal(0, grain, rgb.shape[:2])[..., None]
+    a = arr[..., 3:4] * 0.95
     out = region * (1 - a) + np.clip(rgb, 0, 1) * a
-    base_bgr[y0:y0 + h, x0:x0 + w] = (out * 255).astype(np.uint8)
+    base_bgr[y0:y0 + h, x0:x0 + w] = (np.clip(out, 0, 1) * 255).astype(np.uint8)
 
-place(clean, cx=724, cy=856, width=172, angle=3, blur=0.35)          # chest print, right of the fingertip
-place(clean, cx=1048, cy=628, width=218, angle=0, blur=1.8, shade_strength=0.7)  # on the bag, clear of the shoulder (bag is out of focus)
+# chest print: level the text (logo is drawn slanted), slight follow of the chest angle
+place(clean, cx=722, cy=852, width=168, angle=-8, blur=0.45, trim=1, flatten=0.15, grain=0.012)
+# bag: level, out of focus like the rest of the bag, softer and tinted by the scene light
+place(clean, cx=1050, cy=636, width=224, angle=-11, blur=2.4, shade_strength=0.8, trim=3, flatten=0.55, grain=0.01, seed=2)
 
 Image.fromarray(cv2.cvtColor(clean, cv2.COLOR_BGR2RGB)).save(out_path)
 Image.fromarray(mask).save(out_path.replace(".png", "_mask.png"))
