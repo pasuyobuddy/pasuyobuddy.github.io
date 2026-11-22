@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0E7C7B">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.04">
+<link rel="stylesheet" href="style.css?v=1.05">
 <style>
   .wrap, .top-in { max-width: 980px; }
   .wrap { padding-bottom: 40px; }
@@ -32,8 +32,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.04"></script>
-<script src="common.js?v=1.04"></script>
+<script src="config.js?v=1.05"></script>
+<script src="common.js?v=1.05"></script>
 <script>
 (function () {
   "use strict";
@@ -157,10 +157,11 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
         <td>${esc(b.therapist.name)}<div class="small muted">${esc(b.therapist.phone || "")}</div></td>
         <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div></td>
         <td>${MB.badge(b.status)}${b.cancel_reason ? `<div class="small muted">${esc(b.cancelled_by)}: ${esc(b.cancel_reason)}</div>` : ""}</td>
-        <td>${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
+        <td><button class="btn sm light" data-a="chat" title="Read chat">💬</button> ${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
       </tbody></table></div>`;
     $(".chips").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { bFilter = b.dataset.f; route(); } };
     $("table").onclick = async (e) => {
+      if (e.target.dataset.a === "chat") return MB.openChat(Number(e.target.closest("[data-id]").dataset.id));
       if (e.target.dataset.a !== "cancel") return;
       const id = Number(e.target.closest("[data-id]").dataset.id);
       const why = await MB.prompt("Cancel booking #" + id, "Reason (customer and therapist will see it):", "", "Cancel booking"); if (why == null) return;

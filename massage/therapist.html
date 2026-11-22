@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.04">
+<link rel="stylesheet" href="style.css?v=1.05">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.04"></script>
-<script src="common.js?v=1.04"></script>
+<script src="config.js?v=1.05"></script>
+<script src="common.js?v=1.05"></script>
 <script>
 (function () {
   "use strict";
@@ -77,10 +77,11 @@
     if (!MB.session) return pageLogin();
     if (!S.me) { view.innerHTML = `<div class="spinner"></div>`; try { await loadAll(); } catch (e) { view.innerHTML = `<div class="empty"><p>${esc(MB.errMsg(e))}</p><button class="btn" onclick="location.reload()">Try again</button></div>`; return; } }
     if (!S.t) return pageProfile(true);
-    const r = location.hash.replace(/^#/, "") || "home";
+    const r = location.hash.replace(/^#/, "").split("/")[0] || "home";
     $$(".nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === r));
     try {
       if (r === "bookings") return await pageBookings();
+      if (r === "chat") { const id = Number(location.hash.split("/")[1]); bTab = "up"; await pageBookings(); return MB.openChat(id, () => { history.replaceState(null, "", "#bookings"); S.bookings = null; pageBookings(); }); }
       if (r === "schedule") return pageSchedule();
       if (r === "services") return pageServices();
       if (r === "earnings") return await pageEarnings();
@@ -107,7 +108,8 @@
   async function loadBookings() { if (!S.bookings) S.bookings = await MB.rpc("mb_my_bookings", { p_as: "therapist" }); return S.bookings; }
   async function pageHome() {
     view.innerHTML = `${statusBanner()}<h1>Hi, ${esc((S.t.display_name || "").split(" ")[0])} 👋</h1><div id="h"><div class="spinner"></div></div>`;
-    const [list, earn] = await Promise.all([loadBookings(), MB.rpc("mb_my_earnings", {}, { quiet: true }).catch(() => null)]);
+    const [list, earn, unread] = await Promise.all([loadBookings(), MB.rpc("mb_my_earnings", {}, { quiet: true }).catch(() => null), MB.loadUnread()]);
+    S.unread = unread;
     const now = Date.now(), today = MB.manilaDate(0);
     const req = list.filter((b) => b.status === "pending");
     const todays = list.filter((b) => ["confirmed", "on_the_way", "in_progress"].includes(b.status) && new Date(b.start_at).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) === today);
@@ -152,10 +154,12 @@
       ${b.notes ? `<div class="small">📝 ${esc(b.notes)}</div>` : ""}
       <div class="small">💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b></div>
       ${b.cancel_reason ? `<div class="small muted">Reason: ${esc(b.cancel_reason)}</div>` : ""}
-      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">💬</a>` : ""}${act}</div>
+      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">✉️</a>` : ""}${MB.chatButton(b, S.unread)}${act}</div>
     </div>`;
   }
   async function onBookingAction(e) {
+    const cb = e.target.closest("[data-chat]");
+    if (cb) return MB.openChat(Number(cb.dataset.chat), () => { S.bookings = null; route(); });
     const a = e.target.dataset && e.target.dataset.a; if (!a) return;
     const id = Number(e.target.closest("[data-id]").dataset.id);
     const btn = e.target;
@@ -180,7 +184,8 @@
       <div class="tabs"><button data-tab="req" class="${bTab === "req" ? "on" : ""}">Requests</button><button data-tab="up" class="${bTab === "up" ? "on" : ""}">Upcoming</button><button data-tab="hist" class="${bTab === "hist" ? "on" : ""}">History</button></div>
       <div id="bl"><div class="spinner"></div></div>`;
     $(".tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { bTab = b.dataset.tab; pageBookings(); } };
-    const list = await loadBookings();
+    const [list, unread] = await Promise.all([loadBookings(), MB.loadUnread()]);
+    S.unread = unread;
     const sorted = (arr) => arr.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
     const items = bTab === "req" ? sorted(list.filter((b) => b.status === "pending"))
       : bTab === "up" ? sorted(list.filter((b) => ["confirmed", "on_the_way", "in_progress"].includes(b.status)))

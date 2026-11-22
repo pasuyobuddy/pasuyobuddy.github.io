@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.04";
+  MB.version = C.appVersion || "1.05";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -295,6 +295,59 @@
       });
       if (d.unread) { await MB.rpc("mb_mark_notifications_read", {}, { quiet: true }); onChange && onChange(0); }
     } catch (e) { body.innerHTML = `<div class="empty">Could not load notifications.</div>`; }
+  };
+
+  // ---------- booking chat ----------
+  // Unread chat counts per booking ({bookingId: n}), or null if chat is not set up in the database yet.
+  MB.loadUnread = async () => {
+    try { return await MB.rpc("mb_my_unread_chats", {}, { quiet: true }); } catch (e) { return null; }
+  };
+  MB.chatOpenFor = (b) => ["confirmed", "on_the_way", "in_progress"].includes(b.status)
+    || (b.status === "completed" && new Date(b.end_at).getTime() > Date.now() - 3 * 3600e3);
+  MB.chatButton = (b, unread) => {
+    if (!unread) return "";
+    const n = unread[b.id] || 0;
+    if (!MB.chatOpenFor(b) && !n) return "";
+    return `<button class="btn sm chat-btn" data-chat="${b.id}">💬 Chat${n ? `<span class="chat-dot">${n > 9 ? "9+" : n}</span>` : ""}</button>`;
+  };
+  MB.openChat = async (bookingId, onClose) => {
+    let lastId = 0, timer = null, data = null, sending = false;
+    const close = () => { clearInterval(timer); onClose && onClose(); };
+    const body = MB.modal("Chat", `<div class="chat-head small muted" id="ch-head">Loading…</div>
+      <div class="chat-list" id="ch-list"><div class="spinner"></div></div>
+      <div class="chat-warn small">🔒 Keep chats inside Massage Buddy. Never send money or pay outside the app.</div>
+      <form class="chat-form" id="ch-form"><textarea id="ch-in" rows="1" maxlength="1000" placeholder="Type a message…"></textarea><button class="btn" id="ch-send" aria-label="Send">Send</button></form>`, close);
+    const list = MB.$("#ch-list", body), form = MB.$("#ch-form", body), input = MB.$("#ch-in", body);
+    const bubble = (m) => `<div class="msg ${m.sender_id === data.me ? "me" : "them"}"><div class="b">${MB.esc(m.body)}</div><div class="t">${MB.fmtTime(m.created_at)}${m.sender_id === data.me && m.read ? " · Seen" : ""}</div></div>`;
+    const load = async (first) => {
+      if (!document.getElementById("mb-modal") || document.visibilityState !== "visible") return;
+      try {
+        const d = await MB.rpc("mb_booking_messages", { p_booking: bookingId, p_after: 0 }, { quiet: !first });
+        const isNew = !data || d.messages.length !== data.messages.length || JSON.stringify(d.messages.map((m) => m.read)) !== JSON.stringify(data.messages.map((m) => m.read));
+        data = d;
+        const other = d.me === d.customer_id ? d.therapist_name : d.me === d.therapist_id ? d.customer_name : (d.customer_name + " & " + d.therapist_name);
+        MB.$("#ch-head", body).textContent = "Booking #" + bookingId + " · with " + (other || "");
+        if (isNew || first) {
+          list.innerHTML = d.messages.length ? d.messages.map(bubble).join("") : `<div class="empty small">No messages yet. Say hi 👋</div>`;
+          list.scrollTop = list.scrollHeight;
+        }
+        lastId = d.messages.length ? d.messages[d.messages.length - 1].id : 0;
+        form.classList.toggle("hide", !d.can_send);
+        if (!d.can_send && !MB.$(".chat-closed", body)) form.insertAdjacentHTML("afterend", `<div class="chat-closed small muted center">Chat is closed for this booking.</div>`);
+      } catch (e) { if (first) list.innerHTML = `<div class="empty small">${MB.esc(MB.errMsg(e))}</div>`; }
+    };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = input.value.trim(); if (!text || sending) return;
+      sending = true; MB.$("#ch-send", body).disabled = true;
+      try { await MB.rpc("mb_send_message", { p_booking: bookingId, p_body: text }); input.value = ""; input.style.height = ""; await load(false); }
+      catch (err) {} finally { sending = false; MB.$("#ch-send", body).disabled = false; input.focus(); }
+    };
+    input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(120, input.scrollHeight) + "px"; });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer:fine)").matches) { e.preventDefault(); form.requestSubmit(); } });
+    await load(true);
+    // check for new messages every 4 seconds, only while the chat is open on screen
+    timer = setInterval(() => { if (!document.getElementById("mb-modal")) return clearInterval(timer); load(false); }, 4000);
   };
 
   MB.pushSupported = () => !!(C.firebase && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window);
