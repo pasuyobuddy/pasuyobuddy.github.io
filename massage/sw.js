@@ -2,7 +2,7 @@
 // - makes the apps installable and opens the last good copy when offline
 // - shows phone notifications sent through Firebase (only if Firebase is set in config.js)
 // Pages are always fetched fresh first, so updates appear right away.
-const CACHE = "massagebuddy-v1.05";
+const CACHE = "massagebuddy-v1.06";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {

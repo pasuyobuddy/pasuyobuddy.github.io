@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.05">
+<link rel="stylesheet" href="style.css?v=1.06">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.05"></script>
-<script src="common.js?v=1.05"></script>
+<script src="config.js?v=1.06"></script>
+<script src="common.js?v=1.06"></script>
 <script>
 (function () {
   "use strict";
@@ -307,9 +307,8 @@
         ${docBox("nbi", t.has_nbi_doc, "NBI Clearance uploaded", "🧾", "Tap to upload a photo of your NBI Clearance")}
         <label>3. Selfie holding your ID (required)</label>
         ${docBox("selfie", t.has_selfie_doc, "Selfie uploaded", "🤳", "Take a selfie holding your ID next to your face")}
-        <label>4. Signed Letter of Intent (required)</label>
-        <div class="hint" style="margin:0 0 6px"><a href="letter-of-intent.html" target="_blank">📝 Open the Letter of Intent</a>. Print or copy it, fill it in, sign it, then upload a photo here.</div>
-        ${docBox("loi", t.has_loi_doc, "Letter of Intent uploaded", "📝", "Tap to upload a photo of your signed letter")}
+        <label>4. Letter of Intent (required, sign in the app)</label>
+        <div class="upload-box" id="u-loi">${t.has_loi_doc ? "✅ Letter of Intent signed" : "✍️ <b>Sign now</b>"}<div class="small">${t.has_loi_doc ? "Tap to sign again" : "No printing. Read it and sign with your finger."}</div></div>
         <label>5. Barangay Clearance (optional)</label>
         ${docBox("barangay", t.has_barangay_doc, "Barangay Clearance uploaded", "🏠", "Tap to upload")}
         <label>6. Massage certificate / TESDA (optional)</label>
@@ -335,7 +334,17 @@
     pick("#g-add", "#f-gal", async (f) => { F.photos.push(await MB.upload("mb-photos", f, "gallery")); drawGal(); MB.toast("Photo added. Remember to save."); });
     pick("#u-id", "#f-id", async (f) => { F.id_doc = await MB.upload("mb-docs", f, "id"); $("#u-id").innerHTML = `✅ ID uploaded<div class="small">Tap to replace</div>`; MB.toast("ID uploaded. Remember to save."); });
     pick("#u-cert", "#f-cert", async (f) => { F.cert_doc = await MB.upload("mb-docs", f, "certificate"); $("#u-cert").innerHTML = `✅ Certificate uploaded<div class="small">Tap to replace</div>`; MB.toast("Certificate uploaded. Remember to save."); });
-    [["nbi", "NBI Clearance"], ["selfie", "Selfie"], ["loi", "Letter of Intent"], ["barangay", "Barangay Clearance"]].forEach(([k, label]) =>
+    $("#u-loi").onclick = async () => {
+      const exp = $("#t-exp").value, yrs = exp === "" ? "" : exp === "0" ? "Less than 1 year" : exp === "20" ? "20+ years" : exp + (exp === "1" ? " year" : " years");
+      const types = (S.t && S.t.services ? Array.from(new Set(S.t.services.filter((x) => x.active).map((x) => x.type_name))) : []).join(", ");
+      const path = await MB.signLetter({ name: $("#t-name").value.trim(), phone: $("#t-phone").value.trim(), email: (MB.session && MB.session.user.email) || "",
+        years: yrs, area: $("#t-area").value, types });
+      if (!path) return;
+      F.loi = path;
+      $("#u-loi").innerHTML = `✅ Letter of Intent signed<div class="small">Remember to tap ${isNew ? "Submit application" : "Save profile"}</div>`;
+      MB.toast("Letter signed ✅ Now tap " + (isNew ? "Submit application." : "Save profile."));
+    };
+    [["nbi", "NBI Clearance"], ["selfie", "Selfie"], ["barangay", "Barangay Clearance"]].forEach(([k, label]) =>
       pick("#u-" + k, "#f-" + k, async (f) => { F[k] = await MB.upload("mb-docs", f, k); $("#u-" + k).innerHTML = `✅ ${label} uploaded<div class="small">Tap to replace</div>`; MB.toast(label + " uploaded. Remember to save."); }));
     $("#t-exp").value = isNew && !S.t ? "" : String(Math.min(20, Number(t.experience_years) || 0));
     $("#t-save").onclick = (e) => MB.busy(e.target, async () => {
@@ -344,7 +353,7 @@
       if (!t.has_id_doc && !F.id_doc) need.push("valid ID");
       if (!t.has_nbi_doc && !F.nbi) need.push("NBI Clearance");
       if (!t.has_selfie_doc && !F.selfie) need.push("selfie with ID");
-      if (!t.has_loi_doc && !F.loi) need.push("signed Letter of Intent");
+      if (!t.has_loi_doc && !F.loi) need.push("sign the Letter of Intent");
       if (!t.terms_accepted && !$("#t-terms").checked) need.push("agree to the Terms & Privacy Policy");
       if (need.length) return MB.toast("Please complete: " + need.join(", ") + ".", true);
       S.t = await MB.rpc("mb_save_therapist", {

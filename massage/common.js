@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.05";
+  MB.version = C.appVersion || "1.06";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -296,6 +296,120 @@
       if (d.unread) { await MB.rpc("mb_mark_notifications_read", {}, { quiet: true }); onChange && onChange(0); }
     } catch (e) { body.innerHTML = `<div class="empty">Could not load notifications.</div>`; }
   };
+
+  // ---------- therapist Letter of Intent: e-signed in the app (paperless) ----------
+  MB.LOI_POINTS = [
+    "All information and documents I submit (valid ID, NBI Clearance, selfie with ID, certificates, photos) are true, correct and my own. I understand that false or fake documents will cause my application to be rejected or my account to be closed, and may be reported to the authorities.",
+    "I join as an independent partner, not an employee of Massage Buddy. I choose my schedule and prices in the app, and I am responsible for my own transportation, massage supplies, phone, taxes and government contributions.",
+    "I will provide professional, therapeutic massage only. I will never offer, request or accept any sexual service or behavior. I understand this leads to permanent removal and may be reported to the authorities.",
+    "I will arrive on time, keep good personal hygiene, use clean towels, linens and oils, and respect the customer's home, privacy and belongings. I will never take anything that is not mine.",
+    "I will not do a massage while under the influence of alcohol or illegal drugs, and I will refuse or stop a massage when the customer's health or my safety is at risk.",
+    "I will not let anyone else use my Massage Buddy account or attend bookings for me, and I will not arrange bookings or payments outside the app with Massage Buddy customers.",
+    "I understand that if I accept a booking and do not show up, or cancel too often, or receive serious complaints, my account may be suspended or permanently closed, and my pending earnings may be held while Massage Buddy investigates.",
+    "I have read and agree to the Massage Buddy Terms & Conditions, Privacy Policy and Refund & Cancellation Policy, including the commission and the fee rules.",
+    "I allow Massage Buddy to process my personal information and documents as described in the Privacy Policy (Data Privacy Act of 2012), including sharing my name, photo and needed details with customers for their bookings, and with the authorities when required by law."
+  ];
+  MB.LOI_FIELDS = [
+    ["name", "Full name (as on your valid ID)", "text", true], ["address", "Home address", "text", true], ["dob", "Date of birth", "date", true],
+    ["phone", "Mobile number", "tel", true], ["email", "Email used in the app", "email", true], ["years", "Years of experience as a massage therapist", "text", true],
+    ["training", "Training / certificate (e.g. TESDA), if any", "text", false], ["previous", "Previous spa / clinic / employer, if any", "text", false],
+    ["types", "Massage types I offer", "text", true], ["area", "Preferred city / area of service", "text", true]
+  ];
+  // Opens the signing screen. Resolves with the uploaded storage path (mb-docs) or null if closed.
+  MB.signLetter = (prefill) => new Promise((resolve) => {
+    let done = false;
+    const strokes = [];
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const body = MB.modal("Sign the Letter of Intent", `
+      <div class="banner info small">No printer needed. Fill in your details, read the letter, then <b>sign with your finger</b>. It is sent to Massage Buddy automatically.</div>
+      <div class="card"><h3>1. Your details</h3>
+        ${MB.LOI_FIELDS.map(([k, l, t, req]) => `<label for="loi_${k}">${MB.esc(l)}${req ? "" : ' <span class="muted">(optional)</span>'}</label><input id="loi_${k}" type="${t}" value="${MB.esc((prefill || {})[k] || "")}">`).join("")}
+      </div>
+      <div class="card"><h3>2. Read the letter</h3>
+        <div class="small" style="line-height:1.55">
+          <p style="margin:6px 0 8px"><b>To: The Management, Massage Buddy</b><br>Subject: Intent to join Massage Buddy as an independent home-service massage therapist</p>
+          <p>I, the undersigned, of legal age, respectfully express my intent to join Massage Buddy as an independent home-service massage therapist (partner). In applying, I declare and agree that:</p>
+          <ol style="padding-left:20px;margin:0">${MB.LOI_POINTS.map((p) => `<li style="margin-bottom:8px">${MB.esc(p)}</li>`).join("")}</ol>
+          <p>Thank you for considering my application. I look forward to working with Massage Buddy.</p>
+        </div>
+        <label class="row" style="margin:8px 0 0;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="loi_agree" style="width:22px;height:22px;min-height:0;flex:none;margin-top:1px;accent-color:var(--brand)">
+          <span>I have read the letter and I agree to everything in it.</span></label>
+      </div>
+      <div class="card"><h3>3. Sign with your finger</h3>
+        <div class="small muted" style="margin-bottom:8px">Sign the same way as on your valid ID.</div>
+        <canvas id="loi_sig" class="sig-pad"></canvas>
+        <button class="btn sm ghost" id="loi_clear" type="button" style="margin-top:8px">Clear signature</button>
+      </div>
+      <button class="btn block gold" id="loi_send" type="button">✍️ Submit signed letter</button>`, () => finish(null));
+    const c = MB.$("#loi_sig", body), ctx = c.getContext("2d");
+    const draw = (g, w, h, lw) => {
+      g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = "#0B1F5C"; g.lineWidth = lw;
+      strokes.forEach((st) => { g.beginPath(); st.forEach((p, i) => { const x = p[0] * w, y = p[1] * h; if (i) g.lineTo(x, y); else { g.moveTo(x, y); g.lineTo(x + 0.1, y + 0.1); } }); g.stroke(); });
+    };
+    let rc;
+    const size = () => { const dpr = window.devicePixelRatio || 1; rc = c.getBoundingClientRect(); c.width = Math.round(rc.width * dpr); c.height = Math.round(rc.height * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); redraw(); };
+    const redraw = () => { ctx.clearRect(0, 0, rc.width, rc.height); draw(ctx, rc.width, rc.height, 2.6); };
+    const pt = (e) => { const b = c.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (e.clientY - b.top) / b.height))]; };
+    let cur = null;
+    c.addEventListener("pointerdown", (e) => { e.preventDefault(); try { c.setPointerCapture(e.pointerId); } catch (x) {} cur = [pt(e)]; strokes.push(cur); redraw(); });
+    c.addEventListener("pointermove", (e) => { if (!cur) return; e.preventDefault(); cur.push(pt(e)); redraw(); });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => c.addEventListener(ev, () => (cur = null)));
+    setTimeout(size, 50); window.addEventListener("resize", size);
+    MB.$("#loi_clear", body).onclick = () => { strokes.length = 0; redraw(); };
+
+    // Build the signed letter as one tall picture (white page, black text)
+    const makeImage = (f) => new Promise((res, rej) => {
+      const W = 1240, M = 80, cv = document.createElement("canvas"); cv.width = W; cv.height = 4400;
+      const g = cv.getContext("2d"); let y = M;
+      g.fillStyle = "#fff"; g.fillRect(0, 0, W, cv.height); g.fillStyle = "#111"; g.textBaseline = "top";
+      const font = (sz, b) => (g.font = (b ? "bold " : "") + sz + "px Arial, Helvetica, sans-serif");
+      const wrap = (txt, x, maxW, lh) => { let line = ""; String(txt).split(/\s+/).forEach((w) => { const t = line ? line + " " + w : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; } else line = t; }); if (line) { g.fillText(line, x, y); y += lh; } };
+      const now = new Date(), ds = now.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }),
+        ts = now.toLocaleString("en-PH", { timeZone: "Asia/Manila", hour12: true });
+      font(40, true); g.textAlign = "center"; g.fillText("LETTER OF INTENT", W / 2, y); y += 54;
+      font(24); g.fillText("Application as an independent massage therapist of Massage Buddy", W / 2, y); y += 56; g.textAlign = "left";
+      g.fillText("Date: " + ds, M, y); y += 40;
+      g.fillText("To: The Management, Massage Buddy (a service of PasuyoLabs)", M, y); y += 34;
+      g.fillText("Subject: Intent to join Massage Buddy as an independent home-service massage therapist", M, y); y += 50;
+      g.fillText("Dear Massage Buddy Management,", M, y); y += 44;
+      wrap("I, the undersigned, of legal age, respectfully express my intent to join Massage Buddy as an independent home-service massage therapist (partner). My details are as follows:", M, W - 2 * M, 34); y += 12;
+      MB.LOI_FIELDS.forEach(([k, l]) => {
+        font(22, true); g.fillText(l.replace(/ \(.*\)$/, "").replace(/, if any$/, "") + ":", M + 20, y); font(22);
+        let v = f[k] || "—"; if (k === "dob" && f[k]) { try { v = new Date(f[k] + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }); } catch (e) {} }
+        wrap(v, M + 500, W - M - 500 - M, 30); y += 4;
+      });
+      y += 14; font(24); g.fillText("In applying, I declare and agree that:", M, y); y += 42;
+      font(21); MB.LOI_POINTS.forEach((p, i) => { g.fillText(i + 1 + ".", M + 10, y); wrap(p, M + 50, W - 2 * M - 50, 29); y += 10; });
+      y += 10; font(24); wrap("Thank you for considering my application. I look forward to working with Massage Buddy.", M, W - 2 * M, 34); y += 20;
+      g.fillText("Respectfully yours,", M, y); y += 20;
+      const sw = 520, sh = 180; g.save(); g.translate(M, y); draw(g, sw, sh, 4); g.restore(); y += sh;
+      g.fillStyle = "#111"; g.fillRect(M, y, sw, 2); y += 10; font(24, true); g.fillText(String(f.name).toUpperCase(), M, y); y += 34;
+      font(20); g.fillStyle = "#444"; g.fillText("Signature over printed full name", M, y); y += 30; g.fillText("Date signed: " + ds, M, y); y += 50;
+      g.fillStyle = "#E3F2F1"; g.fillRect(M - 10, y - 10, W - 2 * M + 20, 112); g.fillStyle = "#0A5E5D"; font(19);
+      wrap("Signed electronically in the Massage Buddy app on " + ts + " (Philippine time). Account: " + (f.email || "") + " · Therapist ID: " + String((MB.session && MB.session.user.id) || "").slice(0, 8) + ". The therapist ticked \"I have read the letter and I agree to everything in it\" before signing.", M, W - 2 * M, 27);
+      y += 30;
+      const out = document.createElement("canvas"); out.width = W; out.height = y; const o = out.getContext("2d"); o.fillStyle = "#fff"; o.fillRect(0, 0, W, y); o.drawImage(cv, 0, 0);
+      out.toBlob((b) => (b ? res(b) : rej(new Error("Could not create the letter. Please try again."))), "image/jpeg", 0.88);
+    });
+
+    MB.$("#loi_send", body).onclick = (e) => MB.busy(e.target, async () => {
+      const f = {}; MB.LOI_FIELDS.forEach(([k]) => (f[k] = (MB.$("#loi_" + k, body).value || "").trim()));
+      const miss = MB.LOI_FIELDS.filter(([k, , , req]) => req && !f[k]).map(([, l]) => l.replace(/ \(.*\)$/, ""));
+      if (miss.length) return MB.toast("Please fill in: " + miss.join(", "), true);
+      if (f.phone.replace(/\D/g, "").length < 10) return MB.toast("Please enter a valid mobile number.", true);
+      if (!MB.$("#loi_agree", body).checked) return MB.toast('Tick "I have read the letter and I agree" first.', true);
+      if (strokes.reduce((n, st) => n + st.length, 0) < 15) return MB.toast("Please sign in the white box with your finger.", true);
+      try {
+        const blob = await makeImage(f);
+        const path = MB.session.user.id + "/letter_of_intent_signed_" + Date.now() + ".jpg";
+        const { error } = await MB.sb.storage.from("mb-docs").upload(path, blob, { contentType: "image/jpeg", upsert: false });
+        if (error) throw new Error("Upload failed: " + error.message);
+        window.removeEventListener("resize", size);
+        MB.closeModal(); finish(path);
+      } catch (err) { MB.toast(MB.errMsg(err), true); }
+    });
+  });
 
   // ---------- booking chat ----------
   // Unread chat counts per booking ({bookingId: n}), or null if chat is not set up in the database yet.
