@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.03">
+<link rel="stylesheet" href="style.css?v=1.04">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.03"></script>
-<script src="common.js?v=1.03"></script>
+<script src="config.js?v=1.04"></script>
+<script src="common.js?v=1.04"></script>
 <script>
 (function () {
   "use strict";
@@ -61,7 +61,11 @@
 
   const statusBanner = () => {
     if (!S.t) return "";
-    if (S.t.status === "pending") return `<div class="banner"><b>⏳ Waiting for approval.</b> We are checking your documents. Meanwhile, set up your <a href="#services">services</a> and <a href="#schedule">schedule</a> so you're ready.</div>`;
+    if (S.t.status === "pending") {
+      const miss = S.t.docs_v2 ? [[S.t.has_id_doc, "valid ID"], [S.t.has_nbi_doc, "NBI Clearance"], [S.t.has_selfie_doc, "selfie with ID"], [S.t.has_loi_doc, "signed Letter of Intent"], [S.t.terms_accepted, "Terms agreement"]].filter((x) => !x[0]).map((x) => x[1]) : [];
+      if (miss.length) return `<div class="banner bad"><b>📄 Documents needed before approval:</b> ${esc(miss.join(", "))}. <a href="#profile">Upload now →</a></div>`;
+      return `<div class="banner"><b>⏳ Waiting for approval.</b> We are checking your documents. Meanwhile, set up your <a href="#services">services</a> and <a href="#schedule">schedule</a> so you're ready.</div>`;
+    }
     if (S.t.status === "suspended") return `<div class="banner bad"><b>Your account is suspended.</b> ${esc(S.t.admin_note || "Please contact support.")}</div>`;
     return "";
   };
@@ -266,7 +270,10 @@
   // ---------- Profile / application ----------
   function pageProfile(isNew) {
     const t = S.t || { display_name: S.me.full_name, gender: "female", area: "", experience_years: 0, bio: "", photo_url: "", photos: [], phone: S.me.phone };
-    const F = { photo_url: t.photo_url, photos: (t.photos || []).slice(), id_doc: "", cert_doc: "" };
+    const F = { photo_url: t.photo_url, photos: (t.photos || []).slice(), id_doc: "", cert_doc: "", nbi: "", selfie: "", loi: "", barangay: "" };
+    const expOpts = [`<option value="">Choose</option>`, `<option value="0">Less than 1 year</option>`]
+      .concat(Array.from({ length: 20 }, (_, i) => `<option value="${i + 1}">${i + 1 === 20 ? "20+ years" : (i + 1) + (i ? " years" : " year")}</option>`)).join("");
+    const docBox = (id, has, okText, icon, hint) => `<div class="upload-box" id="u-${id}">${has ? "✅ " + okText : icon}<div class="small">${has ? "Tap to replace" : hint}</div></div><input type="file" accept="image/*" id="f-${id}" class="hide">`;
     if (isNew) $("#nav").classList.add("hide");
     view.innerHTML = `${isNew ? `<div class="hero"><h1>Become a Massage Buddy therapist</h1><p>Fill in your profile. We'll review it and approve you.</p></div>` : `${statusBanner()}<h1>My profile</h1>`}
       <div class="card">
@@ -278,7 +285,8 @@
         <div class="hint">Customers see it only after you accept their booking.</div>
         <div class="row"><div class="grow"><label>Gender</label><select id="t-gender">
           <option value="female" ${t.gender === "female" ? "selected" : ""}>Female</option><option value="male" ${t.gender === "male" ? "selected" : ""}>Male</option><option value="other" ${t.gender === "other" ? "selected" : ""}>Other</option></select></div>
-          <div class="grow"><label>Years of experience</label><input id="t-exp" type="number" min="0" max="60" value="${Number(t.experience_years) || 0}"></div></div>
+          <div class="grow"><label>Years in service</label><select id="t-exp">${expOpts}</select></div></div>
+        <div class="hint">How long you have been working as a massage therapist.</div>
         <label>Main area (city)</label><select id="t-area"><option value="">Choose city</option>${MB.AREAS.map((a) => `<option ${t.area === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
         <label>About you</label><textarea id="t-bio" placeholder="Your training, specialties, what customers can expect…">${esc(t.bio)}</textarea>
         <label>More photos (optional, up to 6)</label>
@@ -287,10 +295,26 @@
       </div>
       <div class="card">
         <h3>Documents (only admin can see these)</h3>
-        <label>Valid ID ${isNew ? "(required)" : ""}</label>
-        <div class="upload-box" id="u-id">${t.has_id_doc ? "✅ ID uploaded" : "🪪"}<div class="small">Tap to ${t.has_id_doc ? "replace" : "upload"} a photo of your ID</div></div><input type="file" accept="image/*" id="f-id" class="hide">
-        <label>Massage certificate / TESDA (optional)</label>
-        <div class="upload-box" id="u-cert">${t.has_cert_doc ? "✅ Certificate uploaded" : "📜"}<div class="small">Tap to ${t.has_cert_doc ? "replace" : "upload"}</div></div><input type="file" accept="image/*" id="f-cert" class="hide">
+        <p class="small muted" style="margin:4px 0 0">We check every therapist to keep customers safe. Clear photos only.</p>
+        <label>1. Valid government ID (required)</label>
+        ${docBox("id", t.has_id_doc, "ID uploaded", "🪪", "Tap to upload a photo of your ID")}
+        <label>2. NBI Clearance (required)</label>
+        ${docBox("nbi", t.has_nbi_doc, "NBI Clearance uploaded", "🧾", "Tap to upload a photo of your NBI Clearance")}
+        <label>3. Selfie holding your ID (required)</label>
+        ${docBox("selfie", t.has_selfie_doc, "Selfie uploaded", "🤳", "Take a selfie holding your ID next to your face")}
+        <label>4. Signed Letter of Intent (required)</label>
+        <div class="hint" style="margin:0 0 6px"><a href="letter-of-intent.html" target="_blank">📝 Open the Letter of Intent</a>. Print or copy it, fill it in, sign it, then upload a photo here.</div>
+        ${docBox("loi", t.has_loi_doc, "Letter of Intent uploaded", "📝", "Tap to upload a photo of your signed letter")}
+        <label>5. Barangay Clearance (optional)</label>
+        ${docBox("barangay", t.has_barangay_doc, "Barangay Clearance uploaded", "🏠", "Tap to upload")}
+        <label>6. Massage certificate / TESDA (optional)</label>
+        ${docBox("cert", t.has_cert_doc, "Certificate uploaded", "📜", "Tap to upload")}
+      </div>
+      <div class="card">
+        <label class="row" style="margin:0;align-items:flex-start;gap:12px;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="t-terms" style="width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--brand)" ${t.terms_accepted ? "checked disabled" : ""}>
+          <span>I have read and agree to the <a href="terms.html" target="_blank">Terms &amp; Conditions</a>, <a href="privacy.html" target="_blank">Privacy Policy</a> and <a href="refund.html" target="_blank">Refund &amp; Cancellation Policy</a>, and I confirm my documents are true and my own.</span>
+        </label>
       </div>
       <button class="btn block gold" id="t-save">${isNew ? "Submit application" : "Save profile"}</button>
       ${!isNew && t.rating_count ? `<p class="center small muted">Rating ${Number(t.rating_avg).toFixed(1)} ★ from ${t.rating_count} reviews</p>` : ""}
@@ -306,11 +330,28 @@
     pick("#g-add", "#f-gal", async (f) => { F.photos.push(await MB.upload("mb-photos", f, "gallery")); drawGal(); MB.toast("Photo added. Remember to save."); });
     pick("#u-id", "#f-id", async (f) => { F.id_doc = await MB.upload("mb-docs", f, "id"); $("#u-id").innerHTML = `✅ ID uploaded<div class="small">Tap to replace</div>`; MB.toast("ID uploaded. Remember to save."); });
     pick("#u-cert", "#f-cert", async (f) => { F.cert_doc = await MB.upload("mb-docs", f, "certificate"); $("#u-cert").innerHTML = `✅ Certificate uploaded<div class="small">Tap to replace</div>`; MB.toast("Certificate uploaded. Remember to save."); });
+    [["nbi", "NBI Clearance"], ["selfie", "Selfie"], ["loi", "Letter of Intent"], ["barangay", "Barangay Clearance"]].forEach(([k, label]) =>
+      pick("#u-" + k, "#f-" + k, async (f) => { F[k] = await MB.upload("mb-docs", f, k); $("#u-" + k).innerHTML = `✅ ${label} uploaded<div class="small">Tap to replace</div>`; MB.toast(label + " uploaded. Remember to save."); }));
+    $("#t-exp").value = isNew && !S.t ? "" : String(Math.min(20, Number(t.experience_years) || 0));
     $("#t-save").onclick = (e) => MB.busy(e.target, async () => {
+      const need = [];
+      if ($("#t-exp").value === "") need.push("years in service");
+      if (!t.has_id_doc && !F.id_doc) need.push("valid ID");
+      if (!t.has_nbi_doc && !F.nbi) need.push("NBI Clearance");
+      if (!t.has_selfie_doc && !F.selfie) need.push("selfie with ID");
+      if (!t.has_loi_doc && !F.loi) need.push("signed Letter of Intent");
+      if (!t.terms_accepted && !$("#t-terms").checked) need.push("agree to the Terms & Privacy Policy");
+      if (need.length) return MB.toast("Please complete: " + need.join(", ") + ".", true);
       S.t = await MB.rpc("mb_save_therapist", {
         p_display_name: $("#t-name").value, p_gender: $("#t-gender").value, p_area: $("#t-area").value,
         p_experience: Number($("#t-exp").value) || 0, p_bio: $("#t-bio").value, p_photo_url: F.photo_url || "",
         p_photos: F.photos, p_id_doc: F.id_doc, p_cert_doc: F.cert_doc, p_phone: $("#t-phone").value });
+      try {
+        S.t = await MB.rpc("mb_save_therapist_docs", { p_nbi: F.nbi, p_selfie: F.selfie, p_loi: F.loi, p_barangay: F.barangay, p_accept_terms: $("#t-terms").checked }, { quiet: true });
+      } catch (err) {
+        if (/mb_save_therapist_docs|schema cache|does not exist/i.test(err.message || "")) MB.toast("Profile saved. Document upload is not active yet: admin needs to run the v1.10 database update.", true);
+        else { MB.toast(MB.errMsg(err), true); return; }
+      }
       MB.toast(isNew ? "Application sent! 🎉" : "Profile saved ✅");
       if (isNew) { $("#nav").classList.remove("hide"); $("#prof-btn").classList.remove("hide"); location.hash = "services"; route(); }
     });

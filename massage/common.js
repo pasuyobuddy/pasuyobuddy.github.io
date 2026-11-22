@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.03";
+  MB.version = C.appVersion || "1.04";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }

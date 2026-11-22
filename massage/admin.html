@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0E7C7B">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.03">
+<link rel="stylesheet" href="style.css?v=1.04">
 <style>
   .wrap, .top-in { max-width: 980px; }
   .wrap { padding-bottom: 40px; }
@@ -32,8 +32,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.03"></script>
-<script src="common.js?v=1.03"></script>
+<script src="config.js?v=1.04"></script>
+<script src="common.js?v=1.04"></script>
 <script>
 (function () {
   "use strict";
@@ -109,6 +109,7 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
           <div class="small" style="margin-top:8px">📞 ${esc(t.phone)} · ✉️ ${esc(t.email)}</div>
           <div class="small">Services: ${t.services} · Schedule: ${t.has_schedule ? "yes" : "<b>not set</b>"} · Completed: ${t.completed} · ${t.rating_count ? Number(t.rating_avg).toFixed(1) + "★ (" + t.rating_count + ")" : "no reviews"}</div>
           <div class="small muted">Applied ${MB.fmtDate(t.created_at)}${t.admin_note ? " · Note: " + esc(t.admin_note) : ""}</div>
+          ${t.docs_complete === undefined ? "" : t.docs_complete ? `<div style="margin-top:6px"><span class="badge ok">📄 Documents complete</span></div>` : `<div style="margin-top:6px"><span class="badge bad">📄 Documents missing</span></div>`}
           <div class="btn-row" style="margin-top:10px">
             <button class="btn sm light" data-a="view">View profile & ID</button>
             ${t.status !== "approved" ? `<button class="btn sm" data-a="approved">Approve</button>` : ""}
@@ -131,14 +132,17 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
       <img src="${esc(t.photo_url || MB.PLACEHOLDER)}" class="doc-thumb" alt="">
       <p style="white-space:pre-line">${esc(t.bio) || '<span class="muted">No bio.</span>'}</p>
       ${t.photos.length ? `<div class="gallery">${t.photos.map((p) => `<img src="${esc(p)}" alt="">`).join("")}</div>` : ""}
-      <h3 style="margin-top:14px">Valid ID</h3><div id="d-id" class="small muted">${t.id_doc_path ? "Loading…" : "Not uploaded"}</div>
-      <h3 style="margin-top:14px">Certificate</h3><div id="d-cert" class="small muted">${t.cert_doc_path ? "Loading…" : "Not uploaded"}</div>`);
+      <p class="small">Years in service: <b>${Number(t.experience_years) >= 20 ? "20+" : Number(t.experience_years) || "Less than 1"} ${Number(t.experience_years) === 1 ? "year" : "years"}</b> · Terms accepted: <b>${t.terms_accepted_at ? MB.fmtDate(t.terms_accepted_at) : "not yet"}</b></p>
+      ${[["id", "1. Valid ID", t.id_doc_path], ["nbi", "2. NBI Clearance", t.nbi_doc_path], ["selfie", "3. Selfie holding ID", t.selfie_doc_path],
+         ["loi", "4. Signed Letter of Intent", t.loi_doc_path], ["barangay", "5. Barangay Clearance (optional)", t.barangay_doc_path], ["cert", "6. Certificate (optional)", t.cert_doc_path]]
+        .map(([k, label, path]) => `<h3 style="margin-top:14px">${label}</h3><div id="d-${k}" class="small ${path ? "muted" : ""}">${path ? "Loading…" : '<span class="badge bad">Not uploaded</span>'}</div>`).join("")}`);
     const show = async (path, el) => {
       if (!path) return;
       const { data, error } = await MB.sb.storage.from("mb-docs").createSignedUrl(path, 600);
       $(el, body).innerHTML = error ? "Could not load: " + esc(error.message) : `<a href="${esc(data.signedUrl)}" target="_blank" rel="noopener"><img class="doc-thumb" src="${esc(data.signedUrl)}" alt="document"></a>`;
     };
     show(t.id_doc_path, "#d-id"); show(t.cert_doc_path, "#d-cert");
+    show(t.nbi_doc_path, "#d-nbi"); show(t.selfie_doc_path, "#d-selfie"); show(t.loi_doc_path, "#d-loi"); show(t.barangay_doc_path, "#d-barangay");
   }
 
   // ---------- Bookings ----------
