@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en-PH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Massage Buddy – Home Service Massage</title>
+<meta name="description" content="Book a trusted massage therapist to your home in Metro Manila.">
+<meta name="theme-color" content="#0E7C7B">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css?v=1.00">
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="logo" href="#"><span class="mark"></span><span>Massage Buddy<small>Home service massage</small></span></a>
+  <span class="sp"></span>
+  <button class="icon-btn hide" id="bell" aria-label="Notifications"></button>
+</div></header>
+
+<main class="wrap" id="view"><div class="spinner"></div></main>
+
+<nav class="nav"><div class="nav-in">
+  <a href="#" data-r="home" id="n-home"></a>
+  <a href="#bookings" data-r="bookings" id="n-bookings"></a>
+  <a href="#account" data-r="account" id="n-account"></a>
+</div></nav>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js?v=1.00"></script>
+<script src="common.js?v=1.00"></script>
+<script>
+(function () {
+  "use strict";
+  const { $, $$, esc, peso } = MB;
+  const S = { types: [], settings: { booking_days: 14 }, me: null, filters: { type: null, gender: "", area: "", sort: "rating" },
+              therapist: null, sel: null, date: null, slot: null };
+  const view = $("#view");
+
+  // header + nav
+  $(".logo .mark").innerHTML = MB.icons.leaf;
+  $("#n-home").innerHTML = MB.icons.home + "Home";
+  $("#n-bookings").innerHTML = MB.icons.cal + "Bookings";
+  $("#n-account").innerHTML = MB.icons.user + "Account";
+  const bell = $("#bell");
+  const setUnread = (n) => { bell.innerHTML = MB.icons.bell + (n ? `<span class="dot">${n > 9 ? "9+" : n}</span>` : ""); };
+  bell.onclick = () => MB.openNotifications(setUnread);
+  MB.onPushWhileOpen = () => { refreshMe(); if (location.hash === "#bookings") route(); };
+
+  async function refreshMe() {
+    if (!MB.session) { S.me = null; bell.classList.add("hide"); return null; }
+    try { S.me = await MB.rpc("mb_me", {}, { quiet: true }); bell.classList.remove("hide"); setUnread(S.me.unread); }
+    catch (e) { S.me = null; }
+    return S.me;
+  }
+
+  // ---------- router ----------
+  async function route() {
+    const h = location.hash.replace(/^#/, "");
+    const [r, arg] = h.split("/");
+    $$(".nav a").forEach((a) => a.classList.toggle("on", a.dataset.r === (r || "home") || (r === "t" && a.dataset.r === "home") || (r === "book" && a.dataset.r === "home")));
+    window.scrollTo(0, 0);
+    try {
+      if (r === "t" && arg) return await pageTherapist(arg);
+      if (r === "book") return await pageBook();
+      if (r === "done") return pageDone(arg);
+      if (r === "bookings") return await pageBookings();
+      if (r === "account") return await pageAccount();
+      return await pageHome();
+    } catch (e) {
+      view.innerHTML = `<div class="empty"><div class="big">😕</div><p>${esc(MB.errMsg(e))}</p><button class="btn" onclick="location.reload()">Try again</button></div>`;
+    }
+  }
+  window.addEventListener("hashchange", route);
+
+  // ---------- Home: list of therapists ----------
+  async function pageHome() {
+    const f = S.filters;
+    view.innerHTML = `${MB.setupBanner()}
+      <div class="hero"><h1>Relax at home 🌿</h1><p>Trusted massage therapists come to you, anywhere in Metro Manila.</p></div>
+      <div class="chips" id="type-chips">
+        <button class="chip ${f.type == null ? "on" : ""}" data-type="">All</button>
+        ${S.types.map((t) => `<button class="chip ${f.type === t.id ? "on" : ""}" data-type="${t.id}">${esc(t.name)}</button>`).join("")}
+      </div>
+      <div class="row" style="margin-top:6px;gap:6px">
+        <select id="f-area" class="grow filt" aria-label="Area"><option value="">All areas</option>${MB.AREAS.map((a) => `<option ${f.area === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+        <select id="f-gender" class="grow filt" aria-label="Therapist gender"><option value="">Any gender</option><option value="female" ${f.gender === "female" ? "selected" : ""}>Female</option><option value="male" ${f.gender === "male" ? "selected" : ""}>Male</option></select>
+        <select id="f-sort" class="grow filt" aria-label="Sort"><option value="rating">Top rated</option><option value="price" ${f.sort === "price" ? "selected" : ""}>Lowest price</option></select>
+      </div>
+      <div id="list"><div class="spinner"></div></div>`;
+    $("#type-chips").onclick = (e) => { const b = e.target.closest("[data-type]"); if (!b) return; f.type = b.dataset.type ? Number(b.dataset.type) : null; pageHome(); };
+    $("#f-area").onchange = (e) => { f.area = e.target.value; loadList(); };
+    $("#f-gender").onchange = (e) => { f.gender = e.target.value; loadList(); };
+    $("#f-sort").onchange = (e) => { f.sort = e.target.value; loadList(); };
+    await loadList();
+  }
+  async function loadList() {
+    const el = $("#list"); if (!el) return;
+    if (!MB.configured) { el.innerHTML = ""; return; }
+    const f = S.filters;
+    const list = await MB.rpc("mb_list_therapists", { p_type: f.type, p_gender: f.gender || null, p_area: f.area || null, p_sort: f.sort });
+    if (!list.length) { el.innerHTML = `<div class="empty"><div class="big">🧘</div><p>No therapists available for this choice yet.<br>Try "All areas" or another massage type.</p></div>`; return; }
+    el.innerHTML = list.map((t) => `
+      <a class="card t-card" href="#t/${t.id}">
+        <img class="avatar" src="${esc(t.photo_url || MB.PLACEHOLDER)}" alt="" loading="lazy" onerror="this.src=MB.PLACEHOLDER">
+        <div class="grow">
+          <div class="row"><h3 class="grow ellip">${esc(t.display_name)}</h3><span class="price">from ${peso(t.min_price)}</span></div>
+          <div class="small">${t.rating_count ? `<span class="stars">${MB.stars(t.rating_avg)}</span> ${Number(t.rating_avg).toFixed(1)} (${t.rating_count})` : `<span class="badge">New</span>`}
+            <span class="muted"> · ${esc(t.area)}${t.experience_years ? ` · ${t.experience_years} yrs exp.` : ""}</span></div>
+          <div class="small muted ellip">${esc(t.bio)}</div>
+          <div class="tags">${(t.types || []).slice(0, 4).map((x) => `<span class="tag">${esc(x)}</span>`).join("")}</div>
+        </div>
+      </a>`).join("");
+  }
+
+  // ---------- Therapist profile ----------
+  async function pageTherapist(id) {
+    view.innerHTML = `<div class="spinner"></div>`;
+    const t = await MB.rpc("mb_get_therapist", { p_id: id });
+    if (!t) { view.innerHTML = `<div class="empty"><p>This therapist is not available.</p><a class="btn" href="#">Back</a></div>`; return; }
+    S.therapist = t;
+    if (!S.sel || S.sel.therapist_id !== t.id) S.sel = null;
+    const byType = {};
+    t.services.forEach((s) => { (byType[s.type_name] = byType[s.type_name] || { desc: s.type_description, list: [] }).list.push(s); });
+    const days = {}; t.availability.forEach((a) => (days[a.weekday] = days[a.weekday] || []).push(MB.time12(a.start) + "–" + MB.time12(a.end)));
+    view.innerHTML = `
+      <p><a href="#">‹ Back</a></p>
+      <div class="card">
+        <div class="row top-al">
+          <img class="avatar lg" src="${esc(t.photo_url || MB.PLACEHOLDER)}" alt="" onerror="this.src=MB.PLACEHOLDER">
+          <div class="grow">
+            <h1 style="margin:0">${esc(t.display_name)}</h1>
+            <div>${t.rating_count ? `<span class="stars">${MB.stars(t.rating_avg)}</span> <b>${Number(t.rating_avg).toFixed(1)}</b> <span class="muted">(${t.rating_count} reviews)</span>` : `<span class="badge">New therapist</span>`}</div>
+            <div class="small muted">${esc(t.area)} · ${t.gender === "male" ? "Male" : t.gender === "female" ? "Female" : "Therapist"}${t.experience_years ? ` · ${t.experience_years} years experience` : ""}</div>
+          </div>
+        </div>
+        ${t.bio ? `<p style="white-space:pre-line">${esc(t.bio)}</p>` : ""}
+        ${t.photos && t.photos.length ? `<div class="gallery">${t.photos.map((p) => `<img src="${esc(p)}" alt="" loading="lazy">`).join("")}</div>` : ""}
+      </div>
+      <h2>Choose your massage</h2>
+      <div id="svcs">${Object.keys(byType).map((name) => `
+        <div class="card"><h3>${esc(name)}</h3><div class="small muted">${esc(byType[name].desc)}</div>
+          ${byType[name].list.map((s) => `<button class="svc ${S.sel && S.sel.id === s.id ? "on" : ""}" data-s="${s.id}">
+            <span class="grow">${MB.icons.clock.replace("<svg", '<svg width="18" height="18" style="vertical-align:-4px;margin-right:6px"')}${s.duration_min} minutes</span><span class="price">${peso(s.price)}</span></button>`).join("")}
+        </div>`).join("") || `<div class="empty">No services yet.</div>`}</div>
+      <div class="card"><h3>Usual working hours</h3>
+        ${[1, 2, 3, 4, 5, 6, 0].map((d) => `<div class="row small"><span style="width:44px" class="muted">${MB.DAYS[d]}</span><span>${days[d] ? days[d].join(", ") : '<span class="muted">Day off</span>'}</span></div>`).join("")}
+      </div>
+      <h2>Reviews</h2>
+      ${t.reviews.length ? t.reviews.map((r) => `<div class="card" style="padding:12px"><div class="row"><b class="grow">${esc(r.name)}</b><span class="stars">${MB.stars(r.stars)}</span></div>
+        ${r.comment ? `<div class="small">${esc(r.comment)}</div>` : ""}<div class="small muted">${MB.fmtDate(r.created_at)}</div></div>`).join("")
+        : `<p class="muted">No reviews yet.</p>`}
+      <div style="height:70px"></div>
+      <div style="position:fixed;left:0;right:0;bottom:62px;padding:0 16px;z-index:15"><div style="max-width:528px;margin:0 auto">
+        <button class="btn block gold" id="go-book" ${S.sel ? "" : "disabled"}>${S.sel ? `Choose date & time · ${peso(S.sel.price)}` : "Select a massage above"}</button>
+      </div></div>`;
+    $("#svcs").onclick = (e) => {
+      const b = e.target.closest("[data-s]"); if (!b) return;
+      const s = t.services.find((x) => String(x.id) === b.dataset.s);
+      S.sel = Object.assign({ therapist_id: t.id }, s); S.slot = null;
+      $$(".svc").forEach((x) => x.classList.toggle("on", x === b));
+      const g = $("#go-book"); g.disabled = false; g.textContent = `Choose date & time · ${peso(s.price)}`;
+    };
+    $("#go-book").onclick = () => { location.hash = "book"; };
+  }
+
+  // ---------- Book: date, time, address ----------
+  async function pageBook() {
+    if (!S.sel || !S.therapist) { location.hash = ""; return; }
+    const t = S.therapist, s = S.sel, me = S.me || {};
+    const nDays = Number(S.settings.booking_days || 14);
+    if (!S.date) S.date = MB.manilaDate(0);
+    view.innerHTML = `
+      <p><a href="#t/${t.id}">‹ Back</a></p>
+      <div class="card row">
+        <img class="avatar sm" src="${esc(t.photo_url || MB.PLACEHOLDER)}" alt="" onerror="this.src=MB.PLACEHOLDER">
+        <div class="grow"><b>${esc(s.type_name)} · ${s.duration_min} min</b><div class="small muted">with ${esc(t.display_name)}</div></div>
+        <span class="price">${peso(s.price)}</span>
+      </div>
+      <h2>1. Choose a date</h2>
+      <div class="chips" id="dates">${Array.from({ length: nDays + 1 }, (_, i) => {
+        const d = MB.manilaDate(i), p = MB.dateParts(d);
+        return `<button class="chip date-chip ${S.date === d ? "on" : ""}" data-d="${d}">${i === 0 ? "Today" : i === 1 ? "Tmrw" : p.dow}<b>${p.day}</b>${p.mon}</button>`;
+      }).join("")}</div>
+      <h2>2. Choose a time</h2>
+      <div id="slots"><div class="spinner"></div></div>
+      <h2>3. Where should the therapist go?</h2>
+      <div class="card">
+        <label for="b-addr">Full address</label>
+        <textarea id="b-addr" placeholder="House/Unit no., street, barangay, landmark">${esc(me.address || "")}</textarea>
+        <label for="b-area">City</label>
+        <select id="b-area"><option value="">Choose city</option>${MB.AREAS.map((a) => `<option ${(me.area || t.area) === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+        <label for="b-phone">Mobile number</label>
+        <input id="b-phone" type="tel" value="${esc(me.phone || "")}" placeholder="0917 123 4567">
+        <label for="b-notes">Notes for the therapist (optional)</label>
+        <textarea id="b-notes" placeholder="e.g. gate code, pressure preference, pain areas"></textarea>
+      </div>
+      <div class="card" id="summary"></div>
+      <button class="btn block gold" id="confirm">Confirm booking</button>
+      <p class="small muted center">No payment now. Pay cash to your therapist after the massage.</p>`;
+    $("#dates").onclick = (e) => { const b = e.target.closest("[data-d]"); if (!b) return; S.date = b.dataset.d; S.slot = null;
+      $$("#dates .chip").forEach((x) => x.classList.toggle("on", x === b)); loadSlots(); };
+    $("#confirm").onclick = (e) => MB.busy(e.target, confirmBooking);
+    drawSummary();
+    const on = $("#dates .chip.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
+    await loadSlots();
+  }
+  async function loadSlots() {
+    const el = $("#slots"); el.innerHTML = `<div class="spinner"></div>`;
+    const slots = await MB.rpc("mb_get_slots", { p_therapist: S.therapist.id, p_date: S.date, p_duration: S.sel.duration_min });
+    if (!slots.length) { el.innerHTML = `<div class="card empty" style="padding:20px">No free times on this day. Please pick another date.</div>`; drawSummary(); return; }
+    el.innerHTML = `<div class="slots">${slots.map((iso) => `<button class="chip ${S.slot === iso ? "on" : ""}" data-t="${iso}">${MB.fmtTime(iso)}</button>`).join("")}</div>`;
+    el.onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; S.slot = b.dataset.t; $$("#slots .chip").forEach((x) => x.classList.toggle("on", x === b)); drawSummary(); };
+    drawSummary();
+  }
+  function drawSummary() {
+    const el = $("#summary"); if (!el) return;
+    el.innerHTML = `<h3>Summary</h3>
+      <div class="row small"><span class="grow muted">Massage</span><span>${esc(S.sel.type_name)}, ${S.sel.duration_min} min</span></div>
+      <div class="row small"><span class="grow muted">Therapist</span><span>${esc(S.therapist.display_name)}</span></div>
+      <div class="row small"><span class="grow muted">When</span><span>${S.slot ? MB.fmtWhen(S.slot) : '<span class="muted">Choose a time</span>'}</span></div>
+      <div class="row small"><span class="grow muted">Payment</span><span>Cash after massage</span></div>
+      <div class="sep"></div>
+      <div class="row"><b class="grow">Total</b><b class="price">${peso(S.sel.price)}</b></div>`;
+  }
+  async function confirmBooking() {
+    if (!S.slot) return MB.toast("Please choose a time.", true);
+    const addr = $("#b-addr").value.trim(), area = $("#b-area").value, phone = $("#b-phone").value.trim(), notes = $("#b-notes").value.trim();
+    if (addr.length < 8) return MB.toast("Please enter your full address.", true);
+    if (!area) return MB.toast("Please choose your city.", true);
+    if (phone.replace(/\D/g, "").length < 10) return MB.toast("Please enter your mobile number.", true);
+    if (!MB.session) {
+      const ok = await MB.loginModal("Log in to book", "Your booking details stay saved.");
+      if (!ok) return;
+      await refreshMe();
+    }
+    try {
+      const b = await MB.rpc("mb_create_booking", { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes });
+      S.lastBooking = { id: b.id, when: S.slot, type: S.sel.type_name, dur: S.sel.duration_min, name: S.therapist.display_name, price: S.sel.price };
+      S.sel = null; S.slot = null;
+      location.hash = "done/" + b.id;
+      refreshMe();
+      MB.enablePush(false);
+    } catch (e) { if (/taken/i.test(e.message || "")) loadSlots(); }
+  }
+
+  function pageDone() {
+    const b = S.lastBooking;
+    if (!b) { location.hash = "bookings"; return; }
+    view.innerHTML = `<div class="card center" style="margin-top:24px">
+      <div style="font-size:56px">🎉</div><h1>Booking sent!</h1>
+      <p><b>${esc(b.type)} · ${b.dur} min</b><br>${MB.fmtWhen(b.when)}<br>with ${esc(b.name)}</p>
+      <div class="banner info">${esc(b.name)} will accept your booking within ${S.settings.accept_min || 60} minutes. We'll notify you.</div>
+      <p class="small muted">Please prepare <b>${peso(b.price)}</b> cash for after the massage.</p>
+      ${MB.pushSupported() && Notification.permission !== "granted" ? `<button class="btn block light" id="d-push">🔔 Turn on notifications</button><div style="height:8px"></div>` : ""}
+      <a class="btn block" href="#bookings">See my bookings</a></div>`;
+    const p = $("#d-push"); if (p) p.onclick = (e) => MB.busy(e.target, () => MB.enablePush(true));
+  }
+
+  // ---------- My bookings ----------
+  let bookTab = "up";
+  async function pageBookings() {
+    if (!MB.session) { view.innerHTML = `<div class="card" id="auth"></div>`; MB.renderAuth($("#auth"), { title: "Log in to see your bookings", onDone: async () => { await refreshMe(); route(); } }); return; }
+    view.innerHTML = `<h1>My bookings</h1>
+      <div class="tabs"><button data-tab="up" class="${bookTab === "up" ? "on" : ""}">Upcoming</button><button data-tab="past" class="${bookTab === "past" ? "on" : ""}">Past</button></div>
+      <div id="blist"><div class="spinner"></div></div>`;
+    $(".tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { bookTab = b.dataset.tab; pageBookings(); } };
+    const all = await MB.rpc("mb_my_bookings", { p_as: "customer" });
+    const now = Date.now();
+    const up = all.filter((b) => MB.ACTIVE.includes(b.status) && new Date(b.end_at).getTime() > now - 3 * 3600e3).reverse();
+    const past = all.filter((b) => !up.includes(b));
+    const list = bookTab === "up" ? up : past;
+    const el = $("#blist");
+    if (!list.length) { el.innerHTML = `<div class="empty"><div class="big">📅</div><p>${bookTab === "up" ? "No upcoming bookings." : "No past bookings yet."}</p><a class="btn" href="#">Book a massage</a></div>`; return; }
+    el.innerHTML = list.map((b) => `
+      <div class="card" data-id="${b.id}">
+        <div class="row"><img class="avatar sm" src="${esc((b.therapist && b.therapist.photo_url) || MB.PLACEHOLDER)}" alt="" onerror="this.src=MB.PLACEHOLDER">
+          <div class="grow"><b>${esc(b.type_name)} · ${b.duration_min} min</b><div class="small muted">${esc(b.therapist ? b.therapist.name : "")}</div></div>
+          ${MB.badge(b.status)}</div>
+        <div class="sep"></div>
+        <div class="small">📅 ${MB.fmtWhen(b.start_at)}</div>
+        <div class="small">📍 ${esc(b.address)}</div>
+        <div class="small">💵 ${peso(b.price)} cash${b.payment_status === "paid" ? " · paid" : ""}</div>
+        ${b.status === "cancelled" || b.status === "declined" ? `<div class="small muted">${b.cancel_reason ? "Reason: " + esc(b.cancel_reason) : ""}</div>` : ""}
+        <div class="btn-row" style="margin-top:10px">
+          ${b.therapist && b.therapist.phone ? `<a class="btn sm light" href="tel:${esc(b.therapist.phone)}">📞 Call</a><a class="btn sm light" href="sms:${esc(b.therapist.phone)}">💬 Text</a>` : ""}
+          ${["pending", "confirmed"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
+          ${b.status === "completed" && !b.reviewed ? `<button class="btn sm gold" data-a="rate">⭐ Rate</button>` : ""}
+          ${!MB.ACTIVE.includes(b.status) && b.therapist ? `<a class="btn sm ghost" href="#t/${b.therapist.id}">Book again</a>` : ""}
+        </div>
+      </div>`).join("");
+    el.onclick = async (e) => {
+      const a = e.target.dataset.a; if (!a) return;
+      const id = Number(e.target.closest("[data-id]").dataset.id);
+      if (a === "cancel") {
+        if (!(await MB.confirm("Cancel booking?", "Your therapist will be told right away.", "Yes, cancel", true))) return;
+        await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: "" }); MB.toast("Booking cancelled."); pageBookings();
+      }
+      if (a === "rate") rate(id);
+    };
+  }
+  function rate(id) {
+    let stars = 5;
+    const body = MB.modal("Rate your massage", `<div class="star-pick center">${[1, 2, 3, 4, 5].map((n) => `<button data-n="${n}" class="on">★</button>`).join("")}</div>
+      <label>Comment (optional)</label><textarea id="r-c" placeholder="How was your massage?"></textarea>
+      <button class="btn block" id="r-go" style="margin-top:12px">Submit</button>`);
+    $(".star-pick", body).onclick = (e) => { const n = Number(e.target.dataset.n); if (!n) return; stars = n; $$(".star-pick button", body).forEach((b) => b.classList.toggle("on", Number(b.dataset.n) <= n)); };
+    $("#r-go", body).onclick = (e) => MB.busy(e.target, async () => {
+      await MB.rpc("mb_submit_review", { p_booking: id, p_stars: stars, p_comment: $("#r-c").value.trim() });
+      MB.closeModal(); MB.toast("Thank you for your review! ⭐"); pageBookings();
+    });
+  }
+
+  // ---------- Account ----------
+  async function pageAccount() {
+    if (!MB.session) {
+      view.innerHTML = `${MB.setupBanner()}<div class="card" id="auth"></div>
+        <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a></div>
+        <div class="ver">Massage Buddy v${MB.version}</div>`;
+      if (MB.configured) MB.renderAuth($("#auth"), { title: "Welcome to Massage Buddy", subtitle: "Log in or create an account to book.", onDone: async () => { await refreshMe(); route(); } });
+      return;
+    }
+    const me = S.me || (await refreshMe()) || {};
+    view.innerHTML = `<h1>My account</h1>
+      <div class="card">
+        <label>Full name</label><input id="p-name" value="${esc(me.full_name)}">
+        <label>Mobile number</label><input id="p-phone" type="tel" value="${esc(me.phone)}" placeholder="0917 123 4567">
+        <label>Home address</label><textarea id="p-addr">${esc(me.address)}</textarea>
+        <label>City</label><select id="p-area"><option value="">Choose city</option>${MB.AREAS.map((a) => `<option ${me.area === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+        <div class="small muted" style="margin-top:8px">Logged in as ${esc(me.email || me.phone || "")}</div>
+        <button class="btn block" id="p-save" style="margin-top:14px">Save</button>
+      </div>
+      ${MB.pushSupported() ? `<div class="card row"><div class="grow"><b>Phone notifications</b><div class="small muted">Booking updates and reminders</div></div><button class="btn sm light" id="p-push">${Notification.permission === "granted" ? "On ✅" : "Turn on"}</button></div>` : ""}
+      ${me.blocked ? `<div class="banner bad">Your account cannot make bookings right now. Please contact support.</div>` : ""}
+      <div class="card center small">Are you a massage therapist? <a href="therapist.html">Join Massage Buddy →</a>${me.is_admin ? ` · <a href="admin.html">Admin</a>` : ""}</div>
+      ${S.settings.support_phone || S.settings.support_email ? `<div class="card small"><b>Need help?</b><br>${S.settings.support_phone ? `📞 <a href="tel:${esc(S.settings.support_phone)}">${esc(S.settings.support_phone)}</a><br>` : ""}${S.settings.support_email ? `✉️ <a href="mailto:${esc(S.settings.support_email)}">${esc(S.settings.support_email)}</a>` : ""}</div>` : ""}
+      <button class="btn block ghost" id="p-out">Log out</button>
+      <div class="ver">Massage Buddy v${MB.version}</div>`;
+    $("#p-save").onclick = (e) => MB.busy(e.target, async () => {
+      S.me = await MB.rpc("mb_save_profile", { p_name: $("#p-name").value, p_phone: $("#p-phone").value, p_address: $("#p-addr").value, p_area: $("#p-area").value });
+      MB.toast("Saved ✅");
+    });
+    const pp = $("#p-push"); if (pp) pp.onclick = (e) => MB.busy(e.target, async () => { if (await MB.enablePush(true)) pp.dataset.t = "On ✅"; });
+    $("#p-out").onclick = () => MB.logout();
+  }
+
+  // ---------- start ----------
+  (async function init() {
+    MB.registerSW();
+    if (MB.configured) {
+      await MB.getSession();
+      MB.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") refreshMe(); });
+      try {
+        const [types, settings] = await Promise.all([MB.rpc("mb_massage_types", {}, { quiet: true }), MB.rpc("mb_public_settings", {}, { quiet: true })]);
+        S.types = types || []; S.settings = settings || S.settings;
+      } catch (e) {}
+      await refreshMe();
+      MB.enablePush(false);
+      MB.onResume(() => { refreshMe(); if (/^#(bookings)?$/.test(location.hash) || location.hash === "") route(); });
+    }
+    route();
+  })();
+})();
+</script>
+</body>
+</html>
