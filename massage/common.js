@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.07";
+  MB.version = C.appVersion || "1.08";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -225,6 +225,52 @@
       });
     });
   };
+
+  // ---------- Read Terms / Privacy / Refund / Letter INSIDE the app ----------
+  // Opening them as a separate page made the app jump out and lose what the person typed.
+  // Now they open on top of the current screen; Close or the phone's Back button returns.
+  const DOC_PAGES = { "terms.html": "Terms & Conditions", "privacy.html": "Privacy Policy", "refund.html": "Refund & Cancellation", "letter-of-intent.html": "Letter of Intent" };
+  MB.showDoc = async (page) => {
+    MB.closeDoc(true);
+    const wrap = document.createElement("div");
+    wrap.className = "doc-sheet"; wrap.id = "mb-doc";
+    wrap.innerHTML = `<div class="doc-sheet-in" role="dialog" aria-modal="true">
+      <div class="doc-sheet-head"><b>${MB.esc(DOC_PAGES[page] || "Document")}</b><button class="btn sm" id="doc-close">Close</button></div>
+      <div class="doc-sheet-body"><div class="spinner"></div></div>
+      <div class="doc-sheet-foot"><button class="btn block" id="doc-close2">Close and go back</button></div></div>`;
+    document.body.appendChild(wrap);
+    document.documentElement.style.overflow = "hidden";
+    try { history.pushState({ mbDoc: 1 }, "", location.href); } catch (e) {}
+    const shut = () => MB.closeDoc();
+    MB.$("#doc-close", wrap).onclick = shut; MB.$("#doc-close2", wrap).onclick = shut;
+    const body = MB.$(".doc-sheet-body", wrap);
+    try {
+      const res = await fetch(page + "?v=" + MB.version, { cache: "no-cache" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const html = new DOMParser().parseFromString(await res.text(), "text/html");
+      const main = html.querySelector("main.doc") || html.querySelector(".loi") || html.querySelector("main");
+      main.querySelectorAll(".doc-links, .no-print, .howto, script").forEach((n) => n.remove());
+      body.innerHTML = main.innerHTML;
+      body.scrollTop = 0;
+    } catch (e) {
+      body.innerHTML = `<div class="empty">Could not open the document. Please check your internet and try again.</div>`;
+    }
+  };
+  MB.closeDoc = (silent) => {
+    const w = document.getElementById("mb-doc"); if (!w) return;
+    w.remove(); document.documentElement.style.overflow = "";
+    if (!silent && history.state && history.state.mbDoc) { try { history.back(); } catch (e) {} }
+  };
+  window.addEventListener("popstate", () => { if (document.getElementById("mb-doc")) MB.closeDoc(true); });
+  // Any link to these documents (sign-up box, popups, footers, chat warning...) opens inside the app.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]"); if (!a) return;
+    const page = (a.getAttribute("href") || "").split(/[?#]/)[0].split("/").pop();
+    if (!DOC_PAGES[page]) return;
+    // inside an open document, links to another document just switch to it
+    e.preventDefault(); e.stopPropagation();
+    MB.showDoc(page);
+  }, true);
 
   // ---------- Terms agreement (required for every account) ----------
   MB.TERMS_VERSION = "2026-11-22";
