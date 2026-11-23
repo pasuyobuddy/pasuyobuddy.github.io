@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.01" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.02" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -1552,7 +1552,9 @@ async function setOnline(on) {
 }
 async function accept(id) {
   await run(async function () { var ok = await rpc("rider_accept", { p_order: id }); S.busy = false;
-    if (!ok) { toast("Another rider got this job first", true); await loadJobs(); return; } await openJob(id); okPop("Job accepted!", "Go to the pickup now. The customer can see you on the map."); });
+    if (!ok) { toast("Another rider got this job first", true); await loadJobs(); return; }
+    try { await reloadMe(); } catch (e) {}   // tells the phone's location service "on a job" right away (fast updates, also when minimized)
+    await openJob(id); okPop("Job accepted!", "Go to the pickup now. The customer can see you on the map."); });
 }
 async function openJob(id) {
   var same = S.order && S.order.id === id && S.view === "job";
