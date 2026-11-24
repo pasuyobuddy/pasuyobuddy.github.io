@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.03" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.04" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -971,7 +971,8 @@ function setupCard() {
   var done = steps.filter(function (x) { return x.ok; }).length;
   if (done === steps.length) return "";
   return '<div class="card" style="border:2px solid var(--warn)"><h2 style="margin:0 0 2px">Set up live location</h2>'
-    + '<div class="small muted" style="margin-bottom:8px">So the customer sees you move even when the app is minimized. ' + done + " of " + steps.length + " done.</div>"
+    + '<div class="note n-info" style="margin-bottom:8px;text-align:left">&#128205; <b>PasuyoBuddy Rider collects your location data</b> to show your live location to the customer and to send you jobs near you, <b>even when the app is closed or not in use</b>, but only while you are online or on a delivery. Going offline stops it. Your location is not shared with anyone else.</div>'
+    + '<div class="small muted" style="margin-bottom:8px">' + done + " of " + steps.length + " done.</div>"
     + steps.map(function (x) {
         return '<div class="line" style="align-items:center;gap:10px"><span class="sp"><span class="b">' + x.t + "</span><br>"
           + '<span class="small muted">' + (x.ok ? "Done" : x.wait ? "Do Location first." : x.d) + "</span></span>"
