@@ -794,7 +794,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.02" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "1.03" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var OWNER_DOCS = [["owner_authorization", "Owner's authorization letter (or Deed of Sale)"], ["owner_id", "Owner's ID: NOT expired (e.g. driver's license)"], ["owner_selfie", "Owner's selfie holding his/her ID"]];
@@ -943,7 +943,48 @@ function trackerPos(loc) {
   if (!NAT.active && !onJob && rider() && rider().is_online && now - NAT.lastJobs >= 15000) { NAT.lastJobs = now; nativeJobAlerts(); }
 }
 function trackerMode(job) { if (NAT.tr && NAT.trOn && NAT.trJob !== job) { NAT.trJob = job; NAT.tr.setMode({ onJob: job }).catch(function () {}); } }
+// Rider app 2.4+: "Set up live location" card. Each button shows the phone's own Allow popup, so riders never dig in Settings.
+// Older apps have no setupStatus: NAT.setup stays null and the old battery note is shown instead.
+async function setupCheck() {
+  if (!NATIVE || !NAT.tr) return null;
+  try { NAT.setup = await NAT.tr.setupStatus(); } catch (e) { NAT.setup = null; }
+  return NAT.setup;
+}
+async function setupRefresh() {
+  var before = NAT.setup ? JSON.stringify(NAT.setup) : "";
+  var was = NAT.setup || {};
+  var st = await setupCheck(); if (!st) return;
+  // Location access got better: restart the tracker so it uses it right away
+  if (before && ((st.background && !was.background) || (st.precise && !was.precise) || (st.location && !was.location))) {
+    if (NAT.trOn) { NAT.trOn = false; nativeSync(); }
+  }
+  if (JSON.stringify(st) !== before && (S.view === "home" || S.view === "job")) render();
+}
+function setupCard() {
+  var st = NAT.setup, r = rider();
+  if (!st || !S.session || !r || r.status !== "approved") return "";
+  var steps = [
+    { ok: st.location && st.precise, act: "setup-loc", t: "&#128205; Location", d: "Tap <b>Allow</b>, then <b>While using the app</b>. Keep <b>Precise</b> on." },
+    { ok: st.background, act: "setup-bg", t: "&#128752;&#65039; Location all the time", d: "On the next screen choose <b>Allow all the time</b>, then go back.", wait: !st.location },
+    { ok: st.battery, act: "setup-bat", t: "&#128267; Battery", d: "Tap <b>Allow</b> so your phone does not stop live location." },
+    { ok: st.notifications, act: "setup-notif", t: "&#128276; Notifications", d: "Tap <b>Allow</b> to get new job alerts." }];
+  var done = steps.filter(function (x) { return x.ok; }).length;
+  if (done === steps.length) return "";
+  return '<div class="card" style="border:2px solid var(--warn)"><h2 style="margin:0 0 2px">Set up live location</h2>'
+    + '<div class="small muted" style="margin-bottom:8px">So the customer sees you move even when the app is minimized. ' + done + " of " + steps.length + " done.</div>"
+    + steps.map(function (x) {
+        return '<div class="line" style="align-items:center;gap:10px"><span class="sp"><span class="b">' + x.t + "</span><br>"
+          + '<span class="small muted">' + (x.ok ? "Done" : x.wait ? "Do Location first." : x.d) + "</span></span>"
+          + (x.ok ? '<span class="pill p-good">&#10003; Done</span>' : '<button class="btn pri sm" style="width:auto" data-act="' + x.act + '"' + (x.wait ? " disabled" : "") + ">Allow</button>")
+          + "</div>";
+      }).join("") + "</div>";
+}
+async function setupAsk(method) {
+  try { await NAT.tr[method](); } catch (e) {}
+  await setupRefresh(); render();
+}
 function batteryNote() {
+  if (NAT.setup) return "";   // 2.4+ app: the setup card handles it
   return NAT.trOn && NAT.bat === false ? '<div class="note n-warn">&#128267; <b>Keep live location from stopping:</b> open App settings &rarr; <b>Battery</b> &rarr; choose <b>Unrestricted</b> (or "Don\'t optimize"). Also set Location to <b>Allow all the time</b> if your phone asks.<div class="chips" style="margin-top:8px"><button class="chip on" data-act="batteryfix">Open App settings</button></div></div>' : "";
 }
 function nativePos(loc, err) {
@@ -1073,7 +1114,7 @@ function startGps(force) {
 }
 var wakeLock = null;
 async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", function () { wakeLock = null; }); } } catch (e) {} }
-document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && S.session) { keepAwake(); checkNotices(); if (S.pos) { lastSent = 0; sendPos(S.pos.lat, S.pos.lng); } } });
+document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && S.session) { keepAwake(); checkNotices(); if (NATIVE) setupRefresh(); if (S.pos) { lastSent = 0; sendPos(S.pos.lat, S.pos.lng); } } });
 function stopGps() { if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
 
 // ---------------- Session ----------------
@@ -1153,7 +1194,7 @@ function cancelWarn() {
   return '<div class="note n-warn">This will be give-up <b>' + next + " of " + lim + "</b> in " + c.days + " days. At " + lim + ", you are suspended for " + c.hours + " hours.</div>";
 }
 async function loadSuspend() { try { S.cancelSt = await rpc("rider_cancel_status"); } catch (e) {} if (S.view === "home") render(); }
-async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; if (NATIVE) nativeSync(); }
+async function reloadMe() { S.me = await rpc("rider_me"); if (S.me && S.me.auto_offline) S.autoOff = true; if (NATIVE) { nativeSync(); setupRefresh(); } }
 // ---------------- App lock (fingerprint / face or PIN) + one phone per account. Only in the new Play Store app (2.1+). ----------------
 var LOCK = { on: false, locked: false, bgAt: 0, bio: null, avail: false, setup: null, phone: "ok", bioOnly: 0, dev: null, ver: "", fails: 0, usePin: false, inited: false };
 function newApp() { try { return !!(NATIVE && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("NativeBiometric")); } catch (e) { return false; } }
@@ -2296,7 +2337,7 @@ function vHome() {
     + pushCard(false)
     + (S.me && !S.me.photo ? '<div class="note n-warn">&#128100; Take your profile selfie in <b>Account</b> so customers know who is coming.</div>' : "")
 
-    + appOnlyNote() + phoneNote() + batteryNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + jtChips() + list + "</div>" + nav("home");
+    + appOnlyNote() + phoneNote() + setupCard() + batteryNote() + regionNote(r) + '<h2 style="margin:4px 0 0">Available jobs</h2>' + jtChips() + list + "</div>" + nav("home");
 }
 function cashPlan(o) {
   var rows = "", total = 0, cash = o.payment_method === "cash";
@@ -2691,6 +2732,10 @@ document.addEventListener("click", function (ev) {
   else if (a === "nextacc") acceptNext(d.id);
   else if (a === "nextgo") { if (S.me && S.me.active_order) run(async function () { await openJob(S.me.active_order); }); }
   else if (a === "batteryfix") { try { NAT.tr.openSettings({ what: "app" }); } catch (e) {} }
+  else if (a === "setup-loc") setupAsk("askLocation");
+  else if (a === "setup-bg") setupAsk("askBackground");
+  else if (a === "setup-bat") setupAsk("askBattery");
+  else if (a === "setup-notif") setupAsk("askNotifications");
 });
 var tuT = null;
 document.addEventListener("input", function (ev) { if (ev.target && ev.target.id === "tu_amt") { clearTimeout(tuT); tuT = setTimeout(function () { var v = Number(ev.target.value); if (v) { TOPUP.amount = v; TOPUP.quote = null; document.querySelectorAll('[data-act="tuamt"]').forEach(function (b) { b.classList.toggle("on", +b.dataset.v === v); }); loadTopupQuote(); } }, 400); } });
