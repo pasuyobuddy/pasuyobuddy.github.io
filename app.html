@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.77" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.78" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -994,7 +994,7 @@ async function boot() {
   var r = await sb.auth.getSession();
   S.session = r.data ? r.data.session : null;
   if (fromEmail) { try { history.replaceState(null, "", location.pathname); } catch (e) {} S.view = "confirmed"; render(); return; }
-  if (!S.session) { var pend = null; try { pend = localStorage.getItem("pb_verify_email"); } catch (e) {} if (pend) { S.authEmail = pend; S.authMode = "verify"; } }
+  if (!S.session) { var pend = null; try { pend = localStorage.getItem("pb_verify_email"); } catch (e) {} if (pend) { S.authEmail = pend; S.authMode = "verify"; VERIFY.sentAt = codeAt(pend) || VERIFY.sentAt; } }
   if (S.session) await afterLogin(); else render();
 }
 function vConfirmed() {
@@ -1022,6 +1022,11 @@ async function afterLogin() {
 }
 // ---------------- Email code (no links: the code is typed in the app) ----------------
 var VERIFY = { sentAt: 0 };
+// 0.78: remember when the last code was sent to each email. A new code cancels the older ones,
+// so we never send another one by ourselves within 10 minutes, and we show the time of the newest email.
+function codeSent(email) { VERIFY.sentAt = Date.now(); try { localStorage.setItem("pb_code_at:" + String(email).toLowerCase(), String(VERIFY.sentAt)); } catch (e) {} }
+function codeAt(email) { try { return Number(localStorage.getItem("pb_code_at:" + String(email).toLowerCase())) || 0; } catch (e) { return 0; } }
+function hhmm(t) { try { return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } }
 function startVerify(email, msg) {
   S.authEmail = email; S.authMode = "verify"; S.authMsg = msg || ""; if (!VERIFY.sentAt) VERIFY.sentAt = Date.now();
   try { localStorage.setItem("pb_verify_email", email); } catch (e) {}
@@ -1032,10 +1037,12 @@ function vEmailCode() {
   return '<div class="body"><div style="text-align:center;font-size:56px;line-height:1;margin-top:18px">&#9993;&#65039;</div><h1 style="text-align:center;margin:0;font-size:22px">Check your email</h1>'
     + (S.authMsg ? '<div class="note n-info">' + h(S.authMsg) + "</div>" : "")
     + '<div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="small muted">Code sent to <b>' + h(S.authEmail) + "</b>. It can take a minute. Check your Spam folder too.</div>"
+    + (VERIFY.sentAt ? '<div class="note n-warn" style="font-size:13px">&#128231; Use the code from the <b>newest</b> PasuyoBuddy email (sent at <b>' + h(hhmm(VERIFY.sentAt)) + "</b>). Older codes stop working.</div>" : "")
     + '<div class="field"><label for="v_code">8-digit code</label><input class="in" id="v_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••••" style="font-size:24px;letter-spacing:6px;text-align:center"></div>'
     + '<button class="btn pri" data-act="verify">Confirm</button>'
     + '<button class="btn" data-act="resendcode" id="resendbtn"' + (wait ? " disabled" : "") + ">" + (wait ? "Send a new code in " + wait + "s" : "Send a new code") + "</button></div>"
-    + '<button class="btn" data-act="verifyback">Use a different email</button></div>';
+    + '<div class="small muted" style="text-align:center">Already tapped the link or button in the email? Your account is ready: tap below and <b>sign in</b>.</div>'
+    + '<button class="btn" data-act="verifyback">Use a different email / Sign in</button></div>';
 }
 setInterval(function () { var b = $("resendbtn"); if (!b || S.authMode !== "verify") return; var wait = Math.max(0, 60 - Math.floor((Date.now() - VERIFY.sentAt) / 1000)); b.disabled = wait > 0; b.textContent = wait ? "Send a new code in " + wait + "s" : "Send a new code"; }, 1000);
 async function doVerify() {
@@ -1050,7 +1057,7 @@ async function doVerify() {
   });
 }
 async function resendCode() {
-  await run(async function () { var r = await sb.auth.resend({ type: "signup", email: S.authEmail }); if (r && r.error) throw new Error(r.error.message); VERIFY.sentAt = Date.now(); S.busy = false; render(); toast("New code sent to " + S.authEmail); });
+  await run(async function () { var r = await sb.auth.resend({ type: "signup", email: S.authEmail }); if (r && r.error) throw new Error(r.error.message); codeSent(S.authEmail); S.busy = false; render(); toast("New code sent to " + S.authEmail + ". Use only this newest code."); });
 }
 // ---------------- Forgot password (email code, no links) ----------------
 var RESET = { step: "email", sentAt: 0 };
@@ -1105,11 +1112,14 @@ async function doAuth() {
       if (!S.termsOk && !($("a_terms") && $("a_terms").checked)) throw new Error("Please tick the box to agree to the Terms & Conditions and Privacy Policy.");
       var r = await sb.auth.signUp({ email: email, password: pw, options: Object.assign({ data: { full_name: name, terms_version: "2026-10-26", terms_accepted_at: new Date().toISOString() } }, (location.protocol === "https:" ? { emailRedirectTo: location.origin + location.pathname } : {})) });
       if (r.error) throw new Error(r.error.message);
-      if (!r.data || !r.data.session) { startVerify(email, "Account created! We sent a 8-digit code to " + email + ". Enter it below to finish."); return; }
+      if (!r.data || !r.data.session) { codeSent(email); startVerify(email, "Account created! We sent an 8-digit code to " + email + ". Enter it below to finish."); return; }
       S.session = r.data.session;
     } else {
       var r2 = await sb.auth.signInWithPassword({ email: email, password: pw });
-      if (r2.error && /not confirmed/i.test(r2.error.message)) { try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} VERIFY.sentAt = Date.now(); startVerify(email, "Your email is not confirmed yet. We sent a new 8-digit code to " + email + "."); return; }
+      if (r2.error && /not confirmed/i.test(r2.error.message)) {
+        var last = codeAt(email);
+        if (last && Date.now() - last < 10 * 60000) { VERIFY.sentAt = last; startVerify(email, "Your email is not confirmed yet. Enter the 8-digit code from the newest PasuyoBuddy email (sent at " + hhmm(last) + ")."); return; }
+        try { await sb.auth.resend({ type: "signup", email: email }); } catch (x) {} codeSent(email); startVerify(email, "Your email is not confirmed yet. We sent a new 8-digit code to " + email + ". Use only this newest code."); return; }
       if (r2.error) throw new Error(r2.error.message);
       S.session = r2.data.session;
     }
@@ -2006,7 +2016,7 @@ document.addEventListener("click", function (ev) {
   else if (a === "forgotsave") forgotSave();
   else if (a === "forgotback") { S.authMode = "login"; RESET.step = "email"; S.authMsg = ""; render(); }
   else if (a === "resendcode") resendCode();
-  else if (a === "verifyback") { try { localStorage.removeItem("pb_verify_email"); } catch (e) {} S.authMode = "signup"; S.authMsg = ""; render(); }
+  else if (a === "verifyback") { try { localStorage.removeItem("pb_verify_email"); } catch (e) {} S.authMode = "login"; S.authMsg = ""; render(); }
   else if (a === "authmode") { S.authEmail = val("a_email"); S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; render(); }
   else if (a === "saveprofile") saveProfile();
   else if (a === "signout") signOut();
