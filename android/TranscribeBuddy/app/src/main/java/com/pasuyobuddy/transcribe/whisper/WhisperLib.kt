@@ -1,0 +1,42 @@
+package com.pasuyobuddy.transcribe.whisper
+
+/** Kotlin side of the JNI bridge in src/main/cpp/whisper_jni.cpp. */
+object WhisperLib {
+    init {
+        System.loadLibrary("whisper_jni")
+    }
+
+    /** Loads the CPU engine variant that fits this phone. Returns the number of devices found (0 = failed). */
+    external fun loadBackends(nativeLibDir: String): Int
+
+    @Volatile private var backendsReady = false
+    fun ensureBackends(ctx: android.content.Context) {
+        if (backendsReady) return
+        val n = loadBackends(ctx.applicationInfo.nativeLibraryDir)
+        if (n <= 0) throw IllegalStateException("Speech engine could not start on this phone (no CPU backend).")
+        backendsReady = true
+    }
+
+    /** Returns a native context pointer, or 0 if the model could not be loaded. */
+    external fun initContext(modelPath: String): Long
+    external fun freeContext(ptr: Long)
+    external fun setAbort(value: Boolean)
+
+    /**
+     * Transcribes 16 kHz mono float samples. With [translate] the output is English text.
+     * Result: [0] = "LANG|xx", then "t0ms|t1ms|text" per segment. Null on failure/abort.
+     */
+    external fun transcribe(
+        ptr: Long,
+        samples: FloatArray,
+        language: String,
+        threads: Int,
+        keepContext: Boolean,
+        translate: Boolean
+    ): Array<String>?
+
+    external fun systemInfo(): String
+
+    fun recommendedThreads(): Int =
+        Runtime.getRuntime().availableProcessors().let { if (it >= 8) 6 else (it - 1).coerceIn(1, 4) }
+}

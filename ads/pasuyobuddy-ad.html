@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="tl">
+<head>
+<meta charset="utf-8">
+<title>PasuyoBuddy Ad</title>
+<!-- Animated ad, rendered frame by frame: open with ?w=1080&h=1920&lang=tl (or en), then call window.renderAt(seconds). -->
+<style>
+:root{ --red:#D7141A; --red-d:#B10E13; --yellow:#FFC629; --ink:#15171C; --cream:#F6F5F1; --good:#0B6B45; --u:10.8px }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000;overflow:hidden}
+body{font-family:"Inter","Noto Color Emoji",sans-serif;color:var(--ink)}
+#stage{position:relative;overflow:hidden;background:var(--red)}
+.bg{position:absolute;inset:-20%;}
+.stripes{background:repeating-linear-gradient(-30deg, rgba(255,198,41,.13) 0 calc(var(--u)*3), transparent calc(var(--u)*3) calc(var(--u)*9))}
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:calc(var(--u)*7);opacity:0}
+.h1{font-weight:900;font-size:calc(var(--u)*11);line-height:1.02;letter-spacing:-.02em}
+.h2{font-weight:900;font-size:calc(var(--u)*8);line-height:1.05;letter-spacing:-.01em}
+.sub{font-weight:700;font-size:calc(var(--u)*4.6);line-height:1.25;margin-top:calc(var(--u)*3)}
+.white{color:#fff}.yellow{color:var(--yellow)}.red{color:var(--red)}
+.hl{background:var(--yellow);color:var(--ink);padding:0 .18em;border-radius:.12em;display:inline-block}
+.emoji{font-size:calc(var(--u)*20);line-height:1;margin-bottom:calc(var(--u)*3);display:inline-block}
+.logo{width:calc(var(--u)*62);height:auto;filter:drop-shadow(0 calc(var(--u)*1.2) calc(var(--u)*2) rgba(0,0,0,.35))}
+.phone{position:relative;width:calc(var(--u)*46);height:calc(var(--u)*92);border-radius:calc(var(--u)*6);background:#111;padding:calc(var(--u)*1.6);
+  box-shadow:0 calc(var(--u)*3) calc(var(--u)*8) rgba(0,0,0,.45);flex:none}
+.phone .screen{width:100%;height:100%;border-radius:calc(var(--u)*4.6);overflow:hidden;background:#fff;position:relative}
+.phone img{width:100%;display:block;position:absolute;left:0;top:0}
+.row{display:flex;align-items:center;justify-content:center;gap:calc(var(--u)*5)}
+.chip{display:inline-block;background:#fff;border-radius:999px;padding:calc(var(--u)*1.2) calc(var(--u)*3);font-weight:800;font-size:calc(var(--u)*4.2);margin:calc(var(--u)*.8);box-shadow:0 calc(var(--u)*.5) calc(var(--u)*1.5) rgba(0,0,0,.15)}
+.card{display:flex;align-items:center;gap:calc(var(--u)*3);background:#fff;border-radius:calc(var(--u)*4);padding:calc(var(--u)*3.2) calc(var(--u)*4);
+  width:min(100%, calc(var(--u)*86));text-align:left;margin-top:calc(var(--u)*3);box-shadow:0 calc(var(--u)*1) calc(var(--u)*3) rgba(0,0,0,.18)}
+.card .ic{font-size:calc(var(--u)*10);line-height:1}
+.card b{display:block;font-weight:900;font-size:calc(var(--u)*5.6);color:var(--red)}
+.card span{font-weight:700;font-size:calc(var(--u)*4.2);color:#5B6070}
+.map{position:relative;width:calc(var(--u)*80);height:calc(var(--u)*80);border-radius:calc(var(--u)*6);background:#EAF2E3;overflow:hidden;
+  box-shadow:0 calc(var(--u)*1.5) calc(var(--u)*4) rgba(0,0,0,.25);flex:none}
+.map svg{position:absolute;inset:0;width:100%;height:100%}
+.pin{position:absolute;font-size:calc(var(--u)*9);transform:translate(-50%,-90%)}
+.moto{position:absolute;width:calc(var(--u)*15);transform:translate(-50%,-50%);filter:drop-shadow(0 calc(var(--u)*.6) calc(var(--u)*.8) rgba(0,0,0,.35))}
+.badge{display:inline-flex;align-items:center;gap:.4em;background:var(--ink);color:#fff;border-radius:999px;padding:calc(var(--u)*1.4) calc(var(--u)*3.4);
+  font-weight:800;font-size:calc(var(--u)*4.4);margin:calc(var(--u)*1)}
+.cta{background:var(--yellow);color:var(--ink);font-weight:900;font-size:calc(var(--u)*7.4);padding:calc(var(--u)*2.2) calc(var(--u)*6);border-radius:999px;
+  margin-top:calc(var(--u)*4);box-shadow:0 calc(var(--u)*1) 0 var(--red-d)}
+.url{font-weight:900;font-size:calc(var(--u)*6.4);color:#fff;margin-top:calc(var(--u)*4);letter-spacing:-.01em}
+.small{font-weight:700;font-size:calc(var(--u)*4.2);color:#fff;opacity:.95;margin-top:calc(var(--u)*2)}
+/* landscape: put phone/map beside the text */
+.land .split{flex-direction:row;gap:calc(var(--u)*8);text-align:left;justify-content:center}
+.land .split .txt{max-width:50%}
+.land .phone{width:calc(var(--u)*40);height:calc(var(--u)*80)}
+.land .map{width:calc(var(--u)*70);height:calc(var(--u)*70)}
+.land .card{width:calc(var(--u)*110)}
+.port .split{flex-direction:column;gap:calc(var(--u)*5)}
+.badge{white-space:nowrap}
+.sq .map{width:calc(var(--u)*58);height:calc(var(--u)*58)}
+.sq .phone{width:calc(var(--u)*38);height:calc(var(--u)*76)}
+.sq .split .txt{max-width:56%}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="bg stripes" id="stripes"></div>
+
+  <!-- 1. hook -->
+  <section class="scene" id="s1">
+    <div class="emoji" id="s1e">📦</div>
+    <div class="h1 white" id="s1t" data-tl="May ipapadala ka?" data-en="Need something delivered?"></div>
+    <div class="sub yellow" id="s1s" data-tl="Parcel, dokumento, pagkain…" data-en="Parcels, documents, food…"></div>
+  </section>
+
+  <!-- 2. brand -->
+  <section class="scene" id="s2" style="background:#FFF7E0">
+    <div class="h2 red" id="s2t" data-tl="Pasuyo na lang kay" data-en="Leave it to"></div>
+    <img class="logo" id="s2l" src="../icon-512.png" alt="PasuyoBuddy" style="margin-top:calc(var(--u)*2);width:calc(var(--u)*82);filter:none">
+  </section>
+
+  <!-- 3. price + vehicles -->
+  <section class="scene split" id="s3">
+    <div class="txt">
+      <div class="h2 white" id="s3t" data-tl="Kita agad ang &lt;span class='hl'&gt;presyo&lt;/span&gt;" data-en="See the &lt;span class='hl'&gt;price&lt;/span&gt; first"></div>
+      <div class="sub white" id="s3s" data-tl="Walang hidden charges ✅" data-en="No hidden charges ✅"></div>
+      <div id="s3c" style="margin-top:calc(var(--u)*3)">
+        <span class="chip">🏍️ <span data-tl="Motor" data-en="Motorcycle"></span></span><span class="chip">🚗 <span data-tl="Kotse" data-en="Car"></span></span><span class="chip">🚐 Van</span><span class="chip">🚚 Truck</span>
+      </div>
+    </div>
+    <div class="phone" id="s3p"><div class="screen"><img id="s3img" src="../customer_high_demand_preview_1.png" alt=""></div></div>
+  </section>
+
+  <!-- 4. services -->
+  <section class="scene" id="s4" style="background:var(--cream)">
+    <div class="h2" id="s4t" data-tl="Isang app, &lt;span class='red'&gt;3 serbisyo&lt;/span&gt;" data-en="One app, &lt;span class='red'&gt;3 services&lt;/span&gt;"></div>
+    <div class="card" id="s4a"><div class="ic">📦</div><div><b>Pasuyo Delivery</b><span data-tl="Hanggang 4 na drop-off sa isang booking" data-en="Up to 4 drop-offs in one booking"></span></div></div>
+    <div class="card" id="s4b"><div class="ic">🛒</div><div><b>Pabili</b><span data-tl="Si rider ang bibili para sa'yo" data-en="Your rider buys it for you"></span></div></div>
+    <div class="card" id="s4c"><div class="ic">💵</div><div><b>Cash on Delivery</b><span data-tl="Para sa online sellers — si rider ang maniningil" data-en="For online sellers — the rider collects payment"></span></div></div>
+  </section>
+
+  <!-- 5. live tracking -->
+  <section class="scene split" id="s5">
+    <div class="txt">
+      <div class="h2 white" id="s5t" data-tl="I-track nang &lt;span class='hl'&gt;LIVE&lt;/span&gt; 📍" data-en="Track it &lt;span class='hl'&gt;LIVE&lt;/span&gt; 📍"></div>
+      <div id="s5b" style="margin-top:calc(var(--u)*3)">
+        <span class="badge">🛡️ <span data-tl="Verified riders" data-en="Checked riders"></span></span>
+        <span class="badge">📸 Proof of delivery</span>
+        <span class="badge">💬 <span data-tl="Chat kay rider" data-en="Chat with rider"></span></span>
+      </div>
+    </div>
+    <div class="map" id="s5m">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <g stroke="#fff" stroke-width="5" fill="none" opacity=".9">
+          <path d="M-5 30 H105"/><path d="M-5 72 H105"/><path d="M28 -5 V105"/><path d="M70 -5 V105"/>
+        </g>
+        <path d="M10 85 H18 Q28 85 28 75 V40 Q28 30 38 30 H60 Q70 30 70 22 V15" id="route" stroke="#D7141A" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-dasharray="4 3"/>
+        <path d="M10 85 H18 Q28 85 28 75 V40 Q28 30 38 30 H60 Q70 30 70 22 V15" id="routeDone" stroke="#D7141A" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="pin" style="left:10%;top:85%">🟢</div>
+      <div class="pin" style="left:70%;top:15%">📍</div>
+      <img class="moto" id="moto" src="pb-moto-top.png" alt="">
+    </div>
+  </section>
+
+  <!-- 6. call to action -->
+  <section class="scene" id="s6">
+    <img class="logo" id="s6l" src="../icon-512.png" alt="PasuyoBuddy" style="width:calc(var(--u)*52);border-radius:calc(var(--u)*6)">
+    <div class="cta" id="s6c" data-tl="BOOK NA! 🚀" data-en="BOOK NOW! 🚀"></div>
+    <div class="url" id="s6u">pasuyobuddy.com</div>
+    <div class="small" id="s6s" data-tl="📲 May app o mag-book online&lt;br&gt;📍 Buong Metro Manila (NCR)" data-en="📲 Get the app or book online&lt;br&gt;📍 All of Metro Manila (NCR)"></div>
+  </section>
+</div>
+
+<script>
+const P = new URLSearchParams(location.search);
+const W = +P.get("w") || 1080, H = +P.get("h") || 1920, LANG = P.get("lang") || "tl";
+const stage = document.getElementById("stage");
+stage.style.width = W + "px"; stage.style.height = H + "px";
+const landscape = W / H >= 0.95;          // square and wide videos put the phone/map beside the text
+stage.classList.add(landscape ? "land" : "port");
+if (W === H) stage.classList.add("sq");
+// one design unit = 1% of the shorter side
+document.documentElement.style.setProperty("--u", (Math.min(W, H) / 100) * (W / H > 1.2 ? 1 : W === H ? 0.8 : 1) + "px");
+document.querySelectorAll("[data-tl]").forEach((el) => { el.innerHTML = el.dataset[LANG] || el.dataset.tl; });
+document.documentElement.lang = LANG === "en" ? "en" : "tl";
+
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const easeOut = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const easeInOut = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const back = (x) => { x = clamp(x); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const prog = (t, start, dur) => clamp((t - start) / dur);
+
+// scene windows (seconds) – cuts land on the beat of the 120 BPM music
+const SC = { s1: [0, 2.5], s2: [2.5, 5], s3: [5, 9], s4: [9, 13], s5: [13, 16.5], s6: [16.5, 20] };
+const BG = { s1: "#D7141A", s2: "#FFF7E0", s3: "#D7141A", s4: "#F6F5F1", s5: "#15171C", s6: "#D7141A" };
+const DURATION = 20;
+
+function sceneT(id, t) { return t - SC[id][0]; }
+function visible(id, t) { const [a, b] = SC[id]; return t >= a - 0.001 && t < b; }
+function set(el, { o = 1, x = 0, y = 0, s = 1, r = 0 } = {}) {
+  el.style.opacity = o;
+  el.style.transform = `translate(${x}px,${y}px) scale(${s}) rotate(${r}deg)`;
+}
+const U = () => Math.min(W, H) / 100;
+
+window.renderAt = function (t) {
+  const u = U();
+  // background + moving speed stripes
+  let cur = Object.keys(SC).find((k) => visible(k, t)) || "s6";
+  stage.style.background = BG[cur];
+  $("stripes").style.opacity = (cur === "s2" || cur === "s4") ? 0 : 1;
+  $("stripes").style.transform = `translateX(${(t * 60) % (u * 18)}px)`;
+
+  for (const id of Object.keys(SC)) {
+    const sc = $(id);
+    if (!visible(id, t)) { sc.style.opacity = 0; continue; }
+    const lt = sceneT(id, t), len = SC[id][1] - SC[id][0];
+    // quick whip-in from the right, whip-out to the left
+    const inP = easeOut(lt / 0.28), outP = easeInOut((lt - (len - 0.22)) / 0.22);
+    sc.style.opacity = 1;
+    sc.style.transform = `translateX(${(1 - inP) * W * 0.35 - outP * W * 0.4}px)`;
+  }
+
+  // 1 – hook
+  if (visible("s1", t)) {
+    const lt = sceneT("s1", t);
+    set($("s1e"), { o: prog(lt, .05, .15), s: back(prog(lt, .05, .45)), r: Math.sin(lt * 9) * 8, y: -Math.abs(Math.sin(lt * 6)) * u * 3 });
+    set($("s1t"), { o: prog(lt, .25, .2), s: .6 + .4 * back(prog(lt, .25, .4)) });
+    set($("s1s"), { o: prog(lt, .8, .3), y: (1 - easeOut(prog(lt, .8, .4))) * u * 6 });
+  }
+  // 2 – brand
+  if (visible("s2", t)) {
+    const lt = sceneT("s2", t);
+    set($("s2t"), { o: prog(lt, .1, .2), y: (1 - easeOut(prog(lt, .1, .35))) * -u * 8 });
+    set($("s2l"), { o: prog(lt, .45, .1), s: .2 + .8 * back(prog(lt, .45, .5)) * (1 + Math.sin(Math.max(0, lt - 1) * 6) * 0.015), r: (1 - back(prog(lt, .45, .5))) * -14 });
+  }
+  // 3 – price
+  if (visible("s3", t)) {
+    const lt = sceneT("s3", t);
+    set($("s3t"), { o: prog(lt, .1, .2), x: (1 - easeOut(prog(lt, .1, .4))) * -u * 10 });
+    set($("s3s"), { o: prog(lt, .5, .25) });
+    const chips = $("s3c").children;
+    for (let i = 0; i < chips.length; i++) set(chips[i], { o: prog(lt, .8 + i * .18, .15), s: back(prog(lt, .8 + i * .18, .35)) });
+    set($("s3p"), { o: prog(lt, .2, .2), y: (1 - easeOut(prog(lt, .2, .6))) * u * 40, r: (1 - easeOut(prog(lt, .2, .6))) * 6 });
+    // scroll the screenshot inside the phone
+    const img = $("s3img"), scr = img.parentElement;
+    const maxScroll = Math.max(0, img.offsetHeight - scr.offsetHeight);
+    img.style.transform = `translateY(${-easeInOut(prog(lt, 1.2, 2.2)) * maxScroll}px)`;
+  }
+  // 4 – services
+  if (visible("s4", t)) {
+    const lt = sceneT("s4", t);
+    set($("s4t"), { o: prog(lt, .05, .2), s: .8 + .2 * back(prog(lt, .05, .4)) });
+    ["s4a", "s4b", "s4c"].forEach((id, i) => {
+      const p = prog(lt, .5 + i * .55, .4);
+      set($(id), { o: p, x: (1 - back(p)) * (i % 2 ? u * 30 : -u * 30) });
+    });
+  }
+  // 5 – live tracking
+  if (visible("s5", t)) {
+    const lt = sceneT("s5", t);
+    set($("s5t"), { o: prog(lt, .05, .2), y: (1 - easeOut(prog(lt, .05, .35))) * u * 6 });
+    const badges = $("s5b").children;
+    for (let i = 0; i < badges.length; i++) set(badges[i], { o: prog(lt, .9 + i * .3, .2), s: back(prog(lt, .9 + i * .3, .35)) });
+    set($("s5m"), { o: prog(lt, .15, .2), s: .85 + .15 * easeOut(prog(lt, .15, .4)) });
+    const route = $("routeDone"), L = route.getTotalLength();
+    const p = easeInOut(prog(lt, .5, 2.6));
+    route.style.strokeDasharray = `${L}`; route.style.strokeDashoffset = `${L * (1 - p)}`;
+    const pt = route.getPointAtLength(L * p);
+    // top-view rider faces right (0°): turn it with the road like in the app
+    const a1 = route.getPointAtLength(Math.max(0, L * p - 1.5)), a2 = route.getPointAtLength(Math.min(L, L * p + 1.5));
+    const heading = Math.atan2(a2.y - a1.y, a2.x - a1.x) * 180 / Math.PI;
+    const moto = $("moto");
+    moto.style.left = pt.x + "%"; moto.style.top = pt.y + "%";
+    moto.style.transform = `translate(-50%,-50%) rotate(${heading}deg)`;
+  }
+  // 6 – call to action
+  if (visible("s6", t)) {
+    const lt = sceneT("s6", t);
+    set($("s6l"), { o: prog(lt, .05, .15), s: .3 + .7 * back(prog(lt, .05, .5)) });
+    set($("s6c"), { o: prog(lt, .5, .15), s: back(prog(lt, .5, .4)) * (1 + Math.max(0, Math.sin((lt - 1) * 8)) * .04 * (lt > 1)) });
+    set($("s6u"), { o: prog(lt, .85, .25), y: (1 - easeOut(prog(lt, .85, .4))) * u * 5 });
+    set($("s6s"), { o: prog(lt, 1.2, .3) });
+    // gentle fade to black at the very end (no hard cut when looping)
+    $("s6").style.transform = "none";
+    stage.style.filter = `brightness(${1 - easeInOut(prog(t, 19.6, .4)) * .0})`;
+  }
+};
+window.DURATION = DURATION;
+renderAt(0);
+</script>
+</body>
+</html>
