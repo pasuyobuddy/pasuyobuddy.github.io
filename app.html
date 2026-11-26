@@ -798,7 +798,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 "use strict";
 // ---------------- Configuration ----------------
 // Publishable keys only. NEVER put the Supabase secret / service_role key here.
-var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.78" };
+var CONFIG = { url: "https://xqkxblhxnpeggonbdlrk.supabase.co", key: "sb_publishable_-cqLru1LVq1RvtTgJmxT1A_Q_QNdauo", mapKey: "sLIETzI8dX7xaQuOLbKt", version: "0.80" };
 var sb = window.__TEST_CLIENT__ || supabase.createClient(CONFIG.url, CONFIG.key);
 var MANILA = [14.5995, 121.0244];
 var FLAGS = {};   // app_flags(): test_uae = also allow the UAE (testing from abroad)
@@ -1604,7 +1604,7 @@ function bearingOf(a, b) { var f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI 
 function vehFace(mk, b) { var el = mk.getElement && mk.getElement(), im = el && el.querySelector(".vtop img"); if (!im) return;
   var k = im.getAttribute("data-k"), cur = +im.getAttribute("data-r") || 0, want = b - VTOP_DIR[k], d = ((want - cur) % 360 + 540) % 360 - 180, r = cur + d;
   im.setAttribute("data-r", r); im.style.transform = "translate(-50%,-50%) rotate(" + r + "deg)"; VEHB.b = b; }
-function vehTurn(mk, from, to) { var a = L.latLng(from), b = L.latLng(to); if (a.distanceTo(b) < 5) return; vehFace(mk, bearingOf(a, b)); }
+function vehTurn(mk, from, to) { var a = L.latLng(from), b = L.latLng(to); if (a.distanceTo(b) < 12) return; vehFace(mk, bearingOf(a, b)); }
 function vehAim(mk, stop) { if (VEHB.b == null && stop) vehTurn(mk, mk.getLatLng(), [stop.lat, stop.lng]); }
 function agoText(t) { var s = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 1000)); return s < 60 ? s + " seconds ago" : Math.round(s / 60) + " min ago"; }
 function riderInfoText(o) {
@@ -1616,6 +1616,10 @@ function riderInfoText(o) {
 // Smooth vehicle: glide to each new spot over about the time between updates, so it keeps moving instead of jumping.
 function glide(mk, to, onStep) {
   var from = mk.getLatLng(); if (Math.abs(from.lat - to[0]) < 1e-7 && Math.abs(from.lng - to[1]) < 1e-7) return;
+  // GPS wobble filter: ignore moves under 12 m (standing still or slow), and a short jump BACKWARDS
+  // (under 40 m against the direction of travel) so the vehicle does not look like it is U-turning.
+  var dd = from.distanceTo(L.latLng(to[0], to[1])); if (dd < 12) return;
+  if (VEHB.b != null && dd < 40) { var tb = bearingOf(from, L.latLng(to[0], to[1])), df = Math.abs(((tb - VEHB.b) % 360 + 540) % 360 - 180); if (df > 120) return; }
   vehTurn(mk, from, to);
   var now = Date.now(), gap = mk._lastAt ? now - mk._lastAt : 3000; mk._lastAt = now;
   if (mk._glide) cancelAnimationFrame(mk._glide);
@@ -1666,6 +1670,20 @@ async function showOrders() { S.otab = null; go("orders"); try { S.orders = awai
 // ---------------- Road routes on the map (follow the streets, not straight lines) ----------------
 function pickShortest(j) { var rs = (j && j.routes) || []; if (!rs.length) return null; return rs.slice().sort(function (a, b) { return a.distance - b.distance; })[0]; }
 var ROUTE_CACHE = {};
+// The free road router sometimes drives PAST the pin, U-turns and comes back on the same road (it puts the pin
+// on the other side of the road). On the map that looks like the rider goes back and forth. Cut those loops:
+// the line ends the first time it reaches the drop-off, and starts the last time it leaves the start.
+function trimTurnback(c, a, b) {
+  try {
+    if (!c || c.length < 4) return c;
+    var A = L.latLng(a[0], a[1]), B = L.latLng(b[0], b[1]);
+    var endGap = L.latLng(c[c.length - 1][0], c[c.length - 1][1]).distanceTo(B), lim = Math.max(40, endGap + 25);
+    for (var i = 1; i < c.length - 1; i++) if (L.latLng(c[i][0], c[i][1]).distanceTo(B) <= lim) { c = c.slice(0, i + 1); break; }
+    var startGap = L.latLng(c[0][0], c[0][1]).distanceTo(A), lim2 = Math.max(40, startGap + 25);
+    for (var j = c.length - 2; j > 0; j--) if (L.latLng(c[j][0], c[j][1]).distanceTo(A) <= lim2) { c = c.slice(j); break; }
+    return c;
+  } catch (e) { return c; }
+}
 async function roadRoute(pts) {
   if (!pts || pts.length < 2) return null;
   var key = pts.map(function (p) { return (+p[0]).toFixed(5) + "," + (+p[1]).toFixed(5); }).join(";");
@@ -1679,7 +1697,7 @@ async function roadRoute(pts) {
     var j = await (await fetch(u, ctl ? { signal: ctl.signal } : {})).json();
     var best = pickShortest(j), c = best && best.geometry && best.geometry.coordinates;
     if (!c || c.length < 2) return null;
-    c = c.map(function (x) { return [x[1], x[0]]; }); ROUTE_CACHE[key] = c; return c;
+    c = c.map(function (x) { return [x[1], x[0]]; }); c = trimTurnback(c, pts[0], pts[1]); ROUTE_CACHE[key] = c; return c;
   } catch (e) { return null; } finally { clearTimeout(t); }
 }
 // Draws a light dashed line at once, then swaps it for the street route when it arrives
