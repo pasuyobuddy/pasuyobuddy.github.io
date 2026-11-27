@@ -146,6 +146,8 @@
       on_the_way: `<button class="btn sm" data-a="in_progress">▶ Start massage</button><button class="btn sm danger" data-a="cancel">Cancel</button>`,
       in_progress: `<button class="btn sm gold" data-a="completed">✔ Complete · cash received</button>`
     }[b.status] || "";
+    const noShow = ["confirmed", "on_the_way"].includes(b.status) && Date.now() >= new Date(b.start_at).getTime() + 15 * 60e3
+      ? `<button class="btn sm ghost" data-a="noshow">🚫 Customer no-show</button>` : "";
     return `<div class="card" data-id="${b.id}">
       <div class="row"><div class="grow"><b>${esc(b.type_name)} · ${b.duration_min} min</b><div class="small muted">${esc(c.name || "Customer")}</div></div>${MB.badge(b.status, b.status === "pending" ? "New request" : b.status === "on_the_way" ? "On the way" : "")}</div>
       <div class="sep"></div>
@@ -154,10 +156,12 @@
       ${b.notes ? `<div class="small">📝 ${esc(b.notes)}</div>` : ""}
       <div class="small">${b.payment_method === "gcash"
         ? (b.payment_status === "paid" ? `💙 <b>Paid by GCash ✅</b> no cash to collect · you get <b>${peso(b.therapist_earning)}</b> (weekly payout)` : `💙 GCash · ${b.payment_status === "refunded" ? "refunded to customer" : "not paid"}`)
-        : `💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b>`}</div>
+        : b.paid_at && Number(b.deposit_amount) > 0
+          ? `💵 Deposit ${peso(b.deposit_amount)} paid ✅ · Collect <b>${peso(b.price - b.deposit_amount)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b>`
+          : `💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b>`}</div>
       ${Number(b.therapist_fee_share) > 0 ? `<div class="small">💸 Cancellation fee for you: <b>${peso(b.therapist_fee_share)}</b></div>` : ""}
       ${b.cancel_reason ? `<div class="small muted">Reason: ${esc(b.cancel_reason)}</div>` : ""}
-      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">✉️</a>` : ""}${MB.chatButton(b, S.unread)}${act}</div>
+      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">✉️</a>` : ""}${MB.chatButton(b, S.unread)}${act}${noShow}</div>
     </div>`;
   }
   async function onBookingAction(e) {
@@ -167,6 +171,10 @@
     const id = Number(e.target.closest("[data-id]").dataset.id);
     const btn = e.target;
     try {
+    if (a === "noshow") {
+      if (!(await MB.confirm("Customer no-show?", "Only use this if you are at the address and the customer did not show up or answer for 15 minutes. The no-show fee is applied and admin is told.", "Yes, no-show", true))) return;
+      await MB.rpc("mb_report_no_show", { p_booking: id }); MB.toast("Marked as no-show."); S.bookings = null; return route();
+    }
     if (a === "cancel") {
       const why = await MB.prompt("Cancel booking", "Tell the customer why (they will see this).", "e.g. Sorry, I am sick today", "Cancel booking");
       if (why == null) return;
@@ -265,7 +273,7 @@
       </div>
       ${e.money ? (() => { const m = e.money; const bal = Number(m.balance); return `<div class="card">
         <h3>Your balance with Massage Buddy</h3>
-        <div class="row"><span class="grow muted small">💵 Commission from cash bookings (${e.commission_pct}%)</span><span>${peso(m.cash_commission_due)}</span></div>
+        <div class="row"><span class="grow muted small">💵 Commission from cash bookings (${e.commission_pct}%, minus deposits)</span><span>${peso(m.cash_commission_due)}</span></div>
         <div class="row"><span class="grow muted small">💙 Your earnings from GCash bookings</span><span>− ${peso(m.online_earnings_owed)}</span></div>
         <div class="row"><span class="grow muted small">💸 Your share of cancellation fees</span><span>− ${peso(m.fee_share_owed)}</span></div>
         <div class="row"><span class="grow muted small">You already paid Massage Buddy</span><span>− ${peso(m.paid_to_platform)}</span></div>

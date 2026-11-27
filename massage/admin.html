@@ -156,7 +156,7 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
         <td>${esc(b.customer.name)}<div class="small muted">${esc(b.customer.phone || "")}</div><div class="small muted">${esc(b.area)}</div></td>
         <td>${esc(b.therapist.name)}<div class="small muted">${esc(b.therapist.phone || "")}</div></td>
         <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div>
-          <div class="small">${b.payment_method === "gcash" ? `💙 GCash ${b.payment_status === "paid" ? "paid" : b.payment_status}` : "💵 cash"}</div>
+          <div class="small">${b.payment_method === "gcash" ? `💙 GCash ${b.payment_status === "paid" ? "paid" : b.payment_status}` : Number(b.deposit_amount) > 0 ? `💵 cash · deposit ${peso(b.deposit_amount)} ${b.paid_at ? "paid" : "unpaid"}` : "💵 cash"}</div>
           ${Number(b.refund_amount) > 0 ? `<div class="small">↩️ ${peso(b.refund_amount)} ${esc(b.refund_status)}</div>` : ""}
           ${Number(b.cancel_fee) > 0 ? `<div class="small muted">fee ${peso(b.cancel_fee)} (therapist ${peso(b.therapist_fee_share)})</div>` : ""}</td>
         <td>${MB.badge(b.status)}${b.cancel_reason ? `<div class="small muted">${esc(b.cancelled_by)}: ${esc(b.cancel_reason)}</div>` : ""}</td>
@@ -282,6 +282,9 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
         <div class="row"><select data-k="online_payments" class="grow">${["", "test", "live"].map((v) => `<option value="${v}" ${(s.online_payments || "") === v ? "selected" : ""}>${v || "off"}</option>`).join("")}</select>
           <button class="btn sm light" data-save2="online_payments">Save</button></div>
         <div class="hint">Use "live" only after PayMongo approves your account and the live secret key is saved in Supabase.</div>
+        <label>Cash bookings: GCash deposit (₱, 0 = no deposit)</label>
+        <div class="row"><input data-k="deposit_amount" value="${esc(s.deposit_amount || "200")}" class="grow"><button class="btn sm light" data-save2="deposit_amount">Save</button></div>
+        <div class="hint">Stops fake cash bookings. Kept as the fee if the customer doesn't show up (therapist 80% / you 20%).</div>
         <label>Unpaid GCash bookings are released after … minutes</label>
         <div class="row"><input data-k="pay_minutes" value="${esc(s.pay_minutes || "15")}" class="grow"><button class="btn sm light" data-save2="pay_minutes">Save</button></div>
         <div class="sep"></div>

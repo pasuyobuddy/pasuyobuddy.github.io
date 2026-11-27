@@ -73,21 +73,22 @@ async function setupWebhook(userId: string) {
 }
 
 async function startPayment(userId: string, bookingId: number) {
-  const r = await fetch(`${SB_URL}/rest/v1/mb_bookings?id=eq.${bookingId}&select=id,customer_id,price,status,payment_method,payment_status,type_name,duration_min,start_at`, { headers: sb });
+  const r = await fetch(`${SB_URL}/rest/v1/mb_bookings?id=eq.${bookingId}&select=id,customer_id,price,deposit_amount,paid_at,status,payment_method,payment_status,type_name,duration_min,start_at`, { headers: sb });
   const rows = await r.json();
   const b = Array.isArray(rows) ? rows[0] : null;
   if (!b || b.customer_id !== userId) return json({ error: "Booking not found." }, 404);
-  if (b.payment_method !== "gcash") return json({ error: "This booking is not a GCash booking." }, 400);
-  if (b.payment_status === "paid") return json({ error: "This booking is already paid." }, 400);
+  const deposit = b.payment_method !== "gcash";   // cash booking: only the deposit is paid online
+  if (deposit && !(Number(b.deposit_amount) > 0)) return json({ error: "Nothing to pay online for this booking." }, 400);
+  if (b.paid_at) return json({ error: "This booking is already paid." }, 400);
   if (b.status !== "awaiting_payment") return json({ error: "This booking can no longer be paid. Please book again." }, 400);
 
-  const amount = Math.round(Number(b.price) * 100);
+  const amount = Math.round(Number(deposit ? b.deposit_amount : b.price) * 100);
   const res = await fetch(`${PM_API}/v1/checkout_sessions`, {
     method: "POST", headers: { Authorization: pmAuth(), "Content-Type": "application/json" },
     body: JSON.stringify({ data: { attributes: {
-      line_items: [{ name: `${b.type_name} massage, ${b.duration_min} min`, amount, currency: "PHP", quantity: 1 }],
+      line_items: [{ name: deposit ? `Deposit: ${b.type_name} massage, ${b.duration_min} min (rest paid in cash)` : `${b.type_name} massage, ${b.duration_min} min`, amount, currency: "PHP", quantity: 1 }],
       payment_method_types: ["gcash"],
-      description: `Massage Buddy booking #${b.id}`,
+      description: deposit ? `Massage Buddy booking #${b.id} deposit` : `Massage Buddy booking #${b.id}`,
       reference_number: `MB-${b.id}`,
       success_url: `${SITE}#paid/${b.id}`,
       cancel_url: `${SITE}#payfail/${b.id}`,

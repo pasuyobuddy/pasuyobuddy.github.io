@@ -93,4 +93,5 @@ Online payment (GCash / card) can be added in version 2.
 4. Supabase → Database Webhooks → Create: name `mb_refund`, table `mb_refunds`, event **Insert**, type Supabase Edge Functions → `mb-refund`.
 5. Merge the GitHub PR → open Admin → Settings → **Connect PayMongo** (registers the payment webhook; the secret is stored automatically).
 6. Test: book with GCash → PayMongo test page → authorize → app shows "Payment received".
+   Cash bookings pay a GCash **deposit** first (default ₱200; Admin → Settings, 0 = no deposit).
    Switch Admin → Settings → GCash payments to **live** only after PayMongo approves the account and the **live** key replaces the test key.

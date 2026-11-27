@@ -5,6 +5,10 @@
 --   * Customers can pay with GCash (PayMongo) when booking, or pay cash.
 --   * A GCash booking waits for payment (slot held 15 minutes); the
 --     therapist is told only after it is paid.
+--   * Cash bookings pay a small GCash DEPOSIT first (default ₱200, set in
+--     Admin > Settings; 0 = no deposit). Stops fake bookings. The rest is
+--     paid in cash after the massage. Customer no-show: deposit kept
+--     (therapist 80% / Massage Buddy 20%).
 --   * Automatic refunds for GCash bookings:
 --       therapist declines / does not answer / cancels      -> 100%
 --       customer cancels before the therapist accepts        -> 100%
@@ -30,6 +34,19 @@ alter table public.mb_bookings add column if not exists refund_amount       nume
 alter table public.mb_bookings add column if not exists refund_status       text not null default '';
 alter table public.mb_bookings add column if not exists cancel_fee          numeric(10,2) not null default 0;
 alter table public.mb_bookings add column if not exists therapist_fee_share numeric(10,2) not null default 0;
+alter table public.mb_bookings add column if not exists deposit_amount      numeric(10,2) not null default 0;
+
+do $$
+declare c record;
+begin
+  for c in select conname from pg_constraint
+           where conrelid = 'public.mb_bookings'::regclass and contype = 'c'
+             and pg_get_constraintdef(oid) like '%payment_status%' loop
+    execute format('alter table public.mb_bookings drop constraint %I', c.conname);
+  end loop;
+end $$;
+alter table public.mb_bookings add constraint mb_bookings_payment_status_check
+  check (payment_status in ('unpaid','deposit_paid','paid','refunded'));
 
 do $$
 declare c record;
@@ -84,6 +101,7 @@ end $$;
 
 insert into public.mb_settings (key, value) values ('online_payments', 'test') on conflict (key) do nothing;
 insert into public.mb_settings (key, value) values ('pay_minutes', '15') on conflict (key) do nothing;
+insert into public.mb_settings (key, value) values ('deposit_amount', '200') on conflict (key) do nothing;
 
 -- 3. Slot holding: unpaid GCash bookings hold the slot for 15 minutes -------
 create or replace function public.mb_booking_active(p_status text, p_created timestamptz)
@@ -101,6 +119,8 @@ returns jsonb language sql stable security definer set search_path = public as $
     'cancel_hours',    mb_setting_int('cancel_hours', 3),
     'accept_min',      mb_setting_int('accept_min', 60),
     'pay_minutes',     mb_setting_int('pay_minutes', 15),
+    'deposit_amount',  case when coalesce((select value from mb_settings where key='online_payments'), '') in ('test','live')
+                            then mb_setting_int('deposit_amount', 0) else 0 end,
     'online_payments', coalesce((select value from mb_settings where key='online_payments'), ''),
     'support_phone',   coalesce((select value from mb_settings where key='support_phone'), ''),
     'support_email',   coalesce((select value from mb_settings where key='support_email'), ''));
@@ -121,6 +141,9 @@ declare
   v_slots jsonb;
   v_name text;
   v_pay  text := coalesce(nullif(p_payment, ''), 'cash');
+  v_online boolean := coalesce((select value from mb_settings where key = 'online_payments'), '') in ('test','live');
+  v_dep  numeric := 0;
+  v_wait boolean;
 begin
   if v_pay not in ('cash','gcash') then raise exception 'Unknown payment method.'; end if;
   if v_pay = 'gcash' and coalesce((select value from mb_settings where key = 'online_payments'), '') not in ('test','live') then
@@ -153,20 +176,22 @@ begin
   end if;
 
   v_comm := round(v_s.price * v_pct / 100.0);
+  if v_pay = 'cash' and v_online then v_dep := least(v_s.price, greatest(0, mb_setting_int('deposit_amount', 0))); end if;
+  v_wait := v_pay = 'gcash' or v_dep > 0;
   insert into mb_bookings (customer_id, therapist_id, service_id, type_name, duration_min, start_at, end_at,
                            address, area, contact_phone, notes, price, commission, therapist_earning,
-                           payment_method, status)
+                           payment_method, status, deposit_amount)
   values (v_uid, v_s.therapist_id, v_s.id, v_s.type_name, v_s.duration_min, p_start, v_end,
           left(trim(p_address), 300), left(coalesce(p_area,''), 60), left(trim(p_phone), 20),
           left(coalesce(p_notes,''), 500), v_s.price, v_comm, v_s.price - v_comm,
-          v_pay, case when v_pay = 'gcash' then 'awaiting_payment' else 'pending' end)
+          v_pay, case when v_wait then 'awaiting_payment' else 'pending' end, v_dep)
   returning id into v_id;
 
   update mb_profiles set address = left(trim(p_address), 300), area = left(coalesce(p_area,''), 60),
          phone = case when phone = '' then left(trim(p_phone), 20) else phone end
   where id = v_uid;
 
-  if v_pay = 'cash' then
+  if not v_wait then
     select full_name into v_name from mb_profiles where id = v_uid;
     perform mb_notify(v_s.therapist_id, 'New booking request',
       coalesce(nullif(v_name,''),'A customer') || ' booked ' || v_s.type_name || ' ' || v_s.duration_min || ' min on ' || mb_when(p_start) || '. Please accept.',
@@ -174,27 +199,36 @@ begin
   end if;
 
   return jsonb_build_object('id', v_id, 'start_at', p_start, 'price', v_s.price, 'payment_method', v_pay,
-                            'status', case when v_pay = 'gcash' then 'awaiting_payment' else 'pending' end);
+                            'deposit_amount', v_dep, 'status', case when v_wait then 'awaiting_payment' else 'pending' end);
 end $$;
 
--- the old function (used by older app versions) now books cash through v2
+-- the old function (older app versions): cash through v2; when a deposit is required it asks to update the app
 create or replace function public.mb_create_booking(p_service bigint, p_start timestamptz, p_address text,
                                                     p_area text, p_phone text, p_notes text default '')
-returns jsonb language sql security definer set search_path = public as $$
-  select mb_create_booking_v2(p_service, p_start, p_address, p_area, p_phone, p_notes, 'cash');
-$$;
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce((select value from mb_settings where key = 'online_payments'), '') in ('test','live')
+     and mb_setting_int('deposit_amount', 0) > 0 then
+    raise exception 'Please close and reopen the app to update it, then book again.';
+  end if;
+  return mb_create_booking_v2(p_service, p_start, p_address, p_area, p_phone, p_notes, 'cash');
+end $$;
 
 -- 5. Refund helper (GCash only). p_pct = % of the price given back. ---------
 create or replace function public.mb_queue_refund(p_booking bigint, p_pct numeric, p_reason text, p_fee_to_therapist boolean)
 returns numeric language plpgsql security definer set search_path = public as $$
-declare b mb_bookings; v_amount numeric; v_fee numeric;
+declare b mb_bookings; v_amount numeric; v_fee numeric; v_base numeric;
 begin
   select * into b from mb_bookings where id = p_booking for update;
-  if not found or b.payment_method <> 'gcash' or b.payment_status <> 'paid' or b.refund_status <> '' then
+  if not found or b.paid_at is null or b.paymongo_payment_id = '' or b.refund_status <> '' then
     return 0;
   end if;
-  v_amount := round(b.price * greatest(0, least(100, p_pct)) / 100.0, 2);
-  v_fee := b.price - v_amount;
+  -- what was paid online: the full price (GCash) or the deposit (cash)
+  v_base := case when b.payment_method = 'gcash' then b.price else b.deposit_amount end;
+  if v_base <= 0 then return 0; end if;
+  -- the fee is a % of the whole price, but we can only keep what was paid online
+  v_fee := least(v_base, round(b.price * (100 - greatest(0, least(100, p_pct))) / 100.0, 2));
+  v_amount := v_base - v_fee;
   update mb_bookings set
     refund_amount = v_amount,
     refund_status = case when v_amount > 0 then 'pending' else 'none' end,
@@ -204,7 +238,8 @@ begin
   if v_amount > 0 then
     insert into mb_refunds (booking_id, amount, payment_id, reason) values (b.id, v_amount, b.paymongo_payment_id, left(coalesce(p_reason,''), 200));
     perform mb_notify(b.customer_id, 'Refund on the way ↩️',
-      'We are sending back ₱' || to_char(v_amount, 'FM999,999.00') || ' to your GCash for your ' || b.type_name || ' booking.' ||
+      'We are sending back ₱' || to_char(v_amount, 'FM999,999.00') || ' to your GCash for your ' || b.type_name ||
+      case when b.payment_method = 'cash' then ' deposit.' else ' booking.' end ||
       case when v_fee > 0 then ' Cancellation fee: ₱' || to_char(v_fee, 'FM999,999.00') || '.' else '' end,
       'index.html#bookings');
   end if;
@@ -218,13 +253,14 @@ declare b mb_bookings; v_name text;
 begin
   select * into b from mb_bookings where id = p_booking for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'booking not found'); end if;
-  if b.payment_status = 'paid' then return jsonb_build_object('ok', true, 'already', true); end if;
-  if b.payment_method <> 'gcash' then return jsonb_build_object('ok', false, 'reason', 'not a gcash booking'); end if;
-  if p_amount_centavos <> round(b.price * 100) then
-    return jsonb_build_object('ok', false, 'reason', 'amount mismatch', 'expected', round(b.price * 100), 'got', p_amount_centavos);
+  if b.paid_at is not null then return jsonb_build_object('ok', true, 'already', true); end if;
+  if b.payment_method <> 'gcash' and b.deposit_amount <= 0 then return jsonb_build_object('ok', false, 'reason', 'nothing to pay online'); end if;
+  if p_amount_centavos <> round((case when b.payment_method = 'gcash' then b.price else b.deposit_amount end) * 100) then
+    return jsonb_build_object('ok', false, 'reason', 'amount mismatch',
+      'expected', round((case when b.payment_method = 'gcash' then b.price else b.deposit_amount end) * 100), 'got', p_amount_centavos);
   end if;
 
-  update mb_bookings set payment_status = 'paid', paid_at = now(),
+  update mb_bookings set payment_status = case when payment_method = 'gcash' then 'paid' else 'deposit_paid' end, paid_at = now(),
          paymongo_payment_id = coalesce(nullif(p_payment_id, ''), paymongo_payment_id),
          paymongo_session_id = coalesce(nullif(p_session, ''), paymongo_session_id),
          updated_at = now()
@@ -234,11 +270,21 @@ begin
     -- the therapist's answer time starts now
     update mb_bookings set status = 'pending', created_at = now() where id = b.id;
     select full_name into v_name from mb_profiles where id = b.customer_id;
-    perform mb_notify(b.therapist_id, 'New booking request 💙 paid',
-      coalesce(nullif(v_name,''),'A customer') || ' booked and paid ' || b.type_name || ' ' || b.duration_min || ' min on ' || mb_when(b.start_at) || '. Please accept.',
-      'therapist.html#bookings');
-    perform mb_notify(b.customer_id, 'Payment received ✅',
-      'Thank you! ₱' || to_char(b.price, 'FM999,999') || ' paid by GCash. Waiting for your therapist to accept.', 'index.html#bookings');
+    if b.payment_method = 'gcash' then
+      perform mb_notify(b.therapist_id, 'New booking request 💙 paid',
+        coalesce(nullif(v_name,''),'A customer') || ' booked and paid ' || b.type_name || ' ' || b.duration_min || ' min on ' || mb_when(b.start_at) || '. Please accept.',
+        'therapist.html#bookings');
+      perform mb_notify(b.customer_id, 'Payment received ✅',
+        'Thank you! ₱' || to_char(b.price, 'FM999,999') || ' paid by GCash. Waiting for your therapist to accept.', 'index.html#bookings');
+    else
+      perform mb_notify(b.therapist_id, 'New booking request (deposit paid)',
+        coalesce(nullif(v_name,''),'A customer') || ' booked ' || b.type_name || ' ' || b.duration_min || ' min on ' || mb_when(b.start_at) ||
+        '. Deposit ₱' || to_char(b.deposit_amount, 'FM999,999') || ' paid, collect ₱' || to_char(b.price - b.deposit_amount, 'FM999,999') || ' cash. Please accept.',
+        'therapist.html#bookings');
+      perform mb_notify(b.customer_id, 'Deposit received ✅',
+        'Thank you! ₱' || to_char(b.deposit_amount, 'FM999,999') || ' deposit paid. Pay ₱' || to_char(b.price - b.deposit_amount, 'FM999,999') ||
+        ' cash after the massage. Waiting for your therapist to accept.', 'index.html#bookings');
+    end if;
   else
     -- paid after the booking already expired or was cancelled: give everything back
     perform mb_queue_refund(b.id, 100, 'Paid after the booking expired', false);
@@ -298,7 +344,7 @@ begin
     raise exception 'This booking can no longer be cancelled.';
   end if;
   -- cash bookings: late cancels must be done by phone (no way to charge a fee)
-  if v_who = 'customer' and b.payment_method = 'cash' and b.status <> 'pending' and b.start_at < now() + make_interval(hours => v_hours) then
+  if v_who = 'customer' and b.paid_at is null and b.status <> 'pending' and b.start_at < now() + make_interval(hours => v_hours) then
     raise exception 'It is less than % hours before your massage. Please call your therapist to cancel.', v_hours;
   end if;
   if v_who = 'therapist' and length(trim(coalesce(p_reason,''))) < 3 then
@@ -322,11 +368,12 @@ begin
   if v_who <> 'therapist' then
     perform mb_notify(b.therapist_id, 'Booking cancelled',
       'The ' || b.type_name || ' on ' || mb_when(b.start_at) || ' was cancelled by the ' || v_who || '.' ||
-      case when v_who = 'customer' and v_pct < 100 and b.payment_method = 'gcash'
-           then ' You get ₱' || to_char(round(b.price * (100 - v_pct) / 100.0 * 0.8, 2), 'FM999,999.00') || ' from the cancellation fee.' else '' end,
+      case when v_who = 'customer' and v_pct < 100 and b.paid_at is not null
+           then ' You get ₱' || to_char(round(least(case when b.payment_method = 'gcash' then b.price else b.deposit_amount end,
+                                                   b.price * (100 - v_pct) / 100.0) * 0.8, 2), 'FM999,999.00') || ' from the cancellation fee.' else '' end,
       'therapist.html#bookings');
   end if;
-  return jsonb_build_object('ok', true, 'refund_pct', case when b.payment_method = 'gcash' then v_pct else null end);
+  return jsonb_build_object('ok', true, 'refund_pct', case when b.paid_at is not null then v_pct else null end);
 end $$;
 
 -- 9. Therapist steps (decline refunds GCash; messages say "paid" instead of "prepare cash")
@@ -367,9 +414,9 @@ begin
     when 'completed'   then 'Massage completed - please rate' end;
   v_body := case p_status
     when 'confirmed'   then 'Your ' || b.type_name || ' is confirmed for ' || mb_when(b.start_at) || '. ' ||
-                            case when b.payment_method = 'gcash' then 'Already paid by GCash ✅' else 'Please prepare ₱' || to_char(b.price,'FM999,999') || ' cash.' end
+                            case when b.payment_method = 'gcash' then 'Already paid by GCash ✅' else 'Please prepare ₱' || to_char(b.price - case when b.paid_at is not null then b.deposit_amount else 0 end,'FM999,999') || ' cash.' end
     when 'declined'    then 'The therapist is not available for ' || mb_when(b.start_at) || '. Please choose another time or therapist.' ||
-                            case when b.payment_method = 'gcash' and b.payment_status = 'paid' then ' Your GCash payment will be fully refunded.' else '' end
+                            case when b.paid_at is not null then ' Your GCash payment will be fully refunded.' else '' end
     when 'on_the_way'  then 'Your therapist is heading to your address now.'
     when 'in_progress' then 'Enjoy your massage!'
     when 'completed'   then 'Thank you! Tap to rate your therapist.' end;
@@ -390,7 +437,7 @@ begin
     update mb_bookings set status = 'declined', cancelled_by = 'system', cancel_reason = 'Not accepted in time', updated_at = now() where id = b.id;
     perform mb_queue_refund(b.id, 100, 'Not accepted in time', false);
     perform mb_notify(b.customer_id, 'Booking not accepted', 'The therapist did not answer in time for ' || mb_when(b.start_at) || '. Please choose another therapist or time.' ||
-      case when b.payment_method = 'gcash' and b.payment_status = 'paid' then ' Your GCash payment will be fully refunded.' else '' end, 'index.html');
+      case when b.paid_at is not null then ' Your GCash payment will be fully refunded.' else '' end, 'index.html');
     n := n + 1;
   end loop;
   for b in select * from mb_bookings where status = 'confirmed' and not reminded_24h
@@ -406,7 +453,7 @@ begin
              and start_at between now() and now() + interval '70 minutes' for update skip locked loop
     update mb_bookings set reminded_1h = true, reminded_24h = true where id = b.id;
     perform mb_notify(b.customer_id, 'Your massage is in 1 hour', b.type_name || ' at ' || mb_when(b.start_at) || '. ' ||
-      case when b.payment_method = 'gcash' then 'Already paid by GCash ✅' else 'Please prepare ₱' || to_char(b.price,'FM999,999') || ' cash.' end, 'index.html#bookings');
+      case when b.payment_method = 'gcash' then 'Already paid by GCash ✅' else 'Please prepare ₱' || to_char(b.price - case when b.paid_at is not null then b.deposit_amount else 0 end,'FM999,999') || ' cash.' end, 'index.html#bookings');
     perform mb_notify(b.therapist_id, 'Booking in 1 hour', b.type_name || ' at ' || b.address, 'therapist.html#bookings');
     n := n + 1;
   end loop;
@@ -422,7 +469,7 @@ returns jsonb language sql stable security definer set search_path = public as $
     'notes', b.notes, 'price', b.price, 'commission', b.commission, 'therapist_earning', b.therapist_earning,
     'payment_method', b.payment_method, 'payment_status', b.payment_status, 'paid_at', b.paid_at,
     'refund_amount', b.refund_amount, 'refund_status', b.refund_status,
-    'cancel_fee', b.cancel_fee, 'therapist_fee_share', b.therapist_fee_share,
+    'cancel_fee', b.cancel_fee, 'therapist_fee_share', b.therapist_fee_share, 'deposit_amount', b.deposit_amount,
     'status', case when b.status in ('pending','awaiting_payment') and not mb_booking_active(b.status, b.created_at)
                    then case when b.status = 'awaiting_payment' then 'cancelled' else 'declined' end else b.status end,
     'pay_deadline', case when b.status = 'awaiting_payment' then b.created_at + make_interval(mins => mb_setting_int('pay_minutes', 15)) end,
@@ -457,9 +504,10 @@ create or replace function public.mb_therapist_money(p_therapist uuid)
 returns jsonb language sql stable security definer set search_path = public as $$
   with x as (
     select
-      (select coalesce(sum(commission),0) from mb_bookings where therapist_id = p_therapist and status = 'completed' and payment_method = 'cash') as cash_comm,
+      (select coalesce(sum(commission - case when paid_at is not null then deposit_amount else 0 end),0)
+         from mb_bookings where therapist_id = p_therapist and status = 'completed' and payment_method = 'cash') as cash_comm,
       (select coalesce(sum(therapist_earning),0) from mb_bookings where therapist_id = p_therapist and status = 'completed' and payment_method = 'gcash' and payment_status = 'paid') as online_owed,
-      (select coalesce(sum(therapist_fee_share),0) from mb_bookings where therapist_id = p_therapist and payment_method = 'gcash' and therapist_fee_share > 0) as fee_owed,
+      (select coalesce(sum(therapist_fee_share),0) from mb_bookings where therapist_id = p_therapist and therapist_fee_share > 0) as fee_owed,
       (select coalesce(sum(amount),0) from mb_settlements where therapist_id = p_therapist and direction = 'to_platform') as paid_in,
       (select coalesce(sum(amount),0) from mb_settlements where therapist_id = p_therapist and direction = 'to_therapist') as paid_out)
   select jsonb_build_object('cash_commission_due', cash_comm, 'online_earnings_owed', online_owed, 'fee_share_owed', fee_owed,
@@ -546,13 +594,34 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+-- therapist reports a customer no-show (15+ minutes after the booking time)
+create or replace function public.mb_report_no_show(p_booking bigint)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_uid uuid := mb_require_therapist(); b mb_bookings;
+begin
+  select * into b from mb_bookings where id = p_booking and therapist_id = v_uid for update;
+  if not found then raise exception 'Booking not found.'; end if;
+  if b.status not in ('confirmed','on_the_way') then raise exception 'This step is not allowed right now.'; end if;
+  if now() < b.start_at + interval '15 minutes' then
+    raise exception 'Please wait until 15 minutes after the booking time (%).', to_char((b.start_at + interval '15 minutes') at time zone 'Asia/Manila', 'FMHH12:MI AM');
+  end if;
+  update mb_bookings set status = 'cancelled', cancelled_by = 'customer', cancel_reason = 'Customer no-show', updated_at = now() where id = b.id;
+  perform mb_queue_refund(b.id, 50, 'Customer no-show', true);
+  perform mb_notify(b.customer_id, 'Booking marked as no-show',
+    'Your therapist could not reach you at the booking address for ' || mb_when(b.start_at) || '. The no-show fee was applied. Not true? Contact support.',
+    'index.html#bookings');
+  perform mb_notify(a.user_id, 'Customer no-show reported', 'Booking #' || b.id || ' (' || b.type_name || ', ' || mb_when(b.start_at) || ')', 'admin.html#bookings')
+  from mb_admins a;
+  return jsonb_build_object('ok', true);
+end $$;
+
 -- admin can switch GCash off / test / live and change the payment time limit
 create or replace function public.mb_admin_save_setting(p_key text, p_value text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 begin
   perform mb_require_admin();
   if p_key not in ('commission_pct','buffer_min','lead_min','slot_step_min','accept_min','cancel_hours','booking_days',
-                   'support_phone','support_email','online_payments','pay_minutes') then
+                   'support_phone','support_email','online_payments','pay_minutes','deposit_amount') then
     raise exception 'Unknown setting.';
   end if;
   if p_key = 'online_payments' then
@@ -562,6 +631,7 @@ begin
   if p_key = 'commission_pct' and p_value::int > 90 then raise exception 'Commission must be 0 to 90%%.'; end if;
   if p_key = 'slot_step_min' and p_value::int not in (15,30,60) then raise exception 'Slot step must be 15, 30 or 60.'; end if;
   if p_key = 'pay_minutes' and p_value::int not between 5 and 60 then raise exception 'Payment time must be 5 to 60 minutes.'; end if;
+  if p_key = 'deposit_amount' and p_value::int > 2000 then raise exception 'Deposit must be ₱0 to ₱2,000.'; end if;
   insert into mb_settings (key, value) values (p_key, trim(coalesce(p_value,''))) on conflict (key) do update set value = excluded.value;
   return mb_admin_settings();
 end $$;
@@ -588,6 +658,8 @@ grant execute on function public.mb_admin_refunds() to authenticated;
 revoke all on function public.mb_admin_retry_refund(bigint) from public, anon;
 grant execute on function public.mb_admin_retry_refund(bigint) to authenticated;
 grant execute on function public.mb_public_settings() to anon, authenticated;
+revoke all on function public.mb_report_no_show(bigint) from public, anon;
+grant execute on function public.mb_report_no_show(bigint) to authenticated;
 
 -- 14. Check (should show ok = 1) ---------------------------------------------------
 select case when

@@ -210,7 +210,9 @@
       ${online() ? `<h2>4. How will you pay?</h2>
       <div class="card" id="paybox">
         <button class="svc ${S.pay === "gcash" ? "on" : ""}" data-pay="gcash"><span class="grow">💙 GCash${S.settings.online_payments === "test" ? ' <span class="badge warn">TEST</span>' : ""}<div class="small muted" style="font-weight:400">Pay now. Full refund if the therapist can't come.</div></span></button>
-        <button class="svc ${S.pay === "cash" ? "on" : ""}" data-pay="cash"><span class="grow">💵 Cash<div class="small muted" style="font-weight:400">Pay your therapist after the massage.</div></span></button>
+        <button class="svc ${S.pay === "cash" ? "on" : ""}" data-pay="cash"><span class="grow">💵 Cash<div class="small muted" style="font-weight:400">${depositFor(s.price) > 0
+          ? `Pay a ${peso(depositFor(s.price))} deposit by GCash now, then ${peso(s.price - depositFor(s.price))} cash after the massage.`
+          : "Pay your therapist after the massage."}</div></span></button>
       </div>` : ""}
       <div class="card" id="summary"></div>
       <button class="btn block gold" id="confirm"></button>
@@ -233,16 +235,20 @@
   }
   function drawSummary() {
     const el = $("#summary"); if (!el) return;
+    const dep = S.pay === "cash" ? depositFor(S.sel.price) : 0;
     el.innerHTML = `<h3>Summary</h3>
       <div class="row small"><span class="grow muted">Massage</span><span>${esc(S.sel.type_name)}, ${S.sel.duration_min} min</span></div>
       <div class="row small"><span class="grow muted">Therapist</span><span>${esc(S.therapist.display_name)}</span></div>
       <div class="row small"><span class="grow muted">When</span><span>${S.slot ? MB.fmtWhen(S.slot) : '<span class="muted">Choose a time</span>'}</span></div>
-      <div class="row small"><span class="grow muted">Payment</span><span>${S.pay === "gcash" ? "💙 GCash (pay now)" : "💵 Cash after massage"}</span></div>
+      <div class="row small"><span class="grow muted">Payment</span><span>${S.pay === "gcash" ? "💙 GCash (pay now)" : dep > 0 ? "💵 Cash + GCash deposit" : "💵 Cash after massage"}</span></div>
+      ${S.pay === "cash" && dep > 0 ? `<div class="row small"><span class="grow muted">Deposit now (GCash)</span><span>${peso(dep)}</span></div>
+      <div class="row small"><span class="grow muted">Cash after the massage</span><span>${peso(S.sel.price - dep)}</span></div>` : ""}
       <div class="sep"></div>
       <div class="row"><b class="grow">Total</b><b class="price">${peso(S.sel.price)}</b></div>`;
-    const c = $("#confirm"); if (c && !c.disabled) c.innerHTML = S.pay === "gcash" ? `💙 Pay ${peso(S.sel.price)} with GCash` : "Confirm booking";
+    const c = $("#confirm"); if (c && !c.disabled) c.innerHTML = S.pay === "gcash" ? `💙 Pay ${peso(S.sel.price)} with GCash` : dep > 0 ? `💙 Pay ${peso(dep)} deposit with GCash` : "Confirm booking";
     const n = $("#pay-note"); if (n) n.innerHTML = S.pay === "gcash"
       ? `You'll be taken to GCash (via PayMongo) to pay. Your therapist is told once it's paid. <a href="refund.html">Refund rules</a>`
+      : dep > 0 ? `The deposit holds your booking and protects our therapists from fake bookings. It's refunded if the therapist can't come. <a href="refund.html">Refund rules</a>`
       : "No payment now. Pay cash to your therapist after the massage.";
   }
   async function confirmBooking() {
@@ -263,7 +269,7 @@
     try {
       const args = { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes };
       const b = online() ? await MB.rpc("mb_create_booking_v2", { ...args, p_payment: S.pay }) : await MB.rpc("mb_create_booking", args);
-      if (b.payment_method === "gcash") { S.sel = null; S.slot = null; await startPay(b.id); return; }
+      if (b.status === "awaiting_payment") { S.sel = null; S.slot = null; await startPay(b.id); return; }
       S.lastBooking = { id: b.id, when: S.slot, type: S.sel.type_name, dur: S.sel.duration_min, name: S.therapist.display_name, price: S.sel.price };
       S.sel = null; S.slot = null;
       location.hash = "done/" + b.id;
@@ -287,6 +293,9 @@
 
   // ---------- GCash payment (PayMongo) ----------
   function online() { return ["test", "live"].includes(S.settings.online_payments); }
+  // GCash deposit required for cash bookings (0 = none)
+  function depositFor(price) { return online() ? Math.min(Number(S.settings.deposit_amount || 0), Number(price)) : 0; }
+  const onlinePart = (b) => b.payment_method === "gcash" ? Number(b.price) : Number(b.deposit_amount || 0);
   // Opens PayMongo's GCash page for an unpaid GCash booking.
   async function startPay(id) {
     MB.toast("Opening GCash…");
@@ -306,15 +315,17 @@
     let b;
     for (let i = 0; i < 12; i++) {   // PayMongo tells us in the background; wait up to ~24 seconds
       b = await findBooking(id);
-      if (!b || b.payment_status === "paid" || location.hash !== "#paid/" + id) break;
+      if (!b || b.paid_at || location.hash !== "#paid/" + id) break;
       await new Promise((r) => setTimeout(r, 2000));
     }
     if (location.hash !== "#paid/" + id) return;
-    if (b && b.payment_status === "paid") {
+    if (b && b.paid_at) {
+      const isDep = b.payment_method !== "gcash";
       view.innerHTML = `<div class="card center" style="margin-top:24px">
-        <div style="font-size:56px">✅</div><h1>Payment received!</h1>
+        <div style="font-size:56px">✅</div><h1>${isDep ? "Deposit received!" : "Payment received!"}</h1>
         <p><b>${esc(b.type_name)} · ${b.duration_min} min</b><br>${MB.fmtWhen(b.start_at)}<br>with ${esc(b.therapist ? b.therapist.name : "")}</p>
-        <div class="banner info">💙 ${peso(b.price)} paid by GCash. Your therapist will accept within ${S.settings.accept_min || 60} minutes. If they can't, you get a full refund.</div>
+        <div class="banner info">💙 ${peso(onlinePart(b))} ${isDep ? "deposit" : ""} paid by GCash. Your therapist will accept within ${S.settings.accept_min || 60} minutes. If they can't, you get a full refund.</div>
+        ${isDep ? `<p class="small muted">Please prepare <b>${peso(b.price - onlinePart(b))}</b> cash for after the massage.</p>` : ""}
         <a class="btn block" href="#bookings">See my bookings</a></div>`;
       refreshMe(); MB.enablePush(false);
     } else {
@@ -364,14 +375,16 @@
         <div class="small">📍 ${esc(b.address)}</div>
         <div class="small">${b.payment_method === "gcash"
           ? `💙 ${peso(b.price)} GCash · ${b.payment_status === "paid" ? "paid ✅" : b.payment_status === "refunded" ? "refunded" : b.status === "awaiting_payment" ? `<b>not paid yet</b> (pay by ${MB.fmtTime(b.pay_deadline)})` : "not paid"}`
-          : `💵 ${peso(b.price)} cash${b.payment_status === "paid" ? " · paid" : ""}`}</div>
+          : Number(b.deposit_amount) > 0
+            ? `💵 ${peso(b.price)}: ${b.paid_at ? `deposit ${peso(b.deposit_amount)} paid ✅ · ${peso(b.price - b.deposit_amount)} cash` : b.status === "awaiting_payment" ? `<b>deposit ${peso(b.deposit_amount)} not paid yet</b> (pay by ${MB.fmtTime(b.pay_deadline)})` : `deposit ${peso(b.deposit_amount)} not paid`}`
+            : `💵 ${peso(b.price)} cash${b.payment_status === "paid" ? " · paid" : ""}`}</div>
         ${Number(b.refund_amount) > 0 ? `<div class="small">↩️ Refund ${peso(b.refund_amount)}: ${b.refund_status === "sent" ? "sent to your GCash ✅" : b.refund_status === "failed" ? "delayed, we're fixing it" : "processing"}${Number(b.cancel_fee) > 0 ? ` · cancellation fee ${peso(b.cancel_fee)}` : ""}</div>` : ""}
         ${b.status === "cancelled" || b.status === "declined" ? `<div class="small muted">${b.cancel_reason ? "Reason: " + esc(b.cancel_reason) : ""}</div>` : ""}
         <div class="btn-row" style="margin-top:10px">
           ${b.therapist && b.therapist.phone ? `<a class="btn sm light" href="tel:${esc(b.therapist.phone)}">📞 Call</a><a class="btn sm light" href="sms:${esc(b.therapist.phone)}">💬 Text</a>` : ""}
           ${MB.chatButton(b, unread)}
           ${b.status === "awaiting_payment" ? `<button class="btn sm gold" data-a="pay">💙 Pay now</button>` : ""}
-          ${["awaiting_payment", "pending", "confirmed"].includes(b.status) || (b.status === "on_the_way" && b.payment_method === "gcash") ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
+          ${["awaiting_payment", "pending", "confirmed"].includes(b.status) || (b.status === "on_the_way" && b.paid_at) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
           ${b.status === "completed" && !b.reviewed ? `<button class="btn sm gold" data-a="rate">⭐ Rate</button>` : ""}
           ${!MB.ACTIVE.includes(b.status) && b.therapist ? `<a class="btn sm ghost" href="#t/${b.therapist.id}">Book again</a>` : ""}
         </div>
@@ -383,9 +396,11 @@
       const bk = all.find((x) => x.id === id);
       if (a === "pay") return MB.busy(e.target, () => startPay(id));
       if (a === "cancel") {
-        const pct = refundPct(bk), paid = bk.payment_method === "gcash" && bk.payment_status === "paid";
-        const msg = paid ? (pct === 100 ? `You get a full refund of ${peso(bk.price)} to your GCash.`
-            : `You get ${peso(bk.price * pct / 100)} back (${pct}%). Cancellation fee: ${peso(bk.price * (100 - pct) / 100)} for the therapist's time.`)
+        const pct = refundPct(bk), paid = !!bk.paid_at, base = onlinePart(bk);
+        const fee = Math.min(base, bk.price * (100 - pct) / 100);
+        const msg = paid ? (pct === 100 ? `You get a full refund of ${peso(base)} to your GCash.`
+            : fee >= base ? `Your ${peso(base)} ${bk.payment_method === "gcash" ? "payment" : "deposit"} is kept as the cancellation fee for the therapist's time.`
+            : `You get ${peso(base - fee)} back. Cancellation fee: ${peso(fee)} for the therapist's time.`)
           : bk.status === "awaiting_payment" ? "This booking is not paid yet." : "Your therapist will be told right away.";
         if (!(await MB.confirm("Cancel booking?", msg, "Yes, cancel", true))) return;
         await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: "" }); MB.toast("Booking cancelled."); pageBookings();
