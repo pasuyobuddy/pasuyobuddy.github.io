@@ -77,3 +77,20 @@ accept time limit (60 min), customer cancel limit (3 hours), days ahead (14), su
 Customer pays the therapist cash after the massage → therapist owes Massage Buddy the commission →
 therapist sends it by GCash → you record it in Admin → **Money** → **Record payment**.
 Online payment (GCash / card) can be added in version 2.
+
+---
+
+## GCash payments (PayMongo) – v1.11
+
+1. Supabase → SQL Editor → run `massage/sql/massagebuddy_payments_update_v1.13_20261127.sql` → `ok = 1`.
+2. PayMongo dashboard → Developers → API keys → copy the **test secret key** (`sk_test_...`).
+   Supabase → Edge Functions → Secrets → add `PAYMONGO_SECRET_KEY` = that key. (Never paste it in chat or GitHub.)
+3. Supabase → Edge Functions → Deploy a new function → Via Editor, three times:
+   - `mb-pay` ← `massage/supabase/functions/mb-pay/index.ts`
+   - `mb-paymongo-webhook` ← `massage/supabase/functions/mb-paymongo-webhook/index.ts`
+     → then open its settings and turn **OFF "Verify JWT"** (PayMongo can't send a Supabase login; the function checks PayMongo's signature instead).
+   - `mb-refund` ← `massage/supabase/functions/mb-refund/index.ts`
+4. Supabase → Database Webhooks → Create: name `mb_refund`, table `mb_refunds`, event **Insert**, type Supabase Edge Functions → `mb-refund`.
+5. Merge the GitHub PR → open Admin → Settings → **Connect PayMongo** (registers the payment webhook; the secret is stored automatically).
+6. Test: book with GCash → PayMongo test page → authorize → app shows "Payment received".
+   Switch Admin → Settings → GCash payments to **live** only after PayMongo approves the account and the **live** key replaces the test key.

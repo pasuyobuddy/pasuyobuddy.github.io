@@ -135,7 +135,7 @@ select.filt { min-width: 0; font-size: 13.5px; min-height: 46px; padding: 10px 2
 
 /* Badges */
 .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-dark); }
-.badge.pending, .badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.pending, .badge.warn, .badge.awaiting_payment { background: var(--warn-soft); color: var(--warn); }
 .badge.confirmed, .badge.on_the_way, .badge.in_progress, .badge.approved { background: var(--brand-soft); color: var(--brand-dark); }
 .badge.completed, .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .badge.cancelled, .badge.declined, .badge.suspended, .badge.bad { background: var(--danger-soft); color: var(--danger); }
