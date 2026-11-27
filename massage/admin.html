@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0E7C7B">
 <link rel="icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.10">
+<link rel="stylesheet" href="style.css?v=1.11">
 <style>
   .wrap, .top-in { max-width: 980px; }
   .wrap { padding-bottom: 40px; }
@@ -32,8 +32,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.10"></script>
-<script src="common.js?v=1.10"></script>
+<script src="config.js?v=1.11"></script>
+<script src="common.js?v=1.11"></script>
 <script>
 (function () {
   "use strict";
@@ -150,14 +150,17 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
   async function pBookings() {
     const list = await MB.rpc("mb_admin_bookings", { p_status: bFilter || null, p_limit: 300 });
     view.innerHTML = `<h1>Bookings</h1>
-      <div class="chips">${[["", "All"], ["pending", "Waiting"], ["confirmed", "Confirmed"], ["on_the_way", "On the way"], ["in_progress", "In progress"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["declined", "Declined"]].map(([v, l]) => `<button class="chip ${bFilter === v ? "on" : ""}" data-f="${v}">${l}</button>`).join("")}</div>
+      <div class="chips">${[["", "All"], ["awaiting_payment", "Unpaid GCash"], ["pending", "Waiting"], ["confirmed", "Confirmed"], ["on_the_way", "On the way"], ["in_progress", "In progress"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["declined", "Declined"]].map(([v, l]) => `<button class="chip ${bFilter === v ? "on" : ""}" data-f="${v}">${l}</button>`).join("")}</div>
       <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>#</th><th>When</th><th>Customer</th><th>Therapist</th><th>Massage</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>
       ${list.map((b) => `<tr data-id="${b.id}"><td>${b.id}</td><td>${MB.fmtWhen(b.start_at)}</td>
         <td>${esc(b.customer.name)}<div class="small muted">${esc(b.customer.phone || "")}</div><div class="small muted">${esc(b.area)}</div></td>
         <td>${esc(b.therapist.name)}<div class="small muted">${esc(b.therapist.phone || "")}</div></td>
-        <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div></td>
+        <td>${esc(b.type_name)} ${b.duration_min}m</td><td>${peso(b.price)}<div class="small muted">comm. ${peso(b.commission)}</div>
+          <div class="small">${b.payment_method === "gcash" ? `💙 GCash ${b.payment_status === "paid" ? "paid" : b.payment_status}` : Number(b.deposit_amount) > 0 ? `💵 cash · deposit ${peso(b.deposit_amount)} ${b.paid_at ? "paid" : "unpaid"}` : "💵 cash"}</div>
+          ${Number(b.refund_amount) > 0 ? `<div class="small">↩️ ${peso(b.refund_amount)} ${esc(b.refund_status)}</div>` : ""}
+          ${Number(b.cancel_fee) > 0 ? `<div class="small muted">fee ${peso(b.cancel_fee)} (therapist ${peso(b.therapist_fee_share)})</div>` : ""}</td>
         <td>${MB.badge(b.status)}${b.cancel_reason ? `<div class="small muted">${esc(b.cancelled_by)}: ${esc(b.cancel_reason)}</div>` : ""}</td>
-        <td><button class="btn sm light" data-a="chat" title="Read chat">💬</button> ${["pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
+        <td><button class="btn sm light" data-a="chat" title="Read chat">💬</button> ${["awaiting_payment", "pending", "confirmed", "on_the_way"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="8" class="center muted">No bookings.</td></tr>`}
       </tbody></table></div>`;
     $(".chips").onclick = (e) => { const b = e.target.closest("[data-f]"); if (b) { bFilter = b.dataset.f; route(); } };
     $("table").onclick = async (e) => {
@@ -195,25 +198,43 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
   // ---------- Money ----------
   async function pMoney() {
     const list = await MB.rpc("mb_admin_balances");
+    const v2 = list.length ? list[0].online_owed !== undefined : true;
+    const refunds = v2 ? await MB.rpc("mb_admin_refunds", {}, { quiet: true }).catch(() => []) : [];
     view.innerHTML = `<h1>Money</h1>
-      <p class="small muted">Customers pay therapists in cash. Each therapist owes Massage Buddy the commission. When a therapist sends you money (e.g. GCash), record it here.</p>
-      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Therapist</th><th>Completed</th><th>Cash collected</th><th>Commission</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>
-      ${list.map((t) => `<tr data-id="${t.id}"><td>${esc(t.display_name)}<div class="small muted">${esc(t.phone)}</div></td><td>${t.completed}</td><td>${peso(t.gross)}</td><td>${peso(t.due)}</td><td>${peso(t.paid)}</td>
-        <td><b style="color:${t.balance > 0 ? "var(--danger)" : "var(--ok)"}">${peso(t.balance)}</b></td>
-        <td><button class="btn sm" data-a="pay" data-n="${esc(t.display_name)}" data-bal="${t.balance}">Record payment</button></td></tr>`).join("") || `<tr><td colspan="7" class="center muted">No therapists yet.</td></tr>`}
-      </tbody></table></div>`;
+      <p class="small muted">💵 Cash bookings: the therapist collects the money and owes Massage Buddy the commission.
+      💙 GCash bookings: Massage Buddy receives the money and owes the therapist their share (paid out weekly).
+      <b>Balance</b>: red = therapist owes you, green = you owe the therapist.</p>
+      <div class="card" style="overflow-x:auto"><table class="t"><thead><tr><th>Therapist</th><th>Done</th><th>Cash commission</th>${v2 ? "<th>GCash owed to them</th><th>Fee share</th>" : ""}<th>They paid</th>${v2 ? "<th>You paid</th>" : ""}<th>Balance</th><th></th></tr></thead><tbody>
+      ${list.map((t) => { const bal = Number(t.balance); return `<tr data-id="${t.id}" data-n="${esc(t.display_name)}" data-bal="${bal}"><td>${esc(t.display_name)}<div class="small muted">${esc(t.phone)}</div></td><td>${t.completed}</td><td>${peso(t.due)}</td>
+        ${v2 ? `<td>${peso(t.online_owed)}</td><td>${peso(t.fee_owed)}</td>` : ""}<td>${peso(t.paid)}</td>${v2 ? `<td>${peso(t.paid_out)}</td>` : ""}
+        <td><b style="color:${bal > 0 ? "var(--danger)" : bal < 0 ? "var(--ok)" : "inherit"}">${bal > 0 ? "owes you " + peso(bal) : bal < 0 ? "you owe " + peso(-bal) : peso(0)}</b></td>
+        <td><button class="btn sm" data-a="in">Payment from therapist</button>${v2 ? ` <button class="btn sm gold" data-a="out">Payout to therapist</button>` : ""}</td></tr>`; }).join("") || `<tr><td colspan="9" class="center muted">No therapists yet.</td></tr>`}
+      </tbody></table></div>
+      ${v2 ? `<h2>GCash refunds</h2><div class="card" style="overflow-x:auto"><table class="t" id="rf"><thead><tr><th>Booking</th><th>Customer</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody>
+        ${refunds.map((r) => `<tr data-r="${r.id}"><td>#${r.booking_id}<div class="small muted">${MB.fmtDate(r.created_at)}</div></td><td>${esc(r.customer)}</td><td>${peso(r.amount)}<div class="small muted">${esc(r.reason)}</div></td>
+          <td><span class="badge ${r.status === "sent" ? "ok" : r.status === "failed" ? "bad" : "warn"}">${esc(r.status)}</span>${r.error ? `<div class="small muted">${esc(r.error)}</div>` : ""}</td>
+          <td>${r.status === "failed" ? `<button class="btn sm" data-retry="${r.id}">Retry</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="5" class="center muted">No refunds.</td></tr>`}
+      </tbody></table></div>` : ""}`;
     $("table").onclick = (e) => {
-      if (e.target.dataset.a !== "pay") return;
-      const id = e.target.closest("[data-id]").dataset.id;
-      const body = MB.modal("Payment from " + e.target.dataset.n, `
-        <label>Amount (₱)</label><input id="m-amt" type="number" inputmode="decimal" value="${Math.max(0, Number(e.target.dataset.bal))}">
+      const a = e.target.dataset.a; if (a !== "in" && a !== "out") return;
+      const tr = e.target.closest("[data-id]"), bal = Number(tr.dataset.bal);
+      const out = a === "out";
+      const body = MB.modal((out ? "Payout to " : "Payment from ") + tr.dataset.n, `
+        <p class="small muted">${out ? "Record money you sent to the therapist (e.g. their GCash earnings)." : "Record commission the therapist sent you."}</p>
+        <label>Amount (₱)</label><input id="m-amt" type="number" inputmode="decimal" value="${out ? Math.max(0, -bal) : Math.max(0, bal)}">
         <label>Reference (e.g. GCash ref no.)</label><input id="m-ref">
         <label>Note</label><input id="m-note">
-        <button class="btn block" id="m-go" style="margin-top:14px">Save payment</button>`);
+        <button class="btn block" id="m-go" style="margin-top:14px">Save</button>`);
       $("#m-go", body).onclick = (ev) => MB.busy(ev.target, async () => {
-        await MB.rpc("mb_admin_add_settlement", { p_therapist: id, p_amount: Number($("#m-amt").value), p_reference: $("#m-ref").value, p_note: $("#m-note").value });
-        MB.closeModal(); MB.toast("Payment saved ✅"); route();
+        const args = { p_therapist: tr.dataset.id, p_amount: Number($("#m-amt").value), p_reference: $("#m-ref").value, p_note: $("#m-note").value };
+        if (v2) await MB.rpc("mb_admin_record_money", { ...args, p_direction: out ? "to_therapist" : "to_platform" });
+        else await MB.rpc("mb_admin_add_settlement", args);
+        MB.closeModal(); MB.toast("Saved ✅"); route();
       });
+    };
+    const rf = $("#rf"); if (rf) rf.onclick = async (e) => {
+      const id = e.target.dataset.retry; if (!id) return;
+      await MB.busy(e.target, () => MB.rpc("mb_admin_retry_refund", { p_refund: Number(id) })); MB.toast("Refund sent again."); route();
     };
   }
 
@@ -254,7 +275,23 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
           <input class="td" value="${esc(t.description)}" style="margin-top:6px" placeholder="Short description">
           <button class="btn sm light" data-ts style="margin-top:6px">Save</button></div>`).join("")}</div>
         <div class="sep"></div><h3>Add a type</h3><input id="nt-name" placeholder="Name e.g. Hot Stone"><input id="nt-desc" placeholder="Short description" style="margin-top:6px">
-        <button class="btn block" id="nt-add" style="margin-top:8px">Add</button></div></div>`;
+        <button class="btn block" id="nt-add" style="margin-top:8px">Add</button></div>
+      <div class="card"><h3>💙 GCash payments (PayMongo)</h3>
+        <p class="small">Status: <b>${s.online_payments === "live" ? "LIVE (real money)" : s.online_payments === "test" ? "TEST mode (no real money)" : "off (cash only)"}</b></p>
+        <label>GCash payments: off / test / live</label>
+        <div class="row"><select data-k="online_payments" class="grow">${["", "test", "live"].map((v) => `<option value="${v}" ${(s.online_payments || "") === v ? "selected" : ""}>${v || "off"}</option>`).join("")}</select>
+          <button class="btn sm light" data-save2="online_payments">Save</button></div>
+        <div class="hint">Use "live" only after PayMongo approves your account and the live secret key is saved in Supabase.</div>
+        <label>Cash bookings: GCash deposit (₱, 0 = no deposit)</label>
+        <div class="row"><input data-k="deposit_amount" value="${esc(s.deposit_amount || "200")}" class="grow"><button class="btn sm light" data-save2="deposit_amount">Save</button></div>
+        <div class="hint">Stops fake cash bookings. Kept as the fee if the customer doesn't show up (therapist 80% / you 20%).</div>
+        <label>Unpaid GCash bookings are released after … minutes</label>
+        <div class="row"><input data-k="pay_minutes" value="${esc(s.pay_minutes || "15")}" class="grow"><button class="btn sm light" data-save2="pay_minutes">Save</button></div>
+        <div class="sep"></div>
+        <p class="small">After saving the PayMongo secret key in Supabase and deploying the payment functions, connect PayMongo once:</p>
+        <button class="btn block gold" id="pm-connect">Connect PayMongo</button>
+        <div class="small muted" id="pm-res" style="margin-top:6px"></div>
+      </div></div>`;
     $("#set").onclick = async (e) => {
       const k = e.target.dataset.save; if (!k) return;
       await MB.busy(e.target, () => MB.rpc("mb_admin_save_setting", { p_key: k, p_value: $(`[data-k="${k}"]`).value.trim() })); MB.toast("Saved ✅");
@@ -264,6 +301,15 @@ on conflict do nothing;</pre><p class="small">Then refresh this page.</p><button
       const row = e.target.closest("[data-id]");
       await MB.rpc("mb_admin_save_type", { p_id: Number(row.dataset.id), p_name: $(".tn", row).value, p_description: $(".td", row).value, p_active: $(".ta", row).checked }); MB.toast("Saved ✅");
     };
+    view.querySelectorAll("[data-save2]").forEach((b) => b.onclick = (e) => MB.busy(e.target, async () => {
+      const k = e.target.dataset.save2;
+      await MB.rpc("mb_admin_save_setting", { p_key: k, p_value: view.querySelector(`[data-k="${k}"]`).value.trim() }); MB.toast("Saved ✅"); route();
+    }));
+    $("#pm-connect").onclick = (e) => MB.busy(e.target, async () => {
+      const { data, error } = await MB.sb.functions.invoke("mb-pay", { body: { action: "setup-webhook" } });
+      let msg = data && data.error; if (error) { try { msg = (await error.context.json()).error; } catch (x) { msg = MB.errMsg(error); } }
+      $("#pm-res").innerHTML = msg ? "❌ " + esc(msg) : `✅ Connected (${esc(data.mode)} mode). PayMongo will now tell the app when GCash payments are done.`;
+    });
     $("#nt-add").onclick = (e) => MB.busy(e.target, async () => {
       await MB.rpc("mb_admin_save_type", { p_id: null, p_name: $("#nt-name").value, p_description: $("#nt-desc").value, p_active: true }); MB.toast("Added ✅"); route();
     });

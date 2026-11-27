@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.10">
+<link rel="stylesheet" href="style.css?v=1.11">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -27,8 +27,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.10"></script>
-<script src="common.js?v=1.10"></script>
+<script src="config.js?v=1.11"></script>
+<script src="common.js?v=1.11"></script>
 <script>
 (function () {
   "use strict";
@@ -71,6 +71,8 @@
       if (r === "t" && arg) return await pageTherapist(arg);
       if (r === "book") return await pageBook();
       if (r === "done") return pageDone(arg);
+      if (r === "paid" && arg) return await pagePaid(Number(arg));
+      if (r === "payfail" && arg) return await pagePayFail(Number(arg));
       if (r === "bookings") return await pageBookings();
       if (r === "chat" && arg) { await pageBookings(); return MB.openChat(Number(arg), () => { history.replaceState(null, "", "#bookings"); pageBookings(); }); }
       if (r === "account") return await pageAccount();
@@ -179,6 +181,7 @@
     const t = S.therapist, s = S.sel, me = S.me || {};
     const nDays = Number(S.settings.booking_days || 14);
     if (!S.date) S.date = MB.manilaDate(0);
+    if (!S.pay || !online()) S.pay = online() ? "gcash" : "cash";
     view.innerHTML = `
       <p><a href="#t/${t.id}">‹ Back</a></p>
       <div class="card row">
@@ -204,9 +207,17 @@
         <label for="b-notes">Notes for the therapist (optional)</label>
         <textarea id="b-notes" placeholder="e.g. gate code, pressure preference, pain areas"></textarea>
       </div>
+      ${online() ? `<h2>4. How will you pay?</h2>
+      <div class="card" id="paybox">
+        <button class="svc ${S.pay === "gcash" ? "on" : ""}" data-pay="gcash"><span class="grow">💙 GCash${S.settings.online_payments === "test" ? ' <span class="badge warn">TEST</span>' : ""}<div class="small muted" style="font-weight:400">Pay now. Full refund if the therapist can't come.</div></span></button>
+        <button class="svc ${S.pay === "cash" ? "on" : ""}" data-pay="cash"><span class="grow">💵 Cash<div class="small muted" style="font-weight:400">${depositFor(s.price) > 0
+          ? `Pay a ${peso(depositFor(s.price))} deposit by GCash now, then ${peso(s.price - depositFor(s.price))} cash after the massage.`
+          : "Pay your therapist after the massage."}</div></span></button>
+      </div>` : ""}
       <div class="card" id="summary"></div>
-      <button class="btn block gold" id="confirm">Confirm booking</button>
-      <p class="small muted center">No payment now. Pay cash to your therapist after the massage.</p>`;
+      <button class="btn block gold" id="confirm"></button>
+      <p class="small muted center" id="pay-note"></p>`;
+    const pb = $("#paybox"); if (pb) pb.onclick = (e) => { const b = e.target.closest("[data-pay]"); if (!b) return; S.pay = b.dataset.pay; $$("#paybox .svc").forEach((x) => x.classList.toggle("on", x === b)); drawSummary(); };
     $("#dates").onclick = (e) => { const b = e.target.closest("[data-d]"); if (!b) return; S.date = b.dataset.d; S.slot = null;
       $$("#dates .chip").forEach((x) => x.classList.toggle("on", x === b)); loadSlots(); };
     $("#confirm").onclick = (e) => MB.busy(e.target, confirmBooking);
@@ -224,13 +235,21 @@
   }
   function drawSummary() {
     const el = $("#summary"); if (!el) return;
+    const dep = S.pay === "cash" ? depositFor(S.sel.price) : 0;
     el.innerHTML = `<h3>Summary</h3>
       <div class="row small"><span class="grow muted">Massage</span><span>${esc(S.sel.type_name)}, ${S.sel.duration_min} min</span></div>
       <div class="row small"><span class="grow muted">Therapist</span><span>${esc(S.therapist.display_name)}</span></div>
       <div class="row small"><span class="grow muted">When</span><span>${S.slot ? MB.fmtWhen(S.slot) : '<span class="muted">Choose a time</span>'}</span></div>
-      <div class="row small"><span class="grow muted">Payment</span><span>Cash after massage</span></div>
+      <div class="row small"><span class="grow muted">Payment</span><span>${S.pay === "gcash" ? "💙 GCash (pay now)" : dep > 0 ? "💵 Cash + GCash deposit" : "💵 Cash after massage"}</span></div>
+      ${S.pay === "cash" && dep > 0 ? `<div class="row small"><span class="grow muted">Deposit now (GCash)</span><span>${peso(dep)}</span></div>
+      <div class="row small"><span class="grow muted">Cash after the massage</span><span>${peso(S.sel.price - dep)}</span></div>` : ""}
       <div class="sep"></div>
       <div class="row"><b class="grow">Total</b><b class="price">${peso(S.sel.price)}</b></div>`;
+    const c = $("#confirm"); if (c && !c.disabled) c.innerHTML = S.pay === "gcash" ? `💙 Pay ${peso(S.sel.price)} with GCash` : dep > 0 ? `💙 Pay ${peso(dep)} deposit with GCash` : "Confirm booking";
+    const n = $("#pay-note"); if (n) n.innerHTML = S.pay === "gcash"
+      ? `You'll be taken to GCash (via PayMongo) to pay. Your therapist is told once it's paid. <a href="refund.html">Refund rules</a>`
+      : dep > 0 ? `The deposit holds your booking and protects our therapists from fake bookings. It's refunded if the therapist can't come. <a href="refund.html">Refund rules</a>`
+      : "No payment now. Pay cash to your therapist after the massage.";
   }
   async function confirmBooking() {
     if (!S.slot) return MB.toast("Please choose a time.", true);
@@ -248,7 +267,9 @@
       S.me.terms_accepted = true;
     }
     try {
-      const b = await MB.rpc("mb_create_booking", { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes });
+      const args = { p_service: S.sel.id, p_start: S.slot, p_address: addr, p_area: area, p_phone: phone, p_notes: notes };
+      const b = online() ? await MB.rpc("mb_create_booking_v2", { ...args, p_payment: S.pay }) : await MB.rpc("mb_create_booking", args);
+      if (b.status === "awaiting_payment") { S.sel = null; S.slot = null; await startPay(b.id); return; }
       S.lastBooking = { id: b.id, when: S.slot, type: S.sel.type_name, dur: S.sel.duration_min, name: S.therapist.display_name, price: S.sel.price };
       S.sel = null; S.slot = null;
       location.hash = "done/" + b.id;
@@ -269,6 +290,65 @@
       <a class="btn block" href="#bookings">See my bookings</a></div>`;
     const p = $("#d-push"); if (p) p.onclick = (e) => MB.busy(e.target, () => MB.enablePush(true));
   }
+
+  // ---------- GCash payment (PayMongo) ----------
+  function online() { return ["test", "live"].includes(S.settings.online_payments); }
+  // GCash deposit required for cash bookings (0 = none)
+  function depositFor(price) { return online() ? Math.min(Number(S.settings.deposit_amount || 0), Number(price)) : 0; }
+  const onlinePart = (b) => b.payment_method === "gcash" ? Number(b.price) : Number(b.deposit_amount || 0);
+  // Opens PayMongo's GCash page for an unpaid GCash booking.
+  async function startPay(id) {
+    MB.toast("Opening GCash…");
+    const { data, error } = await MB.sb.functions.invoke("mb-pay", { body: { booking_id: id } });
+    let msg = data && data.error;
+    if (error) { try { msg = (await error.context.json()).error; } catch (e) { msg = MB.errMsg(error); } }
+    if (msg || !data || !data.checkout_url) { MB.toast(msg || "Could not open GCash. Please try again.", true); location.hash = "bookings"; return false; }
+    location.href = data.checkout_url;
+    return true;
+  }
+  async function findBooking(id) {
+    const all = await MB.rpc("mb_my_bookings", { p_as: "customer" });
+    return all.find((b) => b.id === id);
+  }
+  async function pagePaid(id) {
+    view.innerHTML = `<div class="card center" style="margin-top:24px"><div class="spinner"></div><h2>Checking your payment…</h2><p class="muted small">This takes a few seconds.</p></div>`;
+    let b;
+    for (let i = 0; i < 12; i++) {   // PayMongo tells us in the background; wait up to ~24 seconds
+      b = await findBooking(id);
+      if (!b || b.paid_at || location.hash !== "#paid/" + id) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (location.hash !== "#paid/" + id) return;
+    if (b && b.paid_at) {
+      const isDep = b.payment_method !== "gcash";
+      view.innerHTML = `<div class="card center" style="margin-top:24px">
+        <div style="font-size:56px">✅</div><h1>${isDep ? "Deposit received!" : "Payment received!"}</h1>
+        <p><b>${esc(b.type_name)} · ${b.duration_min} min</b><br>${MB.fmtWhen(b.start_at)}<br>with ${esc(b.therapist ? b.therapist.name : "")}</p>
+        <div class="banner info">💙 ${peso(onlinePart(b))} ${isDep ? "deposit" : ""} paid by GCash. Your therapist will accept within ${S.settings.accept_min || 60} minutes. If they can't, you get a full refund.</div>
+        ${isDep ? `<p class="small muted">Please prepare <b>${peso(b.price - onlinePart(b))}</b> cash for after the massage.</p>` : ""}
+        <a class="btn block" href="#bookings">See my bookings</a></div>`;
+      refreshMe(); MB.enablePush(false);
+    } else {
+      view.innerHTML = `<div class="card center" style="margin-top:24px">
+        <div style="font-size:48px">⏳</div><h2>Waiting for GCash confirmation</h2>
+        <p class="small muted">If you paid, it usually shows within a minute. You'll also get a notification.</p>
+        <button class="btn block" onclick="location.reload()">Check again</button><div style="height:8px"></div>
+        <a class="btn block ghost" href="#bookings">My bookings</a></div>`;
+    }
+  }
+  async function pagePayFail(id) {
+    const b = await findBooking(id);
+    const canPay = b && b.status === "awaiting_payment";
+    view.innerHTML = `<div class="card center" style="margin-top:24px">
+      <div style="font-size:48px">💙</div><h2>Payment not completed</h2>
+      <p class="small muted">${canPay ? `Your time is held until ${MB.fmtTime(b.pay_deadline)}. You can try again.` : "This booking can no longer be paid. Please book again."}</p>
+      ${canPay ? `<button class="btn block gold" id="pf-retry">💙 Try GCash again</button><div style="height:8px"></div>
+      <button class="btn block danger" id="pf-cancel">Cancel this booking</button>` : `<a class="btn block" href="#">Book a massage</a>`}</div>`;
+    const r = $("#pf-retry"); if (r) r.onclick = (e) => MB.busy(e.target, () => startPay(id));
+    const c = $("#pf-cancel"); if (c) c.onclick = (e) => MB.busy(e.target, async () => { await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: "" }); MB.toast("Booking cancelled."); location.hash = "bookings"; });
+  }
+  // what the customer gets back if they cancel now (Refund & Cancellation Policy)
+  function refundPct(b) { return b.status === "confirmed" ? 80 : b.status === "on_the_way" ? 50 : 100; }
 
   // ---------- My bookings ----------
   let bookTab = "up";
@@ -293,12 +373,18 @@
         <div class="sep"></div>
         <div class="small">📅 ${MB.fmtWhen(b.start_at)}</div>
         <div class="small">📍 ${esc(b.address)}</div>
-        <div class="small">💵 ${peso(b.price)} cash${b.payment_status === "paid" ? " · paid" : ""}</div>
+        <div class="small">${b.payment_method === "gcash"
+          ? `💙 ${peso(b.price)} GCash · ${b.payment_status === "paid" ? "paid ✅" : b.payment_status === "refunded" ? "refunded" : b.status === "awaiting_payment" ? `<b>not paid yet</b> (pay by ${MB.fmtTime(b.pay_deadline)})` : "not paid"}`
+          : Number(b.deposit_amount) > 0
+            ? `💵 ${peso(b.price)}: ${b.paid_at ? `deposit ${peso(b.deposit_amount)} paid ✅ · ${peso(b.price - b.deposit_amount)} cash` : b.status === "awaiting_payment" ? `<b>deposit ${peso(b.deposit_amount)} not paid yet</b> (pay by ${MB.fmtTime(b.pay_deadline)})` : `deposit ${peso(b.deposit_amount)} not paid`}`
+            : `💵 ${peso(b.price)} cash${b.payment_status === "paid" ? " · paid" : ""}`}</div>
+        ${Number(b.refund_amount) > 0 ? `<div class="small">↩️ Refund ${peso(b.refund_amount)}: ${b.refund_status === "sent" ? "sent to your GCash ✅" : b.refund_status === "failed" ? "delayed, we're fixing it" : "processing"}${Number(b.cancel_fee) > 0 ? ` · cancellation fee ${peso(b.cancel_fee)}` : ""}</div>` : ""}
         ${b.status === "cancelled" || b.status === "declined" ? `<div class="small muted">${b.cancel_reason ? "Reason: " + esc(b.cancel_reason) : ""}</div>` : ""}
         <div class="btn-row" style="margin-top:10px">
           ${b.therapist && b.therapist.phone ? `<a class="btn sm light" href="tel:${esc(b.therapist.phone)}">📞 Call</a><a class="btn sm light" href="sms:${esc(b.therapist.phone)}">💬 Text</a>` : ""}
           ${MB.chatButton(b, unread)}
-          ${["pending", "confirmed"].includes(b.status) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
+          ${b.status === "awaiting_payment" ? `<button class="btn sm gold" data-a="pay">💙 Pay now</button>` : ""}
+          ${["awaiting_payment", "pending", "confirmed"].includes(b.status) || (b.status === "on_the_way" && b.paid_at) ? `<button class="btn sm danger" data-a="cancel">Cancel</button>` : ""}
           ${b.status === "completed" && !b.reviewed ? `<button class="btn sm gold" data-a="rate">⭐ Rate</button>` : ""}
           ${!MB.ACTIVE.includes(b.status) && b.therapist ? `<a class="btn sm ghost" href="#t/${b.therapist.id}">Book again</a>` : ""}
         </div>
@@ -307,8 +393,16 @@
       const cb = e.target.closest("[data-chat]"); if (cb) return MB.openChat(Number(cb.dataset.chat), () => pageBookings());
       const a = e.target.dataset.a; if (!a) return;
       const id = Number(e.target.closest("[data-id]").dataset.id);
+      const bk = all.find((x) => x.id === id);
+      if (a === "pay") return MB.busy(e.target, () => startPay(id));
       if (a === "cancel") {
-        if (!(await MB.confirm("Cancel booking?", "Your therapist will be told right away.", "Yes, cancel", true))) return;
+        const pct = refundPct(bk), paid = !!bk.paid_at, base = onlinePart(bk);
+        const fee = Math.min(base, bk.price * (100 - pct) / 100);
+        const msg = paid ? (pct === 100 ? `You get a full refund of ${peso(base)} to your GCash.`
+            : fee >= base ? `Your ${peso(base)} ${bk.payment_method === "gcash" ? "payment" : "deposit"} is kept as the cancellation fee for the therapist's time.`
+            : `You get ${peso(base - fee)} back. Cancellation fee: ${peso(fee)} for the therapist's time.`)
+          : bk.status === "awaiting_payment" ? "This booking is not paid yet." : "Your therapist will be told right away.";
+        if (!(await MB.confirm("Cancel booking?", msg, "Yes, cancel", true))) return;
         await MB.rpc("mb_cancel_booking", { p_booking: id, p_reason: "" }); MB.toast("Booking cancelled."); pageBookings();
       }
       if (a === "rate") rate(id);

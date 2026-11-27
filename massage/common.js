@@ -3,7 +3,7 @@
   "use strict";
   const C = self.MB_CONFIG || {};
   const MB = (window.MB = {});
-  MB.version = C.appVersion || "1.10";
+  MB.version = C.appVersion || "1.11";
   MB.configured = !!(C.supabaseUrl && !/YOUR-PROJECT/.test(C.supabaseUrl) && C.supabaseAnonKey && !/YOUR-ANON/.test(C.supabaseAnonKey));
   MB.sb = MB.configured ? window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -13,10 +13,10 @@
     "Parañaque", "Pasay", "Pasig", "Pateros", "Quezon City", "San Juan", "Taguig", "Valenzuela"];
   MB.DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   MB.STATUS = {
-    pending: "Waiting for therapist", confirmed: "Confirmed", on_the_way: "Therapist on the way",
+    awaiting_payment: "Waiting for payment", pending: "Waiting for therapist", confirmed: "Confirmed", on_the_way: "Therapist on the way",
     in_progress: "In progress", completed: "Completed", cancelled: "Cancelled", declined: "Not accepted"
   };
-  MB.ACTIVE = ["pending", "confirmed", "on_the_way", "in_progress"];
+  MB.ACTIVE = ["awaiting_payment", "pending", "confirmed", "on_the_way", "in_progress"];
   MB.PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#E3F2F1"/><circle cx="50" cy="38" r="18" fill="#9CCFCB"/><path d="M18 92c4-20 18-30 32-30s28 10 32 30" fill="#9CCFCB"/></svg>');
 

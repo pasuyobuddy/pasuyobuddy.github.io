@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=1.10">
+<link rel="stylesheet" href="style.css?v=1.11">
 </head>
 <body>
 <header class="top"><div class="top-in">
@@ -30,8 +30,8 @@
 </div></nav>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=1.10"></script>
-<script src="common.js?v=1.10"></script>
+<script src="config.js?v=1.11"></script>
+<script src="common.js?v=1.11"></script>
 <script>
 (function () {
   "use strict";
@@ -146,15 +146,22 @@
       on_the_way: `<button class="btn sm" data-a="in_progress">▶ Start massage</button><button class="btn sm danger" data-a="cancel">Cancel</button>`,
       in_progress: `<button class="btn sm gold" data-a="completed">✔ Complete · cash received</button>`
     }[b.status] || "";
+    const noShow = ["confirmed", "on_the_way"].includes(b.status) && Date.now() >= new Date(b.start_at).getTime() + 15 * 60e3
+      ? `<button class="btn sm ghost" data-a="noshow">🚫 Customer no-show</button>` : "";
     return `<div class="card" data-id="${b.id}">
       <div class="row"><div class="grow"><b>${esc(b.type_name)} · ${b.duration_min} min</b><div class="small muted">${esc(c.name || "Customer")}</div></div>${MB.badge(b.status, b.status === "pending" ? "New request" : b.status === "on_the_way" ? "On the way" : "")}</div>
       <div class="sep"></div>
       <div class="small">📅 <b>${MB.fmtWhen(b.start_at)}</b> – ${MB.fmtTime(b.end_at)}</div>
       <div class="small">📍 ${esc(b.address)}${b.area ? ", " + esc(b.area) : ""} · <a href="${mapLink(b.address + ", " + b.area)}" target="_blank" rel="noopener">Map</a></div>
       ${b.notes ? `<div class="small">📝 ${esc(b.notes)}</div>` : ""}
-      <div class="small">💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b></div>
+      <div class="small">${b.payment_method === "gcash"
+        ? (b.payment_status === "paid" ? `💙 <b>Paid by GCash ✅</b> no cash to collect · you get <b>${peso(b.therapist_earning)}</b> (weekly payout)` : `💙 GCash · ${b.payment_status === "refunded" ? "refunded to customer" : "not paid"}`)
+        : b.paid_at && Number(b.deposit_amount) > 0
+          ? `💵 Deposit ${peso(b.deposit_amount)} paid ✅ · Collect <b>${peso(b.price - b.deposit_amount)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b>`
+          : `💵 Collect <b>${peso(b.price)}</b> cash · you keep <b>${peso(b.therapist_earning)}</b>`}</div>
+      ${Number(b.therapist_fee_share) > 0 ? `<div class="small">💸 Cancellation fee for you: <b>${peso(b.therapist_fee_share)}</b></div>` : ""}
       ${b.cancel_reason ? `<div class="small muted">Reason: ${esc(b.cancel_reason)}</div>` : ""}
-      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">✉️</a>` : ""}${MB.chatButton(b, S.unread)}${act}</div>
+      <div class="btn-row" style="margin-top:10px">${c.phone ? `<a class="btn sm light" href="tel:${esc(c.phone)}">📞</a><a class="btn sm light" href="sms:${esc(c.phone)}">✉️</a>` : ""}${MB.chatButton(b, S.unread)}${act}${noShow}</div>
     </div>`;
   }
   async function onBookingAction(e) {
@@ -164,6 +171,10 @@
     const id = Number(e.target.closest("[data-id]").dataset.id);
     const btn = e.target;
     try {
+    if (a === "noshow") {
+      if (!(await MB.confirm("Customer no-show?", "Only use this if you are at the address and the customer did not show up or answer for 15 minutes. The no-show fee is applied and admin is told.", "Yes, no-show", true))) return;
+      await MB.rpc("mb_report_no_show", { p_booking: id }); MB.toast("Marked as no-show."); S.bookings = null; return route();
+    }
     if (a === "cancel") {
       const why = await MB.prompt("Cancel booking", "Tell the customer why (they will see this).", "e.g. Sorry, I am sick today", "Cancel booking");
       if (why == null) return;
@@ -258,18 +269,30 @@
         <div class="stat"><div class="n">${peso(e.today.net)}</div><div class="l">Today · ${e.today.count} done</div></div>
         <div class="stat"><div class="n">${peso(e.week.net)}</div><div class="l">Last 7 days · ${e.week.count}</div></div>
         <div class="stat"><div class="n">${peso(e.month.net)}</div><div class="l">Last 30 days · ${e.month.count}</div></div>
-        <div class="stat"><div class="n">${peso(e.month.gross)}</div><div class="l">Cash collected (30 days)</div></div>
+        <div class="stat"><div class="n">${peso(e.month.gross)}</div><div class="l">Customers paid (30 days)</div></div>
       </div>
-      <div class="card">
+      ${e.money ? (() => { const m = e.money; const bal = Number(m.balance); return `<div class="card">
+        <h3>Your balance with Massage Buddy</h3>
+        <div class="row"><span class="grow muted small">💵 Commission from cash bookings (${e.commission_pct}%, minus deposits)</span><span>${peso(m.cash_commission_due)}</span></div>
+        <div class="row"><span class="grow muted small">💙 Your earnings from GCash bookings</span><span>− ${peso(m.online_earnings_owed)}</span></div>
+        <div class="row"><span class="grow muted small">💸 Your share of cancellation fees</span><span>− ${peso(m.fee_share_owed)}</span></div>
+        <div class="row"><span class="grow muted small">You already paid Massage Buddy</span><span>− ${peso(m.paid_to_platform)}</span></div>
+        <div class="row"><span class="grow muted small">Massage Buddy already paid you</span><span>+ ${peso(m.paid_to_therapist)}</span></div>
+        <div class="sep"></div>
+        ${bal > 0 ? `<div class="row"><b class="grow">You owe Massage Buddy</b><b class="price" style="color:var(--danger)">${peso(bal)}</b></div>
+          <div class="banner info small" style="margin-bottom:0">Please send it by GCash${S.settings.support_phone ? ` to <b>${esc(S.settings.support_phone)}</b>` : ""} every week. Admin records it here once received.</div>`
+        : bal < 0 ? `<div class="row"><b class="grow">Massage Buddy owes you</b><b class="price" style="color:var(--ok)">${peso(-bal)}</b></div>
+          <div class="banner info small" style="margin-bottom:0">Paid out to you every week. You'll get a notification when it's sent.</div>`
+        : `<div class="row"><b class="grow">All settled</b><b class="price" style="color:var(--ok)">${peso(0)}</b></div>`}
+      </div>`; })() : `<div class="card">
         <h3>Commission to pay Massage Buddy</h3>
         <div class="row"><span class="grow muted small">Commission (${e.commission_pct}% of completed bookings)</span><span>${peso(e.commission_due)}</span></div>
         <div class="row"><span class="grow muted small">Already paid</span><span>− ${peso(e.commission_paid)}</span></div>
         <div class="sep"></div>
         <div class="row"><b class="grow">Balance to pay</b><b class="price" style="color:${e.balance > 0 ? "var(--danger)" : "var(--ok)"}">${peso(Math.max(0, e.balance))}</b></div>
-        ${e.balance > 0 ? `<div class="banner info small" style="margin-bottom:0">Please send your balance by GCash${S.settings.support_phone ? ` to <b>${esc(S.settings.support_phone)}</b>` : ""} every week. Admin records it here once received.</div>` : ""}
-      </div>
+      </div>`}
       <h2>Payments made</h2>
-      <div class="card">${e.settlements.length ? e.settlements.map((s) => `<div class="list-item row"><span class="grow">${MB.fmtDate(s.created_at)}<div class="small muted">${esc(s.reference)} ${esc(s.note)}</div></span><b>${peso(s.amount)}</b></div>`).join("") : `<p class="muted small">No payments yet.</p>`}</div>`;
+      <div class="card">${e.settlements.length ? e.settlements.map((s) => `<div class="list-item row"><span class="grow">${s.direction === "to_therapist" ? "💸 Payout to you" : "You paid"} · ${MB.fmtDate(s.created_at)}<div class="small muted">${esc(s.reference)} ${esc(s.note)}</div></span><b>${peso(s.amount)}</b></div>`).join("") : `<p class="muted small">No payments yet.</p>`}</div>`;
   }
 
   // ---------- Profile / application ----------
